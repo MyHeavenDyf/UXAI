@@ -9,73 +9,16 @@ import { Effect, Option } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Instance } from "@/project/instance"
 import { expandPathsToZipEntries, createZipArchive } from "./httpapi/handlers/artifact"
-
-const SESSION_BASE_DIR = ".octo"
-const OUTPUTS_DIR = "outputs"
-const UPLOADS_DIR = "uploads"
-
-// 与 httpapi/handlers/artifact.ts 同语义:剥首尾斜杠,拒绝 .. / ~ / 空
-function sanitizePath(rawPath: string): string {
-  const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
-  if (normalized.includes("..") || normalized.includes("~") || normalized.length === 0) {
-    return ""
-  }
-  return normalized
-}
-
-const KIND_BY_EXT: Record<string, string> = {
-  html: "html",
-  htm: "html",
-  svg: "svg",
-  png: "image",
-  jpg: "image",
-  jpeg: "image",
-  gif: "image",
-  webp: "image",
-  mp4: "video",
-  webm: "video",
-  mp3: "audio",
-  wav: "audio",
-  md: "markdown",
-  markdown: "markdown",
-  txt: "text",
-  js: "code",
-  ts: "code",
-  json: "code",
-  css: "code",
-  pdf: "pdf",
-}
-
-const MIME_MAP: Record<string, string> = {
-  html: "text/html",
-  svg: "image/svg+xml",
-  md: "text/markdown",
-  txt: "text/plain",
-  json: "application/json",
-  js: "application/javascript",
-  ts: "application/typescript",
-  css: "text/css",
-  pdf: "application/pdf",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  mp4: "video/mp4",
-  webm: "video/webm",
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-}
-
-function getKind(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  return KIND_BY_EXT[ext] ?? "binary"
-}
-
-function getMime(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  return MIME_MAP[ext] ?? "application/octet-stream"
-}
+import {
+  collectArtifactFiles,
+  getKind,
+  getMime,
+  sanitizePath,
+  SESSION_BASE_DIR,
+  OUTPUTS_DIR,
+  UPLOADS_DIR,
+  type ArtifactFileInfo,
+} from "./artifact-shared"
 
 export const ArtifactRoutes = lazy(() =>
   new Hono()
@@ -120,6 +63,7 @@ export const ArtifactRoutes = lazy(() =>
             path: z.string().optional(),
             category: z.enum(["generated", "uploaded"]).optional(),
             scope: z.enum(["project"]).optional(),
+            recursive: z.enum(["true", "false"]).optional(),
           })
           .refine((v) => v.scope === "project" || !!v.sessionId, {
             message: "sessionId is required unless scope=project",
@@ -127,55 +71,52 @@ export const ArtifactRoutes = lazy(() =>
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.list", c, function* () {
-const { sessionId, path: subPath, category, scope } = c.req.valid("query")
-           const fs = yield* AppFileSystem.Service
-           const projectScope = scope === "project"
-           const stampedSessionId = projectScope ? "" : sessionId ?? ""
+          const { sessionId, path: subPath, category, scope, recursive } = c.req.valid("query")
+          const fs = yield* AppFileSystem.Service
+          const projectScope = scope === "project"
+          const stampedSessionId = projectScope ? "" : sessionId ?? ""
 
-           // scope=project(代码工作区,统一文件树):仅支持 generated=项目根目录 (点开头条目被过滤),
-           // uploaded 无独立上传区恒为空;session scope 维持 .octo/<sessionId>/ 布局 (原行为)。
-           if (projectScope && category === "uploaded") {
-             return { files: [] }
-           }
-           let categoryRoot: string
-           let relativePrefix: string
-           if (projectScope) {
-             categoryRoot = Instance.directory
-             relativePrefix = ""
-           } else if (category === "uploaded") {
-             categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, stampedSessionId, UPLOADS_DIR)
-             relativePrefix = UPLOADS_DIR
-             yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
-           } else {
-             categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, stampedSessionId, OUTPUTS_DIR)
-             relativePrefix = ""
-             yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
-           }
-           const targetDir = subPath ? path.join(categoryRoot, subPath) : categoryRoot
+          // scope=project(代码工作区,统一文件树):仅支持 generated=项目根目录 (点开头条目被过滤),
+          // uploaded 无独立上传区恒为空;session scope 维持 .octo/<sessionId>/ 布局 (原行为)。
+          if (projectScope && category === "uploaded") {
+            return { files: [] }
+          }
+          let categoryRoot: string
+          let relativePrefix: string
+          if (projectScope) {
+            categoryRoot = Instance.directory
+            relativePrefix = ""
+          } else if (category === "uploaded") {
+            categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, stampedSessionId, UPLOADS_DIR)
+            relativePrefix = UPLOADS_DIR
+            yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
+          } else {
+            categoryRoot = path.join(Instance.directory, SESSION_BASE_DIR, stampedSessionId, OUTPUTS_DIR)
+            relativePrefix = ""
+            yield* fs.ensureDir(categoryRoot).pipe(Effect.catch(() => Effect.void))
+          }
+          // sanitizePath 剥首尾斜杠 + 拒绝 .. / ~ / 空,防路径穿越 (与 httpapi/handlers/artifact.ts 同语义)
+          const normalized = subPath ? sanitizePath(subPath) : ""
+          const targetDir = normalized ? path.join(categoryRoot, normalized) : categoryRoot
 
           const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
           if (!exists) {
             return { files: [] }
           }
 
-          const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
-          const files: Array<{
-            name: string
-            path: string
-            relativePath: string
-            sessionId: string
-            kind: string
-            isFolder: boolean
-            size: number
-            mtime: number
-            mime: string
-          }> = []
+          const files: ArtifactFileInfo[] = []
 
+          if (recursive === "true") {
+            yield* collectArtifactFiles(fs, targetDir, relativePrefix, stampedSessionId, files)
+            return { files }
+          }
+
+          const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
           for (const name of entries) {
             if (name.startsWith(".")) continue
 
             const fullPath = path.join(targetDir, name)
-            const relativePath = [relativePrefix, subPath, name].filter(Boolean).join("/")
+            const relativePath = [relativePrefix, normalized, name].filter(Boolean).join("/")
             const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
             if (!stat) continue

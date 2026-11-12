@@ -1,10 +1,10 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
+import { Portal } from "solid-js/web"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
-import { lookupDisplayName } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { pathToLocalUrl } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-popover/icons"
@@ -280,8 +280,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   }
 
   const handleSkillClick = (skill: PanelSkill) => {
-    const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
-    const selection: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
+    const selection: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
     if (isSelected(selection)) {
       props.onDeselect(selection)
     } else {
@@ -658,16 +657,19 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
           <Icon name="plus" class="size-5" />
         </Button>
         <Show when={triggerTip()}>
-          <span
-            class="addon-menu-trigger-tip"
-            style={{ left: `${triggerTip()!.left}px`, top: `${triggerTip()!.top}px` }}
-          >
-            添加附件
-          </span>
+          <Portal>
+            <span
+              class="addon-menu-trigger-tip"
+              style={{ left: `${triggerTip()!.left}px`, top: `${triggerTip()!.top}px` }}
+            >
+              添加附件
+            </span>
+          </Portal>
         </Show>
       </span>
 
       <Show when={open() && menuPosition()}>
+        <Portal>
           <div class="addon-menu-container" ref={menuRef} style={menuStyle()}>
             {/* 菜单项编排:items 数组内可混排内置 key 与插槽 key,按数组顺序渲染;
                 缺省为内置全序 + slots 追加在后;items 中无对应插槽定义的 key 跳过 */}
@@ -724,8 +726,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       </Show>
                       <For each={platformSkills()}>
                         {(skill) => {
-                          const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
-                          const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
+                          const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                           return (
                             <button
                               type="button"
@@ -735,7 +736,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                               <Show when={isSelected(sel)}>
                                 <Icon name="check" size="small" style="color: #0A59F7" />
                               </Show>
-                              <span class="addon-menu-tertiary-item-text">{displayName}</span>
+                              <span class="addon-menu-tertiary-item-text">{skill.label}</span>
                             </button>
                           )
                         }}
@@ -756,8 +757,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       </Show>
                       <For each={customSkills()}>
                         {(skill) => {
-                          const displayName = lookupDisplayName(skillCfg().skill, skill.label) ?? skill.label
-                          const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
+                          const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                           return (
                             <button
                               type="button"
@@ -767,7 +767,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                               <Show when={isSelected(sel)}>
                                 <Icon name="check" size="small" style="color: #0A59F7" />
                               </Show>
-                              <span class="addon-menu-tertiary-item-text">{displayName}</span>
+                              <span class="addon-menu-tertiary-item-text">{skill.label}</span>
                             </button>
                           )
                         }}
@@ -886,7 +886,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                     <div class="addon-menu-asset-preview-stage">
                       <Show when={designPreviewKind(designFilePreview()!) === "image"}>
                         <img
-                          src={pathToLocalUrl(designFilePreview()!.path)}
+                          src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                           alt=""
                           class="addon-menu-asset-preview-img"
                           draggable={false}
@@ -895,7 +895,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       <Show when={designPreviewKind(designFilePreview()!) === "html"}>
                         <div class="addon-menu-asset-preview-html">
                           <iframe
-                            src={pathToLocalUrl(designFilePreview()!.path)}
+                            src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                             sandbox="allow-scripts"
                           />
                         </div>
@@ -912,10 +912,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </Show>
           </div>
+        </Portal>
       </Show>
 
       {/* URL Dialog */}
       <Show when={urlDialogOpen()}>
+        <Portal>
           <div class="addon-menu-url-overlay" onClick={closeUrlDialog}>
             <div class="addon-menu-url-dialog" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -946,10 +948,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
+        </Portal>
       </Show>
 
       {/* URL Dialog B — loading + progress + step text */}
       <Show when={urlDialogBOpen()}>
+        <Portal>
           <div class="addon-menu-url-overlay">
             <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -976,10 +980,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
+        </Portal>
       </Show>
 
       {/* 产品资源库下载弹窗 — 标题"从产品资源库接收", 无进度条, 说明"资源下载中" */}
       <Show when={assetDownloadOpen()}>
+        <Portal>
           <div class="addon-menu-url-overlay">
             <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
@@ -1001,6 +1007,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               </div>
             </div>
           </div>
+        </Portal>
       </Show>
 
       {/* 产品资产库弹窗(左树 + 右文件网格,spec 改版) */}

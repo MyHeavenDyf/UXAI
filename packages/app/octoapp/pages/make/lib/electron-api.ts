@@ -27,6 +27,12 @@ export interface CodeManifest {
   content: Record<string, string>
 }
 
+/**
+ * fastui 卡片的目标(SPEC-DES-008 §3.7):工作区(= sdk.directory)+ 会话 id + 产物名。
+ * 工程在哪由主进程查(先会话范围、再工作区范围),渲染进程不拼路径 —— 普通 / 代码工作区布局不同。
+ */
+export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: string }
+
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
@@ -35,21 +41,24 @@ export type DesktopApi = {
    * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
    */
   fastuiPreviewOpen?: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
   /** 「重新编译」:结束当前服务并当场重起 */
   fastuiPreviewRestart?: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /** 这个(会话, 产物名)有没有 fastui 工程 —— 导出按钮与老卡片转换的判据,与预览同一个查找函数 */
+  fastuiResolve?: (target: FastuiTarget) => Promise<{ ok: true; projectDir: string; name: string } | { ok: false; error: string }>
+  /** 文件属于哪个 fastui 工程(往上找工程标记,不出工作区),SPEC-DES-008 §3.8 */
+  fastuiProjectOf?: (
+    target: FastuiTarget & { filePath: string },
+  ) => Promise<{ ok: true; name: string; projectDir: string } | { ok: false }>
   /**
    * fastui 导出代码包(SPEC-DES-001 §8.6.2):主进程调 skill 的 export-zip.mjs,
-   * 打一个跳过依赖链接、带 UTF-8 文件名 flag 的干净交付包。带产物名时导出该工程。
+   * 打一个跳过依赖链接、带 UTF-8 文件名 flag 的干净交付包。
    */
   fastuiExportZip?: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   showItemInFolder?: (path: string) => void
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
@@ -80,6 +89,8 @@ export type DesktopApi = {
   copyFileToProjectDir?: (srcPath: string, baseDir: string, relDir: string, filename: string) => Promise<string>
   /** 代码类型工作区：内存 blob 直接写进 <baseDir>/<relDir>/（同 copyFileToProjectDir 落点）；返回落地绝对路径 */
   writeFileToProjectDir?: (buffer: ArrayBuffer, baseDir: string, relDir: string, filename: string) => Promise<string>
+  /** 代码工作区「拉取/提交代码」：在 cwd 执行白名单 git 子命令；git 非零退出也 resolve（带 code/stdout/stderr），spawn 级失败才 reject */
+  gitCommand?: (cwd: string, args: string[]) => Promise<{ ok: boolean; code: number; stdout: string; stderr: string }>
   openLink?: (url: string) => void
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-start
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-end
@@ -90,6 +101,8 @@ export type DesktopApi = {
     state: "completed" | "cancelled" | "interrupted"
   }) => void) => () => void
   getAssetsConfig?: () => Promise<Record<string, unknown>>
+  /** 设计系统下拉选择持久化（主进程 handler 由后续任务实现） */
+  setDesignSystemSkillConfig?: (skillName: string) => Promise<void>
   /** 导出 HUI 代码（经 IPC 调主进程 downloadHuiCode） */
   downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[]; manifest: CodeManifest }>
   /** 导出 ZIP 压缩包 */
@@ -102,6 +115,8 @@ export type DesktopApi = {
   getPreviewDistDir?: () => Promise<string>
   /** 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>，iframe 经 local:// 解析） */
   savePrototypeImage?: (buffer: ArrayBuffer, dir: string) => Promise<string>
+  // jk-j60099994-replace-with-yjt-pixso-electron-api-1-start
+  // jk-j60099994-replace-with-yjt-pixso-electron-api-1-end
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

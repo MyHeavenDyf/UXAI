@@ -12,11 +12,28 @@ import { Identifier } from "@/id/id"
 import { sniffAttachmentMime } from "@/util/media"
 import { StudioGenerationTable } from "./studio-generation.sql"
 import { StudioMediaThumbnailTable } from "./studio-media-thumbnail.sql"
+import { markStudioHistoryThumbnailFailed, updateStudioHistoryThumbnail } from "./studio-history-service"
 
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024
 const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024
 const DOWNLOAD_TIMEOUT_MS = 30_000
 const MAX_REDIRECTS = 5
+
+// 确定性失败（非 HTTPS、参数非法、体积/类型不符等）重试不会成功，
+// 记为终态失败，避免服务端反复回炉。
+class StudioThumbnailTerminalError extends Error {}
+
+export function isStudioThumbnailTerminalError(error: unknown) {
+  return error instanceof StudioThumbnailTerminalError
+}
+
+function terminal(message: string) {
+  return new StudioThumbnailTerminalError(message)
+}
+
+function retryableStatus(status: number) {
+  return status === 408 || status === 429 || status >= 500
+}
 
 type StudioThumbnailMedia = {
   id: string
@@ -166,6 +183,10 @@ function commitMediaThumbnail(record: StudioMediaThumbnailRecord, relativePath: 
   )
   if (!result) return false
   syncCompletedMessage(record, result)
+  updateStudioHistoryThumbnail(record.directory, record.generation_id, record.media_index, {
+    thumbnailUrl: relativePath,
+    thumbnailStatus: "ready",
+  })
   return true
 }
 
@@ -396,7 +417,7 @@ function generationRecord(generationID: string) {
 }
 
 function generationMedia(generationID: string, mediaIndex: number) {
-  if (!Number.isInteger(mediaIndex) || mediaIndex < 0) throw new Error("Studio thumbnail media index is invalid.")
+  if (!Number.isInteger(mediaIndex) || mediaIndex < 0) throw terminal("Studio thumbnail media index is invalid.")
   const generation = generationRecord(generationID)
   const result = mediaResult(generation?.result)
   const media = result?.images[mediaIndex]
@@ -407,7 +428,7 @@ function generationMedia(generationID: string, mediaIndex: number) {
     !result ||
     !media
   )
-    throw new Error(`Studio generation media not found: ${generationID}/${mediaIndex}`)
+    throw terminal(`Studio generation media not found: ${generationID}/${mediaIndex}`)
   return { generation, result, media }
 }
 
@@ -434,8 +455,8 @@ function thumbnailRecord(input: ReturnType<typeof generationMedia>, mediaIndex: 
 
 function validateRemoteUrl(value: string) {
   const url = new URL(value)
-  if (url.protocol !== "https:") throw new Error("Thumbnail source must use HTTPS.")
-  if (url.username || url.password) throw new Error("Thumbnail source credentials are not allowed.")
+  if (url.protocol !== "https:") throw terminal("Thumbnail source must use HTTPS.")
+  if (url.username || url.password) throw terminal("Thumbnail source credentials are not allowed.")
   return url
 }
 
@@ -446,7 +467,7 @@ export function studioThumbnailContentTypeAllowed(value: string | null) {
 
 export async function studioThumbnailResponseBytes(response: Response, maximumBytes = MAX_IMAGE_BYTES) {
   const length = Number(response.headers.get("content-length") ?? 0)
-  if (length > maximumBytes) throw new Error("Thumbnail source exceeds the maximum download size.")
+  if (length > maximumBytes) throw terminal("Thumbnail source exceeds the maximum download size.")
   if (!response.body) throw new Error("Thumbnail source has no response body.")
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
@@ -457,7 +478,7 @@ export async function studioThumbnailResponseBytes(response: Response, maximumBy
     size += item.value.byteLength
     if (size > maximumBytes) {
       await reader.cancel()
-      throw new Error("Thumbnail source exceeds the maximum download size.")
+      throw terminal("Thumbnail source exceeds the maximum download size.")
     }
     chunks.push(item.value)
   }
@@ -473,10 +494,10 @@ export async function studioThumbnailResponseBytes(response: Response, maximumBy
 async function downloadImage(source: string, signal: AbortSignal) {
   if (source.startsWith("data:image/")) {
     const match = source.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/is)
-    if (!match) throw new Error("Thumbnail data URL is invalid.")
+    if (!match) throw terminal("Thumbnail data URL is invalid.")
     const bytes = Buffer.from(match[2], "base64")
     if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_BYTES)
-      throw new Error("Thumbnail source exceeds the maximum download size.")
+      throw terminal("Thumbnail source exceeds the maximum download size.")
     return { bytes, contentType: sniffAttachmentMime(bytes, match[1].toLowerCase()) }
   }
   let url = validateRemoteUrl(source)
@@ -484,29 +505,35 @@ async function downloadImage(source: string, signal: AbortSignal) {
     const response = await fetch(url, { redirect: "manual", signal })
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location")
-      if (!location || redirect === MAX_REDIRECTS) throw new Error("Thumbnail source redirect is invalid.")
+      if (!location || redirect === MAX_REDIRECTS) throw terminal("Thumbnail source redirect is invalid.")
       url = validateRemoteUrl(new URL(location, url).toString())
       continue
     }
-    if (!response.ok) throw new Error(`Thumbnail source request failed with status ${response.status}.`)
+    if (!response.ok) {
+      const message = `Thumbnail source request failed with status ${response.status}.`
+      if (retryableStatus(response.status)) throw new Error(message)
+      throw terminal(message)
+    }
     if (!studioThumbnailContentTypeAllowed(response.headers.get("content-type")))
-      throw new Error(`Thumbnail source content type is not an image: ${response.headers.get("content-type")}`)
+      throw terminal(`Thumbnail source content type is not an image: ${response.headers.get("content-type")}`)
     const bytes = await studioThumbnailResponseBytes(response)
     return {
       bytes,
       contentType: sniffAttachmentMime(bytes, response.headers.get("content-type") ?? "application/octet-stream"),
     }
   }
-  throw new Error("Thumbnail source has too many redirects.")
+  throw terminal("Thumbnail source has too many redirects.")
 }
 
 function recordTaskError(generationID: string, mediaIndex: number, error: unknown) {
-  const resolvedID = generationRecord(generationID)?.id ?? generationID
+  const generation = generationRecord(generationID)
+  const resolvedID = generation?.id ?? generationID
+  const terminalFailure = error instanceof StudioThumbnailTerminalError
   Database.use((db) =>
     db
       .update(StudioMediaThumbnailTable)
       .set({
-        status: "queued",
+        status: terminalFailure ? "failed" : "queued",
         error: error instanceof Error ? error.message : String(error),
         lease_owner: null,
         lease_expires_at: null,
@@ -520,6 +547,9 @@ function recordTaskError(generationID: string, mediaIndex: number, error: unknow
       )
       .run(),
   )
+  if (terminalFailure && generation?.directory) {
+    markStudioHistoryThumbnailFailed(generation.directory, resolvedID, mediaIndex)
+  }
 }
 
 export async function loadStudioThumbnailSource(input: {
@@ -528,7 +558,7 @@ export async function loadStudioThumbnailSource(input: {
   signal?: AbortSignal
 }) {
   const found = generationMedia(input.generationID, input.mediaIndex)
-  if (isVideo(found.media)) throw new Error("Studio thumbnail source target is not an image.")
+  if (isVideo(found.media)) throw terminal("Studio thumbnail source target is not an image.")
   const controller = new AbortController()
   const abort = () => controller.abort(input.signal?.reason)
   input.signal?.addEventListener("abort", abort, { once: true })
@@ -676,22 +706,22 @@ async function materializeStudioMediaThumbnail(input: { generationID: string; me
   const relativePath = thumbnailPath(record)
   if (!(await validStoredThumbnail(target))) {
     if (input.content.length > Math.ceil((MAX_THUMBNAIL_BYTES * 4) / 3) + 8)
-      throw new Error("Studio thumbnail exceeds the maximum size.")
+      throw terminal("Studio thumbnail exceeds the maximum size.")
     const bytes = Buffer.from(input.content, "base64")
-    if (!studioThumbnailWebpAllowed(bytes)) throw new Error("Studio thumbnail is not a valid WebP file.")
+    if (!studioThumbnailWebpAllowed(bytes)) throw terminal("Studio thumbnail is not a valid WebP file.")
     const temporary = `${target}.${randomUUID()}.tmp`
     await mkdir(path.dirname(target), { recursive: true })
     await writeFile(temporary, bytes)
     if (!(await validStoredThumbnail(temporary))) {
       await unlink(temporary).catch(() => undefined)
-      throw new Error("Generated Studio thumbnail failed validation.")
+      throw terminal("Generated Studio thumbnail failed validation.")
     }
     await unlink(target).catch(() => undefined)
     await rename(temporary, target)
   }
   if (!commitMediaThumbnail(record, relativePath)) {
     await unlink(target).catch(() => undefined)
-    throw new Error("Studio generation was removed before its thumbnail completed.")
+    throw terminal("Studio generation was removed before its thumbnail completed.")
   }
   return { thumbnailUrl: relativePath }
 }

@@ -40,6 +40,7 @@ export const FilePaths = {
   findSymbol: "/find/symbol",
   list: "/file",
   content: "/file/content",
+  legacyContent: "/content",
   status: "/file/status",
 } as const
 
@@ -106,6 +107,19 @@ export const FileApi = HttpApi.make("file")
             identifier: "file.write",
             summary: "Write file",
             description: "Write content to a specified file path.",
+          }),
+        ),
+        // Legacy path kept for backward compatibility; hidden from the public
+        // OpenAPI/SDK in `public.ts`.
+        HttpApiEndpoint.put("writeLegacy", FilePaths.legacyContent, {
+          payload: FileWritePayload,
+          success: described(Schema.Struct({ ok: Schema.Boolean, error: Schema.optional(Schema.String) }), "Write result"),
+          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "file.writeLegacy",
+            summary: "Write file (legacy path)",
+            description: "Write content to a specified file path using the pre-rename path.",
           }),
         ),
         HttpApiEndpoint.get("status", FilePaths.status, {

@@ -9,6 +9,7 @@ import { WithInstance } from "../../src/project/with-instance"
 import { Plugin } from "../../src/plugin/index"
 import { ModelsDev } from "@/provider/models"
 import { Provider } from "@/provider/provider"
+import { configureModelsApi } from "../../src/plugin/model-headers"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Filesystem } from "@/util/filesystem"
 import { Env } from "../../src/env"
@@ -2012,6 +2013,7 @@ test("models.dev normalization fills required response fields", () => {
         name: "GPT-5.4",
         family: "gpt",
         isExternal: true,
+        defaultDisabled: true,
         cost: {
           input: 2.5,
           output: 15,
@@ -2028,11 +2030,66 @@ test("models.dev normalization fills required response fields", () => {
   const model = Provider.fromModelsDevProvider(provider).models["gpt-5.4"]
   expect(model.api.url).toBe("")
   expect(model.isExternal).toBe(true)
+  expect(model.defaultDisabled).toBe(true)
   expect(model.capabilities.temperature).toBe(false)
   expect(model.capabilities.reasoning).toBe(false)
   expect(model.capabilities.attachment).toBe(false)
   expect(model.capabilities.toolcall).toBe(true)
   expect(model.release_date).toBe("")
+})
+
+test("remote title models synchronize independently for each project and refresh", async () => {
+  const remote = {
+    id: "title-test-gateway",
+    name: "Title Test Gateway",
+    env: [],
+    npm: "@ai-sdk/openai-compatible",
+    title_model: ["title-fast"],
+    models: Object.fromEntries(
+      ["selected", "title-fast", "title-next"].map((id) => [
+        id,
+        {
+          id,
+          name: id,
+          release_date: "2025-01-01",
+          limit: { context: 128_000, output: 1_000 },
+        },
+      ]),
+    ),
+  }
+  const server = Bun.serve({
+    port: 0,
+    fetch: () => Response.json({ [remote.id]: remote }),
+  })
+  await using first = await tmpdir()
+  await using second = await tmpdir()
+  const providerID = ProviderID.make(remote.id)
+  const selected = ModelID.make("selected")
+
+  try {
+    configureModelsApi({ url: server.url.toString(), token: "initial" })
+    for (const directory of [first.path, second.path]) {
+      await WithInstance.provide({
+        directory,
+        fn: async () => {
+          const model = await run((provider) => provider.getTitleModel(providerID, selected))
+          expect(model.id).toBe(ModelID.make("title-fast"))
+        },
+      })
+    }
+    remote.title_model = ["title-next"]
+    configureModelsApi({ url: server.url.toString(), token: "updated" })
+    await WithInstance.provide({
+      directory: first.path,
+      fn: async () => {
+        const model = await run((provider) => provider.getTitleModel(providerID, selected))
+        expect(model.id).toBe(ModelID.make("title-next"))
+      },
+    })
+  } finally {
+    configureModelsApi({ source: "local" })
+    await server.stop(true)
+  }
 })
 
 test("models.dev normalization preserves title model candidates", () => {

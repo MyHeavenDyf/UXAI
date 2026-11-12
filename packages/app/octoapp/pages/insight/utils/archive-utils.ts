@@ -1,5 +1,7 @@
 import JSZip from "jszip"
 import { pathToLocalUrl } from "./insight-file-api"
+import { transformCommentsForArchive } from "../../make/utils/archive-utils"
+import type { FileComment } from "../../make/components/result-viewer/comment-popover"
 
 // 归档所需桌面端 API 子集(运行时即 window.api,真实实现见 packages/desktop/src/preload/index.ts)。
 // insight 自包含:不依赖 make/lib/electron-api,这里按需声明最小接口。
@@ -45,6 +47,8 @@ export interface CreateArchiveZipOptions {
   screenshotBlob: Blob
   htmlContent: string
   htmlFilePath: string
+  comments?: FileComment[]
+  projectDir?: string
 }
 
 export async function capturePageScreenshot(iframe: HTMLIFrameElement): Promise<Blob> {
@@ -125,8 +129,7 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   zip.folder("src")
   zip.folder("preview")
 
-  // insight 无评论系统,data/comments.json 恒为空数组(保留以对齐 Design 的 zip 结构)
-  zip.file("data/comments.json", "[]")
+  zip.file("data/comments.json", JSON.stringify(transformCommentsForArchive(options.comments ?? []), null, 2))
 
   const screenshotBytes = await blobToUint8Array(options.screenshotBlob)
   zip.file("data/screenshot.jpg", screenshotBytes)
@@ -134,6 +137,16 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   zip.file("preview/index.html", options.htmlContent)
 
   const api = getDesktopApi()
+
+  for (const comment of options.comments ?? []) {
+    for (const attachment of comment.attachments ?? []) {
+      if (!api?.readFileBuffer || !options.projectDir) throw new Error("无法读取标注附件，归档已停止")
+      const buffer = await api.readFileBuffer(joinPath(options.projectDir, attachment.filePath))
+      if (!buffer) throw new Error("标注附件读取失败，归档已停止")
+      const extension = attachment.filename.match(/\.[^.]*$/)?.[0] ?? ""
+      zip.file(`data/${comment.id}/${attachment.id}${extension}`, new Uint8Array(buffer))
+    }
+  }
 
   // 检查是否有相对路径引用，如果有则复制同目录下所有文件
   if (api?.listDirectory && api?.readFileBuffer && options.htmlFilePath) {

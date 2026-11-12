@@ -14,6 +14,8 @@ describe("modelsApiProviders", () => {
           {
             id: "GLM-V5_1",
             name: "GLM V5.1",
+            isExternal: true,
+            defaultDisabled: true,
             release_date: "2025-01-01",
             attachment: true,
             reasoning: false,
@@ -50,6 +52,8 @@ describe("modelsApiProviders", () => {
     expect(result[0].models["GLM-V5_1"]).toMatchObject({
       id: "GLM-V5_1",
       providerID: "w3",
+      isExternal: true,
+      defaultDisabled: true,
       api: {
         url: "http://octoai-llm.ucd.huawei.com/v1",
         npm: "@ai-sdk/openai-compatible",

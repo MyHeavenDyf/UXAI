@@ -76,6 +76,25 @@ const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
   },
 
+  page: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: true,
+      drawEdit: false,
+      canvasEdit: true,
+      comment: true,
+      archive: true,
+      download: true,
+      fullscreen: true,
+    },
+    rendering: {
+      customBridges: ['components-theme'],
+    },
+  },
+
   _default: {
     features: {
       refresh: true,

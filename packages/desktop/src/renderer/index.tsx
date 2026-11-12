@@ -129,6 +129,12 @@ const createPlatform = (): Platform => {
 
   return {
     platform: "desktop",
+    prepareSharedSession: (uniqueId, operationID) => window.api.prepareSharedSession(uniqueId, operationID),
+    inspectPortableSession: (archive) => window.api.inspectPortableSession(archive),
+    releaseSharedSession: (token) => window.api.releaseSharedSession(token),
+    onSessionTransferProgress: (callback) => window.api.onSessionTransferProgress(callback),
+    importSharedSession: (uniqueId, directory, scope, token, operationID) =>
+      window.api.importSharedSession(uniqueId, directory, scope, token, operationID),
     os,
     version: pkg.version,
 
@@ -253,6 +259,8 @@ const createPlatform = (): Platform => {
     },
 
     parseMarkdown: (markdown: string) => window.api.parseMarkdownCommand(markdown),
+
+    writeClipboardText: (text) => window.api.writeClipboardText(text),
 
     webviewZoom,
 

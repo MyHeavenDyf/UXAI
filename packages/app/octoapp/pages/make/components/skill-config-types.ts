@@ -4,6 +4,7 @@ export type PanelSkill = {
   path?: string
   enable?: boolean
   id?: number
+  autoInject?: boolean
 }
 
 export type SkillConfigEntry = {
@@ -12,6 +13,17 @@ export type SkillConfigEntry = {
   description?: string
   import?: boolean
   type?: string
+}
+
+export type DesignSystemSkillItem = {
+  label: string
+  id?: string
+  type?: string
+}
+
+export type DesignSystemSkills = {
+  selectedSkillName?: string
+  skillList?: DesignSystemSkillItem[]
 }
 
 export type SkillConfig = {
@@ -23,6 +35,8 @@ export type SkillConfig = {
     octo_studio?: PanelSkill[]
     common?: PanelSkill[]
   }
+  presetSkills?: PanelSkill[]
+  designSystemSkills?: DesignSystemSkills
 }
 
 /**

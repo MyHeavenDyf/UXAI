@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression, studioResultCardStatus } from "./studio-shared"
+import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression, studioResultCardStatus, isPromptExpansionGeneration, studioRegenerationExtra } from "./studio-shared"
 import { buildStudioConversationContext, buildStudioTurns, parseToolMedia } from "./turns"
 import type { StudioGenerationResult } from "./types"
 
@@ -12,6 +12,16 @@ describe("Studio generation status merging", () => {
     expect(isStudioGenerationStatusRegression("failed", "queued")).toBe(true)
     expect(isStudioGenerationStatusRegression("succeeded", "running")).toBe(true)
     expect(isStudioGenerationStatusRegression("succeeded", "queued")).toBe(true)
+    expect(isStudioGenerationStatusRegression("abnormal", "running")).toBe(true)
+    expect(isStudioGenerationStatusRegression("abnormal", "queued")).toBe(true)
+  })
+
+  test("rejects stale creation metadata after submission or cancellation", () => {
+    for (const status of ["queued", "running", "succeeded", "create_failed", "failed", "abnormal"] as const) {
+      expect(isStudioGenerationStatusRegression(status, "creating")).toBe(true)
+    }
+    expect(isStudioGenerationStatusRegression("creating", "running")).toBe(false)
+    expect(isStudioGenerationStatusRegression("creating", "create_failed")).toBe(false)
   })
 
   test("allows active progress and terminal transitions", () => {
@@ -23,6 +33,14 @@ describe("Studio generation status merging", () => {
 })
 
 describe("Studio result-card status", () => {
+  test("preserves creation while the tool and page are busy", () => {
+    expect(studioResultCardStatus({
+      result: { status: "creating", images: [] },
+      busy: true,
+      toolRunning: true,
+    })).toBe("creating")
+  })
+
   test("keeps a running generation with a legacy transient error in the generating state", () => {
     expect(studioResultCardStatus({
       result: { status: "running", images: [], error: "query_task returned status=500" },
@@ -38,9 +56,23 @@ describe("Studio result-card status", () => {
       toolRunning: false,
     })).toBe("failed")
   })
+
+  test("keeps an abnormal generation distinct from a real provider failure", () => {
+    expect(studioResultCardStatus({
+      result: { status: "abnormal", images: [], error: "供应商原始错误不应展示" },
+      busy: false,
+      toolRunning: false,
+    })).toBe("abnormal")
+  })
 })
 
 describe("Studio model resolution mapping", () => {
+  test.each(["seedream-5-pro", "Seedream 5.0 Pro"])("recognizes %s", (model) => {
+    expect(getModelResolutionKey(model)).toBe("2k")
+    expect(getDefaultDimensions(model, "3:4")).toEqual({ width: 1728, height: 2304 })
+    expect(getDefaultDimensions(model, "16:9")).toEqual({ width: 2848, height: 1600 })
+  })
+
   test("recognizes the persisted Seedream display name", () => {
     expect(getModelResolutionKey("Seedream 5.0 Lite")).toBe("2k")
     expect(getDefaultDimensions("Seedream 5.0 Lite", "3:4")).toEqual({ width: 1728, height: 2304 })
@@ -168,7 +200,7 @@ const erroredToolPart = (
   messageID: string,
   capability: "image.generate" | "video.generate",
   error = "用户取消生成",
-  status: "create_failed" | "failed" = "failed",
+  status: "create_failed" | "failed" | "abnormal" = "failed",
   input: Record<string, unknown> = {},
 ) =>
   ({
@@ -469,6 +501,38 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.capability).toBe("video.generate")
   })
 
+  test("rejects a fallback scoped to a different session", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: { ...pendingResult("running"), sessionID: "ses_other" },
+      currentSessionID: "ses_current",
+    })
+
+    expect(turns).toHaveLength(0)
+  })
+
+  test("rejects a session-scoped fallback on the blank new-conversation page", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: { ...pendingResult("running"), sessionID: "ses_previous" },
+    })
+
+    expect(turns).toHaveLength(0)
+  })
+
+  test("keeps an unscoped fallback on the blank new-conversation page", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: { ...pendingResult("creating") },
+    })
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0].toolRunning).toBe(true)
+  })
+
   test("restores queued generation progress from running tool metadata", () => {
     const user = userMessage("msg_progress_user")
     const assistant = assistantMessage("msg_progress_assistant", 2)
@@ -493,6 +557,30 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.progress).toBe(12)
     expect(turns[0].result?.order).toBe(3)
     expect(turns[0].result?.rawStatus).toBe(6)
+  })
+
+  test("restores creating generation state from running tool metadata", () => {
+    const user = userMessage("msg_progress_user")
+    const assistant = assistantMessage("msg_progress_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_progress_text", user.id, "生成视频")],
+        [assistant.id]: [
+          runningToolPart("p_progress_tool", assistant.id, "internel_image_generate", {
+            generationID: "studio_gen_1",
+            status: "creating",
+            progress: 0,
+          }),
+        ],
+      },
+    })
+
+    expect(turns[0].result?.id).toBe("studio_gen_1")
+    expect(turns[0].result?.status).toBe("creating")
+    expect(turns[0].result?.progress).toBe(0)
+    expect(turns[0].result?.order).toBeUndefined()
+    expect(turns[0].result?.rawStatus).toBeUndefined()
   })
 
   test("preserves video capability after cancelling the first generation", () => {
@@ -530,6 +618,28 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.status).toBe("failed")
     expect(turns[0].result?.capability).toBe("image.generate")
     expect(turns[0].result?.error).toBe("生成失败")
+  })
+
+  test("restores timeout exceptions with the fixed abnormal copy", () => {
+    const user = userMessage("msg_abnormal_user")
+    const assistant = assistantMessage("msg_abnormal_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_abnormal_text", user.id, "生成一张海报")],
+        [assistant.id]: [erroredToolPart(
+          "p_abnormal_tool",
+          assistant.id,
+          "image.generate",
+          "生成耗时较长，状态异常，请刷新状态",
+          "abnormal",
+        )],
+      },
+    })
+
+    expect(turns[0].toolTitle).toBe("图片状态异常")
+    expect(turns[0].result?.status).toBe("abnormal")
+    expect(turns[0].result?.error).toBe("生成耗时较长，状态异常，请刷新状态")
   })
 
   test("uses display prompt for regenerated turns while keeping the effective generation prompt", () => {
@@ -1146,5 +1256,78 @@ describe("buildStudioTurns", () => {
     expect(turns[0].toolRunning).toBe(true)
     expect(turns[0].toolTitle).toBe("图片生成中")
     expect(turns[0].isLatest).toBe(true)
+  })
+})
+
+
+describe("Studio expansion button user bubbles", () => {
+  test("hides a persisted button-generated user message before assistant parts arrive", () => {
+    const user = userMessage("msg_0")
+    const parts: Part[] = [{
+      id: "text", messageID: user.id, sessionID: "ses_1", type: "text", text: "采用扩写内容生成",
+      metadata: { studioPromptExpansionSource: { assistantMessageID: "expansion-assistant" } },
+    }]
+    const turns = buildStudioTurns({ messages: [user], parts: { [user.id]: parts } })
+    expect(turns[0]?.hideUserBubble).toBe(true)
+    expect(turns[0]?.userText).toBe("采用扩写内容生成")
+  })
+
+  test("waits for the user text part instead of flashing a placeholder bubble", () => {
+    const user = userMessage("msg_0")
+    expect(buildStudioTurns({ messages: [user], parts: {} })[0]?.hideUserBubble).toBe(true)
+    expect(buildStudioTurns({ messages: [user], parts: {
+      [user.id]: [textPart("text", user.id, "普通生成")],
+    } })[0]?.hideUserBubble).toBe(false)
+  })
+
+  test("restores button origin from a persisted generation request while retaining results", () => {
+    const user = userMessage("msg_0")
+    const assistant = assistantMessage("msg_1", 2)
+    const turns = buildStudioTurns({ messages: [user, assistant], parts: {
+      [user.id]: [textPart("text", user.id, "扩写正文")],
+      [assistant.id]: [toolPart("tool", assistant.id, JSON.stringify({ images: ["https://example.com/generated.png"] }),
+        "internel_image_generate", {
+          capability: "image.generate", prompt: "扩写正文",
+          referenceImages: ["https://example.com/reference.png"],
+          extra: { skipPromptRefine: true, promptExpansionSource: { assistantMessageID: "expansion-assistant" } },
+        })],
+    } })
+    expect(turns[0]?.hideUserBubble).toBe(true)
+    expect(turns[0]?.result?.images).toHaveLength(1)
+    expect(turns[0]?.result?.prompt).toBe("扩写正文")
+    expect(turns[0]?.inputImages?.map((image) => image.url)).toEqual(["https://example.com/reference.png"])
+  })
+
+  test("regeneration removes only button origin and preserves its existing user bubble", () => {
+    const original = {
+      promptExpansionSource: { assistantMessageID: "expansion-assistant" },
+      referenceImageNames: ["reference.webp"], userIdx: "account",
+    }
+    const extra = studioRegenerationExtra(original)
+    expect(isPromptExpansionGeneration(original)).toBe(true)
+    expect(isPromptExpansionGeneration(extra)).toBe(false)
+    expect(extra).toMatchObject({ skipPromptRefine: true, referenceImageNames: ["reference.webp"], userIdx: "account" })
+    expect(original.promptExpansionSource.assistantMessageID).toBe("expansion-assistant")
+    const user = userMessage("msg_0")
+    const assistant = assistantMessage("msg_1", 2)
+    const turns = buildStudioTurns({ messages: [user, assistant], parts: {
+      [user.id]: [textPart("text", user.id, "再次生成")],
+      [assistant.id]: [toolPart("tool", assistant.id, JSON.stringify({ images: ["https://example.com/regenerated.png"] }),
+        "internel_image_generate", {
+          capability: "image.generate", prompt: "扩写正文", displayPrompt: "再次生成", extra,
+          referenceImages: ["https://example.com/reference.png"],
+        })],
+    } })
+    expect(turns[0]?.hideUserBubble).toBe(false)
+    expect(turns[0]?.userText).toBe("再次生成")
+    expect(turns[0]?.inputImages?.map((image) => image.url)).toEqual(["https://example.com/reference.png"])
+  })
+
+  test.each(["creating", "create_failed", "failed", "succeeded"] as const)("%s optimistic button tasks retain their hidden user bubble", (status) => {
+    const turns = buildStudioTurns({ messages: [], parts: {}, fallback: {
+      ...pendingResult(status), hideUserBubble: true,
+    } })
+    expect(turns[0]?.hideUserBubble).toBe(true)
+    expect(turns[0]?.result?.status).toBe(status)
   })
 })

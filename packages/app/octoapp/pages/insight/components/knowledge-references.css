@@ -56,6 +56,8 @@
   color: var(--octo-text-secondary);
 }
 
+/* 元素是 <a class="external-link">(走桌面壳的全局外链拦截,同对话正文里的行内链接);
+ * 这里的重置既覆盖 a 的默认下划线,也保留原先 button 版的截断行为。 */
 .octo-kb-refs__link {
   padding: 0;
   border: 0;
@@ -68,6 +70,7 @@
   text-align: left;
   font: inherit;
   color: var(--octo-brand);
+  text-decoration: none;
 }
 
 .octo-kb-refs__link:hover {

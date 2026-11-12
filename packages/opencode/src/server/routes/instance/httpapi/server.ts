@@ -76,6 +76,7 @@ import { workspaceHandlers } from "./handlers/workspace"
 import { studioHandlers } from "./handlers/studio"
 import { studioGlobalHandlers } from "./handlers/studio-global"
 import { insightHandlers } from "./handlers/insight"
+import { workspaceUpgradeHandlers } from "./handlers/workspace-upgrade"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware } from "./lifecycle"
@@ -142,6 +143,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     workspaceHandlers,
     studioHandlers,
     insightHandlers,
+    workspaceUpgradeHandlers,
   ]),
 )
 

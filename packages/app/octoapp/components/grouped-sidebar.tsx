@@ -29,6 +29,13 @@ export type GroupedSidebarProps = Omit<
   namespace: string
   /** Route prefix for extracting active session ID from URL (e.g. "/make", "/insight") */
   routePrefix: string
+  /**
+   * Directory override for session/group queries. When provided (non-empty) it replaces the
+   * default project-dir resolution — studio sessions live under the config sessions dir
+   * (`~/.config/octo/sessions`), not the URL project directory. Empty string keeps it
+   * unresolved until the caller's dir is ready.
+   */
+  directory?: string
 }
 
 const groupExpandedByNamespace = new Map<string, boolean>()
@@ -147,14 +154,21 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
     if (sid) setSelectedGroupId(null)
   }, { defer: true }))
 
+  // Directory resolution: caller-provided override (studio: config sessions dir)
+  // wins over the default URL/last-project resolution (make/insight).
+  const resolveDir = () => {
+    if (props.directory !== undefined) return props.directory || undefined
+    return projectDir() || undefined
+  }
+
   createEffect(() => {
-    const d = projectDir()
+    const d = resolveDir()
     if (d) setResolvedDir(d)
   })
 
   createEffect(() => {
     if (!globalSync.data.ready) {
-      const d = projectDir()
+      const d = resolveDir()
       if (d) setResolvedDir(d)
     }
   })
@@ -166,7 +180,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
       directory={resolvedDir()}
       activeSessionId={activeSessionId}
       onSessionClick={() => setSelectedGroupId(null)}
-      onNewSession={() => clearPendingGroup(props.namespace)}
+      onNewSession={() => { clearPendingGroup(props.namespace); return props.onNewSession?.() }}
       groups={groups}
       sessionGroupMapping={sessionGroupMapping}
       onMoveToGroup={(session, groupId) => {
@@ -331,6 +345,7 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                           stable={api.stable()}
                           emptyText="暂无对话"
                           hoverOnActive
+                          leading={api.renderLeading}
                           onSessionClick={api.onSessionClick}
                           onSessionContextMenu={api.onSessionContextMenu}
                           onSessionActionClick={api.onSessionContextMenu}

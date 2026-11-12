@@ -4,6 +4,9 @@ import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
 import { described } from "./metadata"
+import { InitializePayload, ExpansionPayload, RecommendationState, RecommendationResponse, RecommendationErrorBody } from "@/studio/prompt-recommendation-schema"
+
+const recommendationErrors = [400, 404, 409, 413, 429, 503].map((httpApiStatus) => RecommendationErrorBody.annotate({ httpApiStatus }))
 
 const root = "/studio"
 
@@ -12,6 +15,9 @@ export class ApiStudioGenerationError extends Schema.ErrorClass<ApiStudioGenerat
     name: Schema.Literal("StudioGenerationError"),
     data: Schema.Struct({
       message: Schema.String,
+      // false 表示确定性失败（重试不会成功），true/缺省表示可重试。
+      // thumbnail-source 等代理远端拉取的路径用它区分瞬时错误，避免客户端误判终态。
+      retryable: Schema.optional(Schema.Boolean),
     }),
   },
   { httpApiStatus: 400 },
@@ -22,6 +28,7 @@ export const StudioPaths = {
   generation: `${root}/generations/:generationID`,
   generationCancel: `${root}/generations/:generationID/cancel`,
   generationReboot: `${root}/generations/:generationID/reboot`,
+  generationRefresh: `${root}/generations/:generationID/refresh`,
   generationVideoPoster: `${root}/generations/:generationID/video-poster`,
   generationThumbnailSource: `${root}/generations/:generationID/media/:mediaIndex/thumbnail-source`,
   generationThumbnail: `${root}/generations/:generationID/media/:mediaIndex/thumbnail`,
@@ -37,6 +44,11 @@ export const StudioPaths = {
   templateList: `${root}/template-list`,
   templateDetail: `${root}/template-detail/:templateID`,
   templateUserSearch: `${root}/template-user-search`,
+  history: `${root}/history`,
+  historySnapshot: `${root}/history/snapshot`,
+  historyDelete: `${root}/history/delete`,
+  historyExcluded: `${root}/history/excluded`,
+  historyRevision: `${root}/history/revision`,
 } as const
 
 export const StudioPromptGenPayload = Schema.Struct({
@@ -223,11 +235,13 @@ const StudioGenerationResult = Schema.Struct({
   id: Schema.String,
   sessionID: Schema.String,
   status: Schema.Union([
+    Schema.Literal("creating"),
     Schema.Literal("queued"),
     Schema.Literal("running"),
     Schema.Literal("succeeded"),
     Schema.Literal("create_failed"),
     Schema.Literal("failed"),
+    Schema.Literal("abnormal"),
   ]),
   capability: StudioGenerationPayload.fields.capability,
   prompt: Schema.String,
@@ -247,7 +261,10 @@ const StudioGenerationResult = Schema.Struct({
   task_type: Schema.optional(Schema.String),
   taskId: Schema.optional(Schema.String),
   model: Schema.String,
+  // getGeneration 历史快照回退会带上这两个生成级字段（详情面板模型名/自定义比例用）。
+  styleModel: Schema.optional(Schema.String),
   aspectRatio: Schema.String,
+  isCustom: Schema.optional(Schema.Boolean),
   videoMode: Schema.optional(Schema.Union([Schema.Literal("text"), Schema.Literal("first_last_frame")])),
   duration: Schema.optional(Schema.String),
   videoQualityMode: Schema.optional(Schema.Union([Schema.Literal("480"), Schema.Literal("720"), Schema.Literal("1080"), Schema.Literal("4k")])),
@@ -264,9 +281,94 @@ const StudioGenerationResult = Schema.Struct({
   completedAt: Schema.optional(Schema.Number),
 })
 
+export const StudioHistoryMediaItemSchema = Schema.Struct({
+  id: Schema.String,
+  sessionID: Schema.String,
+  generationID: Schema.String,
+  mediaIndex: Schema.Number,
+  kind: Schema.Union([Schema.Literal("image"), Schema.Literal("video")]),
+  url: Schema.String,
+  thumbnailUrl: Schema.optional(Schema.String),
+  thumbnailStatus: Schema.optional(Schema.String),
+  width: Schema.optional(Schema.Number),
+  height: Schema.optional(Schema.Number),
+  aspectRatio: Schema.optional(Schema.String),
+  capability: Schema.optional(Schema.String),
+  duration: Schema.optional(Schema.String),
+  // 生成级文案快照列：会话删除后详情面板靠它们复原（与 Hono 路由返回的服务层字段对齐）。
+  prompt: Schema.optional(Schema.String),
+  displayPrompt: Schema.optional(Schema.String),
+  detailPrompt: Schema.optional(Schema.String),
+  detailTitle: Schema.optional(Schema.String),
+  model: Schema.optional(Schema.String),
+  styleModel: Schema.optional(Schema.String),
+  provider: Schema.optional(Schema.String),
+  videoMode: Schema.optional(Schema.String),
+  videoQualityMode: Schema.optional(Schema.String),
+  toolAction: Schema.optional(Schema.String),
+  isCustom: Schema.optional(Schema.Boolean),
+  createdAt: Schema.Number,
+})
+
+export const StudioHistoryListResult = Schema.Struct({
+  items: Schema.Array(StudioHistoryMediaItemSchema),
+  nextCursor: Schema.optional(Schema.String),
+})
+
+export const StudioHistoryRevisionResult = Schema.Struct({
+  revision: Schema.String,
+  count: Schema.Number,
+  headId: Schema.optional(Schema.String),
+  headCreatedAt: Schema.optional(Schema.Number),
+})
+
+export const StudioHistoryListQuery = Schema.Struct({
+  kind: Schema.optional(Schema.Union([Schema.Literal("image"), Schema.Literal("video")])),
+  resolution: Schema.optional(Schema.String),
+  ratio: Schema.optional(Schema.String),
+  sort: Schema.optional(Schema.Union([Schema.Literal("desc"), Schema.Literal("asc")])),
+  cursor: Schema.optional(Schema.String),
+  limit: Schema.optional(
+    Schema.NumberFromString.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+      Schema.isLessThanOrEqualTo(200),
+    ),
+  ),
+})
+
+export const StudioHistorySnapshotPayload = Schema.Struct({
+  sessionID: Schema.String,
+})
+
+export const StudioHistoryDeletePayload = Schema.Struct({
+  mediaIds: Schema.Array(Schema.String),
+})
+
+export const StudioHistoryExcludedIdsResult = Schema.Struct({
+  ids: Schema.Array(Schema.String),
+})
+
 export const StudioApi = HttpApi.make("studio")
   .add(
     HttpApiGroup.make("studio")
+      .add(
+        HttpApiEndpoint.post("initializeRecommendation", "/studio/prompt-recommendations", {
+          payload: InitializePayload, success: RecommendationResponse, error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-recommendations.initialize", summary: "Initialize Studio prompt recommendation" })),
+        HttpApiEndpoint.post("dismissRecommendation", "/studio/sessions/:sessionID/prompt-recommendations/:guidePartID/dismiss", {
+          params: { sessionID: Schema.String, guidePartID: Schema.String }, success: RecommendationResponse, error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-recommendations.dismiss", summary: "Dismiss unused Studio prompt recommendation" })),
+        HttpApiEndpoint.post("submitExpansion", "/studio/prompt-expansions", {
+          payload: ExpansionPayload, success: RecommendationResponse.annotate({ httpApiStatus: 202 }), error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-expansions.create", summary: "Submit Studio prompt expansion" })),
+        HttpApiEndpoint.get("getRecommendationState", "/studio/sessions/:sessionID/prompt-recommendation", {
+          params: { sessionID: Schema.String }, query: { guidePartID: Schema.optional(Schema.String) }, success: RecommendationState, error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-recommendations.get", summary: "Read Studio prompt recommendation" })),
+        HttpApiEndpoint.post("cancelExpansion", "/studio/sessions/:sessionID/prompt-expansions/:assistantMessageID/cancel", {
+          params: { sessionID: Schema.String, assistantMessageID: Schema.String }, success: RecommendationResponse, error: recommendationErrors,
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-expansions.cancel", summary: "Cancel Studio prompt expansion" })),
+      )
       .add(
         HttpApiEndpoint.get("listPromptTags", StudioPaths.promptTags, {
           success: described(Schema.Unknown, "Prompt tags list"),
@@ -373,7 +475,7 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
           payload: StudioGenerationPayload,
           success: described(StudioGenerationResult, "Studio generation result"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.generations.create",
@@ -384,7 +486,7 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("createEditorEntry", StudioPaths.editorEntries, {
           payload: StudioEditorEntryPayload,
           success: described(StudioEditorEntryResult, "Studio editor entry result"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.editor-entries.create",
@@ -408,7 +510,7 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("rebootGeneration", StudioPaths.generationReboot, {
           params: { generationID: Schema.String },
           success: described(StudioGenerationResult, "Rebooted Studio generation"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.generations.reboot",
@@ -437,6 +539,7 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.video-poster.save",
             summary: "Save Studio video poster",
             description: "Persists a browser-captured video frame without changing generation status.",
+            exclude: true,
           }),
         ),
         HttpApiEndpoint.get("getGenerationThumbnailSource", StudioPaths.generationThumbnailSource, {
@@ -448,6 +551,7 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.thumbnail-source.get",
             summary: "Read Studio thumbnail source",
             description: "Returns the persisted generation image bytes for same-origin browser thumbnail generation.",
+            exclude: true,
           }),
         ),
         HttpApiEndpoint.post("saveGenerationThumbnail", StudioPaths.generationThumbnail, {
@@ -460,6 +564,7 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.thumbnail.save",
             summary: "Save Studio media thumbnail",
             description: "Persists a browser-generated WebP thumbnail without changing generation status.",
+            exclude: true,
           }),
         ),
         HttpApiEndpoint.post("invalidateGenerationThumbnail", StudioPaths.generationThumbnailInvalidate, {
@@ -471,6 +576,7 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.thumbnail.invalidate",
             summary: "Invalidate Studio media thumbnail",
             description: "Removes a thumbnail that the browser could not decode and queues it for regeneration.",
+            exclude: true,
           }),
         ),
         HttpApiEndpoint.post("ensureSessionThumbnails", StudioPaths.sessionThumbnailsEnsure, {
@@ -482,6 +588,75 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.sessions.thumbnails.ensure",
             summary: "Ensure Studio session thumbnails",
             description: "Queues missing image thumbnails for a Studio session without waiting for processing.",
+            exclude: true,
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.post("refreshGeneration", StudioPaths.generationRefresh, {
+          params: { generationID: Schema.String },
+          success: described(StudioGenerationResult, "Refreshed Studio generation"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.refresh",
+            summary: "Refresh Studio generation",
+            description: "Queries and restores an abnormal asynchronous Studio generation.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.get("listHistory", StudioPaths.history, {
+          query: StudioHistoryListQuery,
+          success: described(StudioHistoryListResult, "Studio history media list"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.list",
+            summary: "List Studio history media",
+            description: "Returns all Studio media across sessions, including media from deleted sessions.",
+          }),
+        ),
+        HttpApiEndpoint.post("snapshotSession", StudioPaths.historySnapshot, {
+          payload: StudioHistorySnapshotPayload,
+          success: described(Schema.Struct({ snapshotted: Schema.Number }), "Snapshot result"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.snapshot",
+            summary: "Snapshot session media to history",
+            description: "Copies a session's media to the history table before session deletion, and re-materializes imported session parts so re-opening a share restores assets deleted from history.",
+          }),
+        ),
+        HttpApiEndpoint.post("deleteHistoryMedia", StudioPaths.historyDelete, {
+          payload: StudioHistoryDeletePayload,
+          success: described(Schema.Struct({ deleted: Schema.Number }), "Deleted media count"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.delete",
+            summary: "Delete Studio history media",
+            description: "Permanently removes history media entries. The underlying session generation data and files are not deleted.",
+          }),
+        ),
+        HttpApiEndpoint.get("listExcludedHistoryIds", StudioPaths.historyExcluded, {
+          success: described(StudioHistoryExcludedIdsResult, "Excluded media IDs"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.excluded.list",
+            summary: "List excluded Studio history media IDs",
+            description: "Returns media IDs that were deleted from Studio history and must stay excluded.",
+          }),
+        ),
+        HttpApiEndpoint.get("getHistoryRevision", StudioPaths.historyRevision, {
+          success: described(StudioHistoryRevisionResult, "Studio history revision"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.history.revision",
+            summary: "Get Studio history revision",
+            description: "Returns a lightweight fingerprint of a directory's Studio history so clients can skip refetching unchanged data.",
           }),
         ),
       )

@@ -10,6 +10,18 @@ const MAX_RESPONSE_SIZE = 5 * 1024 * 1024 // 5MB
 const DEFAULT_TIMEOUT = 30 * 1000 // 30 seconds
 const MAX_TIMEOUT = 120 * 1000 // 2 minutes
 
+// 内网网关会拒绝过于连续的请求，强制进程内全局的 webfetch 请求之间保持最小间隔（并发 session 也生效）
+const MIN_REQUEST_INTERVAL = 1000
+
+let nextRequestAt = 0
+
+function reserveRequestSlot(): number {
+  const now = Date.now()
+  const startAt = Math.max(nextRequestAt, now)
+  nextRequestAt = startAt + MIN_REQUEST_INTERVAL
+  return startAt - now
+}
+
 export const Parameters = Schema.Struct({
   url: Schema.String.annotate({ description: "The URL to fetch content from" }),
   format: Schema.Literals(["text", "markdown", "html"])
@@ -47,6 +59,9 @@ export const WebFetchTool = Tool.define(
           })
 
           const timeout = Math.min((params.timeout ?? DEFAULT_TIMEOUT / 1000) * 1000, MAX_TIMEOUT)
+
+          const waitMs = reserveRequestSlot()
+          if (waitMs > 0) yield* Effect.sleep(waitMs)
 
           // Build Accept header based on requested format with q parameters for fallbacks
           let acceptHeader = "*/*"

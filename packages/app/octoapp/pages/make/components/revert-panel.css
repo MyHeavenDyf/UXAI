@@ -1,0 +1,52 @@
+/* 用户消息回退图标：hover 消息气泡或图标区域时显示（仿 insight-turn-meta 模式，绝对定位避免布局跳动） */
+.octo-revert-zone {
+  position: relative;
+  /* 回退图标行绝对定位下探 24px（4px padding-top + 20px 图标），加 10px 让位避免与后续内容重合 */
+  margin-bottom: 10px;
+}
+
+.octo-revert-icon-row {
+  position: absolute;
+  left: 0;
+  right: 12px;
+  bottom: 0;
+  transform: translateY(100%);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding-top: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 1;
+}
+
+.octo-revert-zone:hover .octo-revert-icon-row,
+.octo-revert-zone:focus-within .octo-revert-icon-row,
+.octo-revert-icon-row:hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.octo-revert-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.octo-revert-icon-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.octo-revert-icon-btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+}

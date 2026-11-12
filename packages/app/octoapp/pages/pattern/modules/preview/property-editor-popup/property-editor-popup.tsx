@@ -85,6 +85,8 @@ export function PropertyEditorPopup(props: {
   containerSize: ContainerSize
   onConfirm: (data: ModifyElementData) => void
   onCancel: () => void
+  /** 插入到 popup body 顶部的额外内容（如产品资产库按钮） */
+  topExtra?: JSX.Element
 }) {
   let popupRef: HTMLDivElement | undefined
 
@@ -1940,7 +1942,9 @@ export function PropertyEditorPopup(props: {
           </button>
         </div>
 
-        <div class="popup-body px-4 pb-2 flex flex-col gap-2">
+        <div class="popup-body px-4 pb-2 pt-2 flex flex-col gap-2">
+
+          {props.topExtra}
 
           <Show when={isTextElement()}>
             <div class="flex gap-2 mt-2 flex-col">

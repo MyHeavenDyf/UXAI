@@ -25,7 +25,7 @@ import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import { createPrototypeArchiveZip } from "../../utils/archive-prototype"
 import { dirname, basename, joinPath } from "../../utils/references"
-import { isLocalPreviewUrl, parseFastuiPreview, sessionDirOf } from "../../utils/fastui-export"
+import { isLocalPreviewUrl, parseFastuiPreview } from "../../utils/fastui-export"
 import { createFastuiPreviewController, type FastuiPreviewError, type FastuiPreviewState } from "../../utils/fastui-preview"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 
@@ -33,6 +33,10 @@ import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
 import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
 import { showOctoToast } from "../octo-toast"
+import { assessmentStatus, pendingAssessment } from "../../utils/assessment-state"
+import { dispatchAssessmentPinActivated, onAssessmentActivatePin } from "../../utils/assessment-events"
+import { AssessmentPinPopup, AssessmentPinDropdown } from "./assessment-pin-popup"
+import { AssessmentResultPanel } from "./assessment-result-panel"
 import { tracker } from "@/utils/tracker"
 import { TaskStore } from "@/context/task"
 import { useSDK } from "@/context/sdk"
@@ -209,6 +213,7 @@ export function HtmlRenderer(props: {
   productId?: number
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onFilesTabOpen?: () => void
 }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -405,10 +410,47 @@ export function HtmlRenderer(props: {
   })
   const [commentPanelPosition, setCommentPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [externalClickSignal, setExternalClickSignal] = createSignal(0)
+
+  // ── 评估待修改状态(assessment pins):本 tab 是否为被评估文件,以及 pin 点击/位置信号 ──
+  const assessmentActiveHere = createMemo(() => {
+    const p = pendingAssessment()
+    return !!p && !!props.filePath && p.fileKey === props.filePath
+  })
+  const assessmentItemsForIframe = createMemo(() => {
+    const p = pendingAssessment()
+    return assessmentActiveHere()
+      ? p!.reviewData.map((it, i) => ({ index: i, locator: it.xpath, pin: it.pin }))
+      : []
+  })
+  /** 当前激活的评审项 index（父侧持有——data 重推/iframe 重载后重申激活态，参照标注功能激活态归属显式事件的设计）;null = 无 */
+  const [assessmentActivePin, setAssessmentActivePin] = createSignal<number | null>(null)
+  /** 激活/重置 pin */
+  const activateAssessmentPin = (index: number | null) => {
+    setAssessmentActivePin(index)
+    iframeRef?.contentWindow?.postMessage({ type: "od:assessment-pin-active", index, selected: true }, "*")
+  }
+  const [assessmentDropdown, setAssessmentDropdown] = createSignal<{
+    indices: number[]
+    pinPosition: { left: number; top: number; width: number; height: number } | null
+  } | null>(null)
+  /** pin 弹窗：当前展示的评审项 index + 锚定矩形（pin 点击或下拉选择后的 pin-position） */
+  const [assessmentPopupIndex, setAssessmentPopupIndex] = createSignal<number | null>(null)
+  const [assessmentPopupAnchor, setAssessmentPopupAnchor] = createSignal<{ left: number; top: number; width: number; height: number } | null>(null)
+
+  let assessmentPopupFromSelect: { index: number; fromPin: boolean } | null = null
+  const closeAssessmentPopup = () => {
+    setAssessmentPopupIndex(null)
+    setAssessmentPopupAnchor(null)
+    setAssessmentDropdown(null)
+    assessmentPopupFromSelect = null
+    activateAssessmentPin(null)
+  }
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
   const [archiveSuccessOpen, setArchiveSuccessOpen] = createSignal(false)
   const [archiveSuccessPath, setArchiveSuccessPath] = createSignal("")
   const [archiveSuccessUniqueId, setArchiveSuccessUniqueId] = createSignal("")
+  /** 自定义归档上传(archiveUpload)成功后的查看链接;为 null 时成功弹窗仍按 uniqueId 拼 HTML 交付件的预览地址 */
+  const [archiveSuccessLink, setArchiveSuccessLink] = createSignal<{ url?: string } | null>(null)
   const [saving, setSaving] = createSignal(false)
   
   // Pending style storage for Cancel/Save logic
@@ -476,6 +518,52 @@ export function HtmlRenderer(props: {
     setArchiveDialogOpen(props.archiving ?? false)
   })
   
+  // subtype 自定义归档上传(SPEC-DES-007 §7.2):handler 实现了 archiveUpload 才走这里,
+  // 其他 subtype 仍走下面的 handleArchiveConfirm,行为不变
+  const archiveUpload = createMemo(() => getSubtypeHandler(props.subtype)?.archiveUpload)
+
+  async function handleArchiveUploadConfirm(data: ArchiveConfirmData): Promise<void> {
+    const upload = archiveUpload()
+    if (!upload) return
+    const m = local.model.current()
+    const ctx: SubtypeHandlerContext = {
+      tab: {
+        id: props.tabId ?? "",
+        title: props.tabTitle ?? "",
+        type: "html",
+        subtype: props.subtype,
+        content: props.content,
+        filePath: props.filePath,
+        commentFilePath: props.commentFilePath,
+        sessionId: props.sessionId,
+        createdAt: new Date(),
+      } as ResultTab,
+      showOctoToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      usePixsoTransport,
+      sdk,
+      sync,
+      modelKey: m ? { providerID: m.provider.id, modelID: m.id } : undefined,
+      sessionId: props.sessionId,
+      sdkDirectory: props.sdkDirectory,
+      workspaceKind: props.workspaceKind,
+    }
+    const result = await upload.onConfirm(ctx, data)
+    if (!result) return
+    setArchiveSuccessPath(result.path)
+    setArchiveSuccessLink({ url: result.viewUrl })
+    setArchiveSuccessOpen(true)
+  }
+
+  /** 成功弹窗的查看链接:自定义归档用它返回的链接(可能没有),否则是 HTML 交付件的预览地址 */
+  const archiveShareLink = (): string | undefined => {
+    const custom = archiveSuccessLink()
+    if (custom) return custom.url
+    return `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archiveSuccessUniqueId()}`
+  }
+
   // Handle archive confirm
   async function handleArchiveConfirm(data: ArchiveConfirmData): Promise<void> {
     const isLoggedIn = !!localStorage.getItem("uiplusToken")
@@ -1053,6 +1141,7 @@ createEffect(() => {
       modelEditBridge: true,
       snapshotBridge: true,
       commentBridge: true,
+      assessmentBridge: true,
       resourceCollectorBridge: true,
       annotateElements: true,
     }) + (key > 0 ? `<script data-refresh-key="${key}"></script>` : "")
@@ -1073,7 +1162,7 @@ createEffect(() => {
   let fastuiRestartNext = false
 
   createEffect(
-    // 会话目录也在依赖里:目标是「会话 + 产物」,不能只看产物名(不同对话可以有同名产物)
+    // 工作区与会话也在依赖里:目标是「会话 + 产物」,不能只看产物名(不同对话可以有同名产物)
     on(
       [fastuiName, () => props.sessionId, () => props.sdkDirectory, () => props.refreshKey ?? 0, fastuiAttempt],
       ([name]) => {
@@ -1082,7 +1171,8 @@ createEffect(() => {
         fastuiRestartNext = false
         fastuiPreview.request({
           api: getDesktopApi(),
-          sessionDir: sessionDirOf(props.sdkDirectory, props.sessionId),
+          workspaceDir: props.sdkDirectory || null,
+          sessionId: props.sessionId || null,
           name,
           restart,
         })
@@ -1737,6 +1827,135 @@ createEffect(() => {
       }
     }
   })
+
+  // ── 评估待修改状态:向 iframe 推送/隐藏/清除评审数据 pins ──
+  // pending → mode on + 数据;paused → mode off(pin 隐藏,数据保留,恢复无需重推);
+  // 非本文件/已退出 → clear。iframe 重载由 bridge 自请求(od:assessment-request-data)兜底。
+  createEffect(() => {
+    if (!iframeRef || props.mode !== "preview") return
+    if (!assessmentActiveHere()) {
+      iframeRef.contentWindow?.postMessage({ type: "od:assessment-clear" }, "*")
+      closeAssessmentPopup()
+      return
+    }
+    iframeRef.contentWindow?.postMessage(
+      { type: "od:assessment-mode", enabled: assessmentStatus() === "pending" },
+      "*",
+    )
+    iframeRef.contentWindow?.postMessage(
+      { type: "od:assessment-data", items: assessmentItemsForIframe() },
+      "*",
+    )
+    // data 推送后重申父侧持有的激活态（bridge 全新实例/重置后恢复；selected:false 仅恢复激活不切显示态）
+    const assessmentActive = assessmentActivePin()
+    if (assessmentActive !== null) {
+      iframeRef.contentWindow?.postMessage(
+        { type: "od:assessment-pin-active", index: assessmentActive, selected: false },
+        "*",
+      )
+    }
+  })
+
+  // Listen to assessment bridge messages from iframe
+  createEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      const currentIframe = iframeRef
+      if (!currentIframe) return
+      if (e.source !== currentIframe.contentWindow) return
+      const d = e.data
+      if (!d || typeof d !== "object") return
+
+      if (d.type === "od:assessment-request-data") {
+        iframeRef?.contentWindow?.postMessage(
+          { type: "od:assessment-mode", enabled: assessmentActiveHere() && assessmentStatus() === "pending" },
+          "*",
+        )
+        if (assessmentActiveHere()) {
+          iframeRef?.contentWindow?.postMessage(
+            { type: "od:assessment-data", items: assessmentItemsForIframe() },
+            "*",
+          )
+          // iframe 重载后 bridge 为全新实例——重申父侧持有的激活态（selected:false 仅恢复激活不切显示态）
+          const assessmentActive = assessmentActivePin()
+          if (assessmentActive !== null) {
+            iframeRef?.contentWindow?.postMessage(
+              { type: "od:assessment-pin-active", index: assessmentActive, selected: false },
+              "*",
+            )
+          }
+        }
+        return
+      }
+
+      if (d.type === "od:assessment-pin-click") {
+        const pinPosition = transformRect(d.pinPosition)
+        if (d.multi) {
+          // 多值 pin 第一步：bridge 已激活本组代表项（payload.activeIndex = 最小 pin 值项）——
+          // 同步父侧持有的激活项，避免后续 pin-active 重放（推送/重载恢复）覆写回旧项
+          setAssessmentActivePin(typeof d.activeIndex === "number" ? d.activeIndex : null)
+          setAssessmentDropdown({
+            indices: Array.isArray(d.indices) ? d.indices : [],
+            pinPosition,
+          })
+          setAssessmentPopupIndex(null)
+          setAssessmentPopupAnchor(null)
+        } else {
+          // 单值 pin：bridge 已激活，直接开弹窗 + 联动面板
+          const index = typeof d.index === "number" ? d.index : null
+          setAssessmentDropdown(null)
+          setAssessmentPopupIndex(index)
+          setAssessmentPopupAnchor(pinPosition)
+          if (index !== null) {
+            setAssessmentActivePin(index)
+            dispatchAssessmentPinActivated(index)
+          }
+        }
+        return
+      }
+
+      if (d.type === "od:assessment-pin-position") {
+        // 激活后拿到 pin 位置打开弹窗（多值下拉选中的第二步/面板行点击的锚定）。
+        const sel = assessmentPopupFromSelect
+        if (sel && sel.index === d.index) {
+          assessmentPopupFromSelect = null
+          setAssessmentPopupIndex(d.index)
+          setAssessmentPopupAnchor(transformRect(d.pinPosition))
+          if (sel.fromPin) dispatchAssessmentPinActivated(d.index)
+        }
+        return
+      }
+
+      if (d.type === "od:assessment-external-click") {
+        if (assessmentPopupIndex() !== null || assessmentDropdown()) closeAssessmentPopup()
+        return
+      }
+    }
+    window.addEventListener("message", handleMessage)
+    onCleanup(() => window.removeEventListener("message", handleMessage))
+  })
+
+  // 面板行点击 → 激活 pin + 打开 pin 弹窗：openPopup 时置 fromSelect 标记，
+  // 复用"pin-position 回报后锚定弹窗"的机制（锚点取 scrollIntoView 之后的 pin 位置）
+  createEffect(() => {
+    if (!assessmentActiveHere()) return
+    onCleanup(onAssessmentActivatePin((index, opts) => {
+      if (opts.openPopup) assessmentPopupFromSelect = { index, fromPin: false }
+      activateAssessmentPin(index)
+    }))
+  })
+
+  // 点击父窗口中的弹窗外区域 → 关闭弹窗并取消 pin 激活
+  createEffect(() => {
+    if (assessmentPopupIndex() === null && !assessmentDropdown()) return
+    const handler = (e: MouseEvent) => {
+      const t = e.target as HTMLElement
+      if (t.closest(".od-assessment-popup") || t.closest(".od-assessment-pin-dropdown")) return
+      if (t.closest(".od-assessment-panel")) return
+      closeAssessmentPopup()
+    }
+    document.addEventListener("mousedown", handler, true)
+    onCleanup(() => document.removeEventListener("mousedown", handler, true))
+  })
   
   // Re-send edit/inspect/palette mode after iframe reloads (fixes Undo/Redo outline issue)
   createEffect(() => {
@@ -2256,6 +2475,7 @@ onFloatingPositionChange={setEditPanelPosition}
               productId={props.productId}
               onDownloadProductAsset={props.onDownloadProductAsset}
               onUpdateMentionPath={props.onUpdateMentionPath}
+              onFilesTabOpen={props.onFilesTabOpen}
               onClose={() => {
                 cancelManualEditStyleDraft()
                 setEditTarget(null)
@@ -2330,6 +2550,7 @@ onFloatingPositionChange={setEditPanelPosition}
               productId={props.productId}
               onDownloadProductAsset={props.onDownloadProductAsset}
               onUpdateMentionPath={props.onUpdateMentionPath}
+              onFilesTabOpen={props.onFilesTabOpen}
               onClose={() => {
                 setModelEditTarget(null)
                 iframeRef?.contentWindow?.postMessage({ type: 'od:model-edit-clear' }, '*')
@@ -2831,23 +3052,53 @@ fetch(`${props.sdkUrl}/comment/file?${commentQueryString({ commentFilePath: comm
                   open={archiveDialogOpen()}
                   onClose={() => setArchiveDialogOpen(false)}
                   onResetArchiving={props.onResetArchiving}
-                  onConfirm={handleArchiveConfirm}
+                  onConfirm={archiveUpload() ? handleArchiveUploadConfirm : handleArchiveConfirm}
                   sessionId={props.sessionId || ""}
                   filePath={props.filePath || ""}
                   tabTitle={getArtifactFilename(props.filePath)}
+                  showDeliverables={archiveUpload()?.showDeliverables}
                 />
               </Show>
               <Show when={archiveSuccessOpen()}>
                 <DialogArchiveSuccess
                   open={archiveSuccessOpen()}
-                  onClose={() => setArchiveSuccessOpen(false)}
+                  onClose={() => {
+                    setArchiveSuccessOpen(false)
+                    setArchiveSuccessLink(null)
+                  }}
                   archivePath={archiveSuccessPath()}
-                  shareLink={`${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archiveSuccessUniqueId()}`}
+                  shareLink={archiveShareLink()}
                   onViewClick={() => {
-                    const url = `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archiveSuccessUniqueId()}`
-                    getDesktopApi()?.openLink?.(url)
+                    const url = archiveShareLink()
+                    if (url) getDesktopApi()?.openLink?.(url)
                   }}
                 />
+              </Show>
+              {/* ── 评估待修改状态：结果面板 + pin 弹窗/多值下拉（仅本 tab 为被评估文件）── */}
+              <Show when={assessmentActiveHere() && assessmentStatus() === "pending"}>
+                <AssessmentResultPanel />
+              </Show>
+              <Show when={assessmentDropdown()}>
+                <AssessmentPinDropdown
+                  items={pendingAssessment()?.reviewData ?? []}
+                  indices={assessmentDropdown()!.indices}
+                  anchorRect={assessmentDropdown()!.pinPosition}
+                  onSelect={(index) => {
+                    assessmentPopupFromSelect = { index, fromPin: true }
+                    setAssessmentDropdown(null)
+                    activateAssessmentPin(index)
+                  }}
+                  onClose={closeAssessmentPopup}
+                />
+              </Show>
+              <Show when={assessmentPopupIndex() !== null && pendingAssessment()?.reviewData[assessmentPopupIndex()!]}>
+                {(item) => (
+                  <AssessmentPinPopup
+                    item={item()}
+                    anchorRect={assessmentPopupAnchor()}
+                    onClose={closeAssessmentPopup}
+                  />
+                )}
               </Show>
           </DrawOverlay>
        ) : (

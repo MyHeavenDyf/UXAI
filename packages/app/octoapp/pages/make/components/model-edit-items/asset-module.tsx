@@ -13,6 +13,7 @@ import {
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
+import { getDesktopApi } from "../../lib/electron-api"
 import { FolderIcon } from "../addon-menu/icons"
 import { IconDropdownArrow } from "../../icons"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -20,6 +21,13 @@ import { sendTextToAgent } from "../../utils/agent-events"
 import { tracker } from "@/utils/tracker"
 import emptyPng from "../../icons/empty.png"
 import "./asset-module.css"
+
+/** 文件夹的文件数 = 自身 + 所有子孙的 fileCount 之和 */
+function sumFileCount(folder: AssetFolder): number {
+  let sum = folder.fileCount ?? 0
+  for (const child of folder.children ?? []) sum += sumFileCount(child)
+  return sum
+}
 
 export function AssetModule(props: {
   assetConfig: AssetConfig
@@ -32,6 +40,13 @@ export function AssetModule(props: {
 }): JSX.Element {
   const [popupOpen, setPopupOpen] = createSignal(false)
   const [assetValue, setAssetValue] = createSignal<AssetState>({})
+
+  const productAssetsDisabledReason = () =>
+    !props.productId
+      ? "请先选择关联产品的项目"
+      : !getDesktopApi()?.writeFileBuffer || !getDesktopApi()?.movePendingUploadToSession
+        ? "请在桌面端导入产品资产"
+        : undefined
 
   createEffect(() => {
     if (props.dom && props.assetConfig.getInitialState) {
@@ -60,9 +75,10 @@ export function AssetModule(props: {
   return (
     <>
       <div class="model-edit-group-title">产品资产库</div>
-      <button type="button" disabled={props.disabled}
+      <button type="button" disabled={props.disabled || !!productAssetsDisabledReason()}
+        title={productAssetsDisabledReason() ?? ""}
         onClick={() => setPopupOpen(true)}
-        class="cc-row" style={{ width: '100%', height: '36px', 'border-radius': '8px', background: '#F9F9F9', padding: '8px 12px', 'box-sizing': 'border-box', gap: '16px', cursor: props.disabled ? 'wait' : 'pointer' }}>
+        class="cc-row" style={{ width: '100%', height: '36px', 'border-radius': '8px', background: '#F9F9F9', padding: '8px 12px', 'box-sizing': 'border-box', gap: '16px', cursor: props.disabled ? 'wait' : productAssetsDisabledReason() ? 'not-allowed' : 'pointer', opacity: productAssetsDisabledReason() ? 0.5 : 1 }}>
         <span style={{ width: '16px', height: '16px', border: '1px solid #DFDFDF', background: 'white', 'border-radius': '3px', 'flex-shrink': '0' }} />
         <span class="flex-1 truncate text-[12px] text-slate-600 text-left">{assetValue().name || '未选择'}</span>
         <IconDropdownArrow class="text-[#777777]" />
@@ -227,18 +243,19 @@ function AssetDialog(props: {
     window.addEventListener("mouseup", onUp)
   }
 
-  const handleStageEnter = (e: MouseEvent, file: AssetFile) => {
-    const target = e.currentTarget as HTMLElement
-    const rect = target.getBoundingClientRect()
-    if (previewTimer) clearTimeout(previewTimer)
-    const stageRight = rect.right
-    const panelW = 256
-    const fitsRight = stageRight + 8 + panelW <= window.innerWidth
-    setPreviewPos({
-      left: fitsRight ? stageRight + 8 : rect.left - panelW - 8,
-      top: rect.top,
-    })
-    previewTimer = setTimeout(() => setPreviewFile(file), 100)
+  const handleStageEnter = (file: AssetFile) => {
+    if (previewTimer) { clearTimeout(previewTimer); previewTimer = undefined }
+    const dialogRect = dialogRef?.getBoundingClientRect()
+    if (!dialogRect) return
+    const previewWidth = 256
+    let left = dialogRect.width + 4
+    if (dialogRect.right + 4 + previewWidth > window.innerWidth - 16) {
+      left = -previewWidth - 4
+    }
+    const grid = dialogRef?.querySelector('.me-asset-dialog-grid')
+    const top = grid ? grid.getBoundingClientRect().top - dialogRect.top : 0
+    setPreviewPos({ left, top })
+    setPreviewFile(file)
   }
 
   const handleStageLeave = () => {
@@ -297,7 +314,7 @@ function AssetDialog(props: {
                       <div class="me-asset-grid-item" onClick={() => selectFile(file)}>
                         <div
                           class="me-asset-grid-stage"
-                          onMouseEnter={(e) => handleStageEnter(e, file)}
+                          onMouseEnter={() => handleStageEnter(file)}
                           onMouseLeave={handleStageLeave}
                         >
                           <Show when={file.type === 40} fallback={
@@ -361,8 +378,6 @@ function AssetDialog(props: {
             <div
               class="me-asset-dialog-preview"
               style={{ left: `${previewPos().left}px`, top: `${previewPos().top}px` }}
-              onMouseEnter={() => { if (previewTimer) { clearTimeout(previewTimer); previewTimer = undefined } }}
-              onMouseLeave={() => setPreviewFile(null)}
             >
               <div class="me-asset-dialog-preview-name">{previewFile()!.fileName}</div>
               <div class="me-asset-dialog-preview-stage">
@@ -423,8 +438,6 @@ function AssetDialog(props: {
             if (hasChildren()) toggleExpand(nodeKey())
           }}
         >
-          <FolderIcon class="me-asset-tree-icon" />
-          <span title={props.folder.name} style={{ flex: '1 1 0', "min-width": "0", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{props.folder.name}</span>
           <Show when={hasChildren()}>
             <svg
               width="12" height="12" viewBox="0 0 8 8" fill="none"
@@ -433,6 +446,11 @@ function AssetDialog(props: {
             >
               <path d="M2 1L5.5 4L2 7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
+          </Show>
+          <FolderIcon class="me-asset-tree-icon" />
+          <span title={props.folder.name} style={{ flex: '1 1 0', "min-width": "0", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{props.folder.name}</span>
+          <Show when={sumFileCount(props.folder) > 0}>
+            <span class="me-asset-tree-filecount">{sumFileCount(props.folder)}</span>
           </Show>
         </div>
         <Show when={hasChildren() && isExpanded()}>

@@ -15,22 +15,25 @@ export interface CreateC2DZipOptions {
   tabTitle: string
   /** 来自 resource-tracker 的 local:// URL 列表（实际加载过的资源） */
   observedUrls?: string[]
+  /** 可选的文件快照读取器；未提供时沿用桌面端读取及容错行为。 */
+  readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
 }
 
 export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> {
   const outerZip = new JSZip()
 
   const api = getDesktopApi()
+  const readFileBuffer = options.readFileBuffer ?? (api?.readFileBuffer ? (path: string) => api.readFileBuffer!(path) : undefined)
 
   // 始终从磁盘读原始 HTML，保证 ZIP 内 HTML 与磁盘一致
-  const htmlContent = options.htmlFilePath && api?.readFileBuffer
-    ? await readHtmlFromDisk(options.htmlFilePath, options.htmlContent, (p) => api.readFileBuffer!(p))
+  const htmlContent = options.htmlFilePath && readFileBuffer
+    ? await readHtmlFromDisk(options.htmlFilePath, options.htmlContent, readFileBuffer)
     : options.htmlContent
 
   const htmlZip = new JSZip()
   htmlZip.file("index.html", htmlContent)
 
-  if (options.htmlFilePath && api?.readFileBuffer) {
+  if (options.htmlFilePath && readFileBuffer) {
     const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
     const htmlBase = basename(options.htmlFilePath)
 
@@ -39,7 +42,7 @@ export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> 
       rootContent: htmlContent,
       rootType: "html",
       rootAbsPath: options.htmlFilePath,
-      readFileBuffer: (p) => api.readFileBuffer!(p),
+      readFileBuffer,
     })
 
     // 网络信号 → 绝对路径
@@ -62,7 +65,7 @@ export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> 
     for (const relPath of referencedRel) {
       try {
         const absolutePath = joinPath(htmlDir, relPath)
-        const buffer = await api.readFileBuffer(absolutePath)
+        const buffer = await readFileBuffer(absolutePath)
         if (buffer) {
           htmlZip.file(relPath, new Uint8Array(buffer))
         }

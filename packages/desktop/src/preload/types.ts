@@ -6,10 +6,38 @@ export type ServerReadyData = {
   password: string | null
 }
 
+/** fastui 卡片的目标:工程在哪由主进程按 SPEC-DES-008 §3.7 查,渲染进程不拼路径 */
+export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: string }
+
+export type SharedSessionResult = { sessionID: string; directory: string; agent?: string }
+export type PreparedSharedSession = { token: string; agent?: string; module: "design" | "insight" | "pattern" | "studio" }
+export type SessionTransferProgress = {
+  operationID: string
+  type: "import"
+  stage: string
+  percent: number
+  processedBytes?: number
+  totalBytes?: number
+}
+
 export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { type: "Done" }
 
 export type WslConfig = { enabled: boolean }
 // jk-j60099994-replace-with-types-1-start
+export type LoginUserInfo = {
+  uid: string | number
+  [key: string]: unknown
+}
+
+export type StartLoginResult = {
+  loginCode: string
+  loginUrl: string
+}
+
+export type AuthStartupState = {
+  loginRequired: boolean
+  message?: string
+}
 // jk-j60099994-replace-with-types-1-end
 export type LinuxDisplayBackend = "wayland" | "auto"
 export type TitlebarTheme = {
@@ -47,12 +75,25 @@ export type McpConfigWriteInput =
   | { op: "set"; name: string; value: Record<string, unknown> }
   | { op: "remove"; name: string }
 
+// jk-j60099994-replace-with-dyf-bridge-types-def-start
+// jk-j60099994-replace-with-dyf-bridge-types-def-end
+
 export type ElectronAPI = {
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>
   getWindowConfig: () => Promise<WindowConfig>
   consumeInitialDeepLinks: () => Promise<string[]>
+  prepareSharedSession: (uniqueId: string, operationID?: string) => Promise<PreparedSharedSession>
+  inspectPortableSession: (archive: string) => Promise<Omit<PreparedSharedSession, "token">>
+  releaseSharedSession: (token: string) => Promise<void>
+  importSharedSession: (
+    uniqueId: string,
+    directory: string,
+    scope?: "project" | "session",
+    token?: string,
+    operationID?: string,
+  ) => Promise<SharedSessionResult | null>
   getDefaultServerUrl: () => Promise<string | null>
   setDefaultServerUrl: (url: string | null) => Promise<void>
   getWslConfig: () => Promise<WslConfig>
@@ -74,6 +115,7 @@ export type ElectronAPI = {
   onSqliteMigrationProgress: (cb: (progress: SqliteMigrationProgress) => void) => () => void
   onMenuCommand: (cb: (id: string) => void) => () => void
   onDeepLink: (cb: (urls: string[]) => void) => () => void
+  onSessionTransferProgress: (cb: (progress: SessionTransferProgress) => void) => () => void
   /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
   onDownloadSavePath: (cb: (info: DownloadSavePathInfo) => void) => () => void
 
@@ -95,20 +137,26 @@ export type ElectronAPI = {
   /**
    * fastui 预览(SPEC-DES-004):卡片只记产物,点击时当场给地址 —— 服务活着且应答就复用,
    * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
+   * 工程在哪由主进程按(工作区, 会话, 产物名)查(SPEC-DES-008 §3.7)。
    */
   fastuiPreviewOpen: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
   /** 「重新编译」:结束当前服务并当场重起 */
   fastuiPreviewRestart: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  /** 这个(会话, 产物名)有没有 fastui 工程 —— 导出按钮与老卡片转换的判据,与预览同一个查找函数 */
+  fastuiResolve: (
+    target: FastuiTarget,
+  ) => Promise<{ ok: true; projectDir: string; name: string } | { ok: false; error: string }>
+  /** 文件属于哪个 fastui 工程(往上找工程标记,不出工作区)—— 指向工程内文件的卡片据此按工程打开预览,SPEC-DES-008 §3.8 */
+  fastuiProjectOf: (
+    target: FastuiTarget & { filePath: string },
+  ) => Promise<{ ok: true; name: string; projectDir: string } | { ok: false }>
   /** fastui 导出代码包:调 skill 的 export-zip.mjs 打一个不含依赖的干净交付包,SPEC-DES-001 §8.6.2 */
   fastuiExportZip: (
-    sessionDir: string,
-    projectName?: string,
+    target: FastuiTarget,
   ) => Promise<{ ok: true; zipPath: string; bytes: number; fileCount: number } | { ok: false; error: string }>
   /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
   showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
@@ -129,6 +177,7 @@ export type ElectronAPI = {
   copyFileToProjectDir: (srcPath: string, baseDir: string, relDir: string, filename: string) => Promise<string>
   /** 代码类型工作区:内存 blob 直接写进 <baseDir>/<relDir>/(同 copyFileToProjectDir 落点),返回落地绝对路径 */
   writeFileToProjectDir: (buffer: ArrayBuffer, baseDir: string, relDir: string, filename: string) => Promise<string>
+  gitCommand: (cwd: string, args: string[]) => Promise<{ ok: boolean; code: number; stdout: string; stderr: string }>
   downloadResourceToTemp: (
     url: string,
     namespace: string,
@@ -162,6 +211,17 @@ export type ElectronAPI = {
   onResume: (callback: () => void) => () => void
   onReopen: (callback: () => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
+  startLogin: () => Promise<StartLoginResult>
+  cancelLogin: () => Promise<boolean>
+  onLoginOpened: (cb: (data: StartLoginResult) => void) => () => void
+  onLoginSuccess: (cb: (data: { uiplusToken: string; cookie: string; userInfo: LoginUserInfo }) => void) => () => void
+  onLoginTimeout: (cb: (data: { message: string }) => void) => () => void
+  onLoginPollError: (cb: (data: { message: string }) => void) => () => void
+  onTokenExpired: (cb: (data: { message: string }) => void) => () => void
+  onTokenRefreshed: (cb: (data: { uiplusToken: string }) => void) => () => void
+  onLoginExpiring: (cb: (data: { message: string }) => void) => () => void
+  stopTokenExpirationCheck: () => void
+  checkAuthReady: () => Promise<AuthStartupState>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
@@ -174,6 +234,7 @@ export type ElectronAPI = {
   ensureSkillConfig: () => Promise<void>
   openSkillFolder: () => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-start
+  setDesignSystemSkillConfig: (skillName: string) => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
@@ -204,26 +265,73 @@ export type ElectronAPI = {
   getPatternIndex: (category: string, theme?: string) => Promise<Record<string, unknown> | null>
   getPatternFile: (category: string, filename: string, theme?: string) => Promise<string | null>
   getPatternPreview: (category: string, filename: string, theme?: string) => Promise<string | null>
-  getPatternAssets: (category: string, folderName: string, theme?: string) => Promise<{ filename: string; buffer: ArrayBuffer }[]>
+  getPatternAssets: (
+    category: string,
+    folderName: string,
+    theme?: string,
+  ) => Promise<{ filename: string; buffer: ArrayBuffer }[]>
   getDesignSystems: () => Promise<string[]>
-  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[]; manifest: { tree: { label: string; value: string; nodes?: string[]; children?: unknown[] }[]; content: Record<string, string> } }>
+  downloadHuiCode: (
+    input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[],
+    options?: { targetLib?: string },
+  ) => Promise<{
+    files: { path: string; content: string }[]
+    manifest: {
+      tree: { label: string; value: string; nodes?: string[]; children?: unknown[] }[]
+      content: Record<string, string>
+    }
+  }>
   runPixsoBuild: (input: string) => Promise<string>
   getTopixsoDir: () => Promise<string>
-  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; sourceDirs?: { dir: string; destFolder: string }[]; comment?: string }) => Promise<string | null>
+  exportZip: (opts: {
+    defaultName: string
+    files?: { path: string; content: string }[]
+    sourceDir?: string
+    destFolder?: string
+    sourceDirs?: { dir: string; destFolder: string }[]
+    comment?: string
+  }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
-  codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
-  listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
+  codeToHtml: (opts: {
+    url: string
+    theme?: "light" | "dark"
+    waitForMs?: number
+  }) => Promise<{ html: string; resourceCount: number }>
+  listDirectory: (path: string) => Promise<Array<{ path: string; type: "file" | "directory"; size?: number }>>
   // Pipeline API IPC bridge 类型定义
-  pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
+  pipelineRequest: (
+    url: string,
+    method: string,
+    uiplusToken: string,
+    body?: any,
+    headers?: Record<string, string>,
+  ) => Promise<any>
   getAssetsConfig: () => Promise<Record<string, unknown>>
 
+  // jk-j60099994-replace-with-dyf-bridge-types-api-start
+  // jk-j60099994-replace-with-dyf-bridge-types-api-end
+
   /** 读取已保存的 W3 代理账号、密码和代理节点 */
-  getProxyConfig: () => Promise<{ account: string; password: string; proxyHost?: string; proxyOptionId?: string; noProxy?: string } | null>
+  getProxyConfig: () => Promise<{
+    account: string
+    password: string
+    proxyHost?: string
+    proxyOptionId?: string
+    noProxy?: string
+  } | null>
 
   /** 配置 W3 代理: 测试连通性后写入 ~/.config/octo/proxy_config.json */
-  configureProxy: (account: string, password: string, noProxy?: string, proxyHost?: string, proxyOptionId?: string) => Promise<{
+  configureProxy: (
+    account: string,
+    password: string,
+    noProxy?: string,
+    proxyHost?: string,
+    proxyOptionId?: string,
+  ) => Promise<{
     success: boolean
     curlUrl: string
     error?: string
   }>
+  // jk-j60099994-replace-with-yjt-pixso-preload-types-1-start
+  // jk-j60099994-replace-with-yjt-pixso-preload-types-1-end
 }

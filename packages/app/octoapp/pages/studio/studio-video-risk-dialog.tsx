@@ -1,4 +1,5 @@
 import { onMount, type JSX } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import { usePlatform } from "@/context/platform"
 
 const AI_MANAGEMENT_GUIDE_URL = "https://w3.huawei.com/info/cn/doc/viewDoc.do?did=18822293&cata348041"
@@ -17,6 +18,7 @@ function StudioVideoRiskLink(props: { href: string; children: JSX.Element }): JS
       onClick={(event) => {
         if (!props.href) return
         event.preventDefault()
+        tracker.interaction({ module: "studio", name: "video-risk-link", extend: JSON.stringify({ href: props.href }) })
         platform.openLink(props.href)
       }}
     >
@@ -108,21 +110,24 @@ export function StudioVideoRiskDialog(props: {
             type="button"
             class="studio-video-risk-close"
             aria-label="关闭"
-            onClick={props.onCancel}
+            onClick={() => {
+              tracker.interaction({ module: "studio", name: "video-risk-close" })
+              props.onCancel()
+            }}
           >
             <span aria-hidden="true">×</span>
           </button>
         </header>
         <StudioVideoRiskDialogContent />
         <footer class="studio-video-risk-actions">
-          <button type="button" class="studio-video-risk-button studio-video-risk-button-cancel" onClick={props.onCancel}>
+          <button type="button" class="studio-video-risk-button studio-video-risk-button-cancel" onClick={() => { tracker.interaction({ module: "studio", name: "video-risk-cancel" }); props.onCancel() }}>
             稍后再试
           </button>
           <button
             ref={confirmRef}
             type="button"
             class="studio-video-risk-button studio-video-risk-button-confirm"
-            onClick={props.onConfirm}
+            onClick={() => { tracker.interaction({ module: "studio", name: "video-risk-confirm" }); props.onConfirm() }}
           >
             已知悉
           </button>

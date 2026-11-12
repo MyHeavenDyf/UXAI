@@ -16,6 +16,7 @@ import * as Log from "@opencode-ai/core/util/log"
 const METHOD = "POST"
 const DEFAULT_USER_IDX = ""
 const DEFAULT_TIMEOUT_MS = 120_000
+const DEFAULT_QUERY_TIMEOUT_MS = 30_000
 const DEFAULT_CANCEL_TIMEOUT_MS = 15_000
 const DEFAULT_REBOOT_TIMEOUT_MS = 30_000
 
@@ -822,12 +823,18 @@ async function queryTask(
   taskId: string,
 ): Promise<QueryTaskResponse> {
   const queryUrl = `${queryTaskBaseUrl}?task_id=${encodeURIComponent(taskId)}`
+  const controller = new AbortController()
+  const timeout = setTimeout(
+    () => controller.abort(),
+    timeoutMsFor("IMAGE_QUERY_TIMEOUT_MS", DEFAULT_QUERY_TIMEOUT_MS),
+  )
   const response = await fetch(queryUrl, {
     method: "GET",
     headers: {
       accept: "application/json, text/plain, */*",
       ...internalImageHeaders({ contentType: false }),
     },
+    signal: controller.signal,
   }).catch((error) => {
     throw new Error(
       [
@@ -836,7 +843,7 @@ async function queryTask(
         `error=${describeError(error)}`,
       ].join("\n"),
     )
-  })
+  }).finally(() => clearTimeout(timeout))
   const text = await response.text()
 
   if (!response.ok) {
@@ -1060,6 +1067,16 @@ const defaultInternalStyleConfig = {
   mode: "performance",
 } satisfies InternalStyleConfig
 
+const seedreamTargetSizes = {
+  "1:1": { width: 2048, height: 2048 },
+  "2:3": { width: 1664, height: 2496 },
+  "3:4": { width: 1728, height: 2304 },
+  "9:16": { width: 1600, height: 2848 },
+  "3:2": { width: 2496, height: 1664 },
+  "4:3": { width: 2304, height: 1728 },
+  "16:9": { width: 2848, height: 1600 },
+}
+
 const internalStyleConfigs = [
   {
     aliases: ["Seedream 5.0 Lite", "seedream-5-lite"],
@@ -1067,15 +1084,17 @@ const internalStyleConfigs = [
       ...defaultInternalStyleConfig,
       taskType: "txt2img_jimeng",
       tagName: "Seedream 5.0 Lite",
-      targetSizes: {
-        "1:1": { width: 2048, height: 2048 },
-        "2:3": { width: 1664, height: 2496 },
-        "3:4": { width: 1728, height: 2304 },
-        "9:16": { width: 1600, height: 2848 },
-        "3:2": { width: 2496, height: 1664 },
-        "4:3": { width: 2304, height: 1728 },
-        "16:9": { width: 2848, height: 1600 },
-      },
+      targetSizes: seedreamTargetSizes,
+    },
+  },
+  {
+    aliases: ["Seedream 5.0 Pro", "seedream-5-pro"],
+    config: {
+      ...defaultInternalStyleConfig,
+      taskType: "txt2img_jimeng_v2",
+      tagName: "Seedream 5.0 Pro",
+      targetSize: { width: 2048, height: 2048 },
+      targetSizes: seedreamTargetSizes,
     },
   },
   { aliases: ["千问", "qwen", "Qwen-Image"], config: defaultInternalStyleConfig },
@@ -1319,7 +1338,9 @@ function buildTemplateArgs(input: ImageGenerateInput) {
   }
 }
 
-export function getTaskType(input: { generationMode: InternalTaskType; taskType?: string }) {
+export function getTaskType(input: { generationMode: InternalTaskType; taskType?: string; styleModel?: string }) {
+  const config = input.styleModel ? getInternalStyleConfig(input.styleModel) : undefined
+  if (config?.taskType === "txt2img_jimeng_v2") return config.taskType
   const txt2img = env("IMAGE_TXT2IMG_TASK_TYPE") ?? "txt2img_qwen"
   return input.taskType ?? txt2img
 }
@@ -1748,6 +1769,7 @@ export async function createInternalGeneration(input: ImageGenerateInput): Promi
   }
   const taskType = getTaskType({
     generationMode,
+    styleModel,
     taskType: input.extra && typeof input.extra.taskType === "string" ? input.extra.taskType : styleConfig.taskType,
   })
 

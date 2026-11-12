@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import type { StudioAspectRatio, StudioImage } from "./types"
 
 type OutpaintBox = {
@@ -225,7 +226,7 @@ export function StudioOutpaintEditor(props: {
       <div class="studio-enlarging-header">
         <span class="studio-canvas-tab">
           <span class="studio-canvas-label-text">扩图</span>
-          <span class="studio-canvas-tab-close" onClick={props.onClose} aria-label="关闭扩图" title="关闭扩图" />
+          <span class="studio-canvas-tab-close" onClick={() => { tracker.interaction({ module: "studio", name: "outpaint-close" }); props.onClose() }} aria-label="关闭扩图" title="关闭扩图" />
         </span>
       </div>
       <div class="studio-enlarging-body">
@@ -284,7 +285,10 @@ export function StudioOutpaintEditor(props: {
             {(item) => (
               <button
                 type="button"
-                onClick={() => applyRatio(item)}
+                onClick={() => {
+                  tracker.interaction({ module: "studio", name: "outpaint-ratio", extend: JSON.stringify({ ratio: item }) })
+                  applyRatio(item)
+                }}
                 class="studio-enlarging-ratio"
                 classList={{ active: item === localAspectRatio() }}
               >
@@ -304,7 +308,7 @@ export function StudioOutpaintEditor(props: {
             value={editorPrompt()}
             onInput={(event) => setEditorPrompt(event.currentTarget.value)}
           />
-          <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
+          <button type="button" class="studio-editor-delete" onClick={() => { tracker.interaction({ module: "studio", name: "outpaint-delete" }); props.onDelete() }}>删除</button>
           <button
             type="button"
             disabled={!canSubmit()}

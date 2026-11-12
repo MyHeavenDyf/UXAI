@@ -3,11 +3,62 @@ import { EditorState, TextSelection } from "prosemirror-state"
 import { history, undo, redo } from "prosemirror-history"
 import { editorSchema, extractMentionsFromDoc, getDocTextWithMentions } from "../components/prosemirror-editor/schema"
 import { insertAddonMentions, removeAddonMention } from "./addon-mentions"
+import { buildParagraphs, queuedDoc, queuedMentions, splitMentions } from "./mention"
+import type { QueuedSend } from "./send-queue"
 
 const file = (path: string) => ({ type: "file" as const, filename: "访谈.txt", path, id: "asset-1" })
 const initial = () => EditorState.create({ schema: editorSchema, plugins: [history()] })
 
 describe("加号引用操作", () => {
+  test("同名资产入队回填后再次发送，保留各自身份及地址引用", () => {
+    const selections = ["asset-1", "asset-2"].map(id => ({
+      type: "file" as const, id, filename: "产品原型", path: `/${id}`,
+    }))
+    const base = initial()
+    const added = base.apply(insertAddonMentions(base, selections))
+    const typed = added.apply(added.tr.insertText("原样保留 @产品原型 普通文字"))
+    const item: QueuedSend = {
+      text: getDocTextWithMentions(typed.doc).trim(),
+      doc: typed.doc.toJSON(),
+      ...splitMentions(selections),
+    }
+    const restored = editorSchema.nodeFromJSON(queuedDoc(JSON.parse(JSON.stringify(item))))
+    expect(restored.eq(typed.doc)).toBe(true)
+    expect(extractMentionsFromDoc(restored).map(m => m.id)).toEqual(["asset-1", "asset-2"])
+    expect(splitMentions(extractMentionsFromDoc(restored).map(m => ({
+      type: "file" as const, id: m.id ?? undefined, filename: m.name, path: m.path!, isFolder: m.isFolder,
+    })))).toEqual(splitMentions(selections))
+  })
+
+  test("旧队列没有编辑器文档时仍按文本和引用清单回填", () => {
+    const restored = editorSchema.nodeFromJSON(queuedDoc({
+      text: "查看 @访谈.txt", ...splitMentions([file("/a.txt")]),
+    }))
+    expect(getDocTextWithMentions(restored)).toBe("查看 @访谈.txt")
+    expect(extractMentionsFromDoc(restored).map(m => m.path)).toEqual(["/a.txt"])
+  })
+
+  test("资产包只显示一个胶囊，草稿恢复和队列回填仍保留地址引用", () => {
+    const selection = { type: "file" as const, filename: "产品原型", path: "/asset-1", id: "asset-1", isFolder: true }
+    const base = initial()
+    const added = base.apply(insertAddonMentions(base, [selection]))
+    expect(extractMentionsFromDoc(added.doc)).toHaveLength(1)
+    expect(getDocTextWithMentions(added.doc)).toBe("@产品原型 ")
+    const restored = editorSchema.nodeFromJSON(added.doc.toJSON())
+    expect(extractMentionsFromDoc(restored)[0].isFolder).toBe(true)
+    const payload = splitMentions([selection])
+    expect(payload.files).toEqual([{ filename: "产品原型", path: "/asset-1", id: "asset-1", isFolder: true }])
+    const queued = queuedMentions({ text: "@产品原型", ...payload })
+    const rebuilt = editorSchema.nodes.doc.create(null, buildParagraphs("@产品原型", queued))
+    expect(extractMentionsFromDoc(rebuilt)).toEqual(extractMentionsFromDoc(added.doc))
+    expect(added.apply(removeAddonMention(added, selection)).doc.eq(base.doc)).toBe(true)
+    let state = added
+    expect(undo(state, tr => { state = state.apply(tr) })).toBe(true)
+    expect(extractMentionsFromDoc(state.doc)).toHaveLength(0)
+    expect(redo(state, tr => { state = state.apply(tr) })).toBe(true)
+    expect(extractMentionsFromDoc(state.doc)[0].isFolder).toBe(true)
+  })
+
   test("选中文字后添加文件再取消，完整保留草稿", () => {
     const base = initial()
     const typed = base.apply(base.tr.insertText("draft text"))

@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, on, Show, type JSX } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import { STUDIO_HD_MODES, type StudioHDMode } from "./studio-shared"
 import type { StudioImage } from "./types"
 
@@ -26,7 +27,7 @@ export function StudioHDEditor(props: {
       <div class="studio-hd-header">
         <span class="studio-canvas-tab">
           <span class="studio-canvas-label-text">变清晰</span>
-          <span class="studio-canvas-tab-close" onClick={props.onClose} aria-label="关闭变清晰" title="关闭变清晰" />
+          <span class="studio-canvas-tab-close" onClick={() => { tracker.interaction({ module: "studio", name: "upscale-close" }); props.onClose() }} aria-label="关闭变清晰" title="关闭变清晰" />
         </span>
       </div>
       <div class="studio-hd-body">
@@ -57,7 +58,10 @@ export function StudioHDEditor(props: {
                   classList={{ active: selectedMode() === option.value }}
                   aria-pressed={selectedMode() === option.value}
                   data-mode={option.value}
-                  onClick={() => setSelectedMode(option.value)}
+                  onClick={() => {
+                    tracker.interaction({ module: "studio", name: "upscale-mode", extend: JSON.stringify({ mode: option.value }) })
+                    setSelectedMode(option.value)
+                  }}
                 >
                   <span class="studio-hd-mode-dot" />
                   <span class="studio-hd-mode-text">{option.label}</span>
@@ -66,7 +70,7 @@ export function StudioHDEditor(props: {
             </For>
           </div>
           <div class="studio-editor-actions">
-            <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
+            <button type="button" class="studio-editor-delete" onClick={() => { tracker.interaction({ module: "studio", name: "upscale-delete" }); props.onDelete() }}>删除</button>
             <button
               type="button"
               class="studio-hd-create"
@@ -102,7 +106,7 @@ export function StudioCutoutEditor(props: {
       <div class="studio-cutout-header">
         <span class="studio-canvas-tab">
           <span class="studio-canvas-label-text">抠图</span>
-          <span class="studio-canvas-tab-close" onClick={props.onClose} aria-label="关闭抠图" title="关闭抠图" />
+          <span class="studio-canvas-tab-close" onClick={() => { tracker.interaction({ module: "studio", name: "cutout-close" }); props.onClose() }} aria-label="关闭抠图" title="关闭抠图" />
         </span>
       </div>
       <div class="studio-cutout-body">
@@ -123,7 +127,7 @@ export function StudioCutoutEditor(props: {
           </Show>
         </div>
         <div class="studio-cutout-controls">
-          <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
+          <button type="button" class="studio-editor-delete" onClick={() => { tracker.interaction({ module: "studio", name: "cutout-delete" }); props.onDelete() }}>删除</button>
           <button
             type="button"
             class="studio-hd-create"

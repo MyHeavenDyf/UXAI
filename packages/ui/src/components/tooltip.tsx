@@ -153,7 +153,7 @@ export function Tooltip(props: TooltipProps) {
             >
               {local.value}
               <Show when={local.arrow}>
-                <KobalteTooltip.Arrow data-slot="tooltip-arrow" size={18} />
+                <KobalteTooltip.Arrow data-slot="tooltip-arrow" size={12} />
               </Show>
             </KobalteTooltip.Content>
           </KobalteTooltip.Portal>

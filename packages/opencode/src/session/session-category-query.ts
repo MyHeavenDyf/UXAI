@@ -1,5 +1,5 @@
 import { Database } from "@/storage/db"
-import { eq, and, gte, isNull, desc, like, inArray, lt, or, sql } from "drizzle-orm"
+import { eq, and, gte, isNull, desc, asc, gt, like, inArray, lt, or, sql } from "drizzle-orm"
 import * as Log from "@opencode-ai/core/util/log"
 import { SessionTable, PartTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
@@ -117,8 +117,15 @@ export function* listGlobalWithCategory(input?: {
   agent?: string
   pinned?: boolean
   grouped?: boolean
+  /** "sort_order": page in the sidebar's "最近" display order (sort_order asc,
+   *  then time_updated desc, then id desc). Default pages by time_updated desc only.
+   *  Without this, clients that display sort_order-first (AgentSidebar's recentSessions)
+   *  get pages that can rank ABOVE already-shown items — loading page 2 can displace
+   *  the first session (e.g. stale sessions created with sort_order 0 jumping above
+   *  reordered sessions holding sort_order 1..N). */
+  order?: "sort_order"
 }): Generator<GlobalInfo> {
-  const conditions: (ReturnType<typeof sql> | ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof isNull> | ReturnType<typeof lt> | ReturnType<typeof like>)[] = []
+  const conditions: (ReturnType<typeof sql> | ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof isNull> | ReturnType<typeof lt> | ReturnType<typeof like> | ReturnType<typeof gt>)[] = []
 
   if (input?.directory) {
     conditions.push(eq(SessionTable.directory, input.directory))
@@ -140,18 +147,39 @@ export function* listGlobalWithCategory(input?: {
   }
   if (input?.cursor !== undefined) {
     const cursorParts = String(input.cursor).split(":")
-    const cursorTime = Number(cursorParts[0])
-    if (!Number.isNaN(cursorTime)) {
-      if (cursorParts.length > 1) {
-        const cursorId = cursorParts.slice(1).join(":")
+    if (input.order === "sort_order") {
+      // Cursor is `${sort_order}:${time_updated}:${id}` — resume strictly below
+      // the last row of the previous page in the (sort_order, time, id) ordering.
+      const cursorSort = Number(cursorParts[0])
+      const cursorTime = Number(cursorParts[1])
+      if (!Number.isNaN(cursorSort) && !Number.isNaN(cursorTime) && cursorParts.length > 2) {
+        const cursorId = cursorParts.slice(2).join(":")
         conditions.push(
           or(
-            lt(SessionTable.time_updated, cursorTime),
-            and(eq(SessionTable.time_updated, cursorTime), sql`${SessionTable.id} < ${cursorId}`)!,
+            gt(SessionTable.sort_order, cursorSort),
+            and(eq(SessionTable.sort_order, cursorSort), lt(SessionTable.time_updated, cursorTime))!,
+            and(
+              eq(SessionTable.sort_order, cursorSort),
+              eq(SessionTable.time_updated, cursorTime),
+              sql`${SessionTable.id} < ${cursorId}`,
+            )!,
           )!,
         )
-      } else {
-        conditions.push(lt(SessionTable.time_updated, cursorTime))
+      }
+    } else {
+      const cursorTime = Number(cursorParts[0])
+      if (!Number.isNaN(cursorTime)) {
+        if (cursorParts.length > 1) {
+          const cursorId = cursorParts.slice(1).join(":")
+          conditions.push(
+            or(
+              lt(SessionTable.time_updated, cursorTime),
+              and(eq(SessionTable.time_updated, cursorTime), sql`${SessionTable.id} < ${cursorId}`)!,
+            )!,
+          )
+        } else {
+          conditions.push(lt(SessionTable.time_updated, cursorTime))
+        }
       }
     }
   }
@@ -173,7 +201,14 @@ export function* listGlobalWithCategory(input?: {
       conditions.length > 0
         ? base.where(and(...conditions))
         : base
-    return query.orderBy(desc(SessionTable.time_updated), desc(SessionTable.id)).limit(limit).all()
+    return query
+      .orderBy(
+        ...(input?.order === "sort_order"
+          ? [asc(SessionTable.sort_order), desc(SessionTable.time_updated), desc(SessionTable.id)]
+          : [desc(SessionTable.time_updated), desc(SessionTable.id)]),
+      )
+      .limit(limit)
+      .all()
   })
 
   const ids = [...new Set(rows.map((row) => row.session.project_id))]

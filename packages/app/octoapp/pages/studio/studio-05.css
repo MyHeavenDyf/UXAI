@@ -246,6 +246,11 @@
   border-top: 1px solid var(--studio-line);
 }
 
+/* 详情隐藏顶部缩略图时，第一段文案不再需要与缩略图之间的分割线。 */
+.studio-detail-section--no-divider {
+  border-top: none;
+}
+
 .studio-detail-title {
   margin: 0 0 8px;
   color: #101828;

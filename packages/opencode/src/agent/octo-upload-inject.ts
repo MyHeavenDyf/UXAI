@@ -1,5 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { readFile } from "node:fs/promises"
+import { OctoProductAssets } from "./octo-product-assets"
 
 /**
  * octo-upload-inject —— 在 MCP 工具执行前,把模型填的**文件名**按需上传 S3 后换成精确 URL。
@@ -370,17 +371,19 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       // 同一次拉取顺带取**当前 turn(最后一条 user 消息)**的 [MCP声明](仅 chip turn 存在)。
       const refToPath = new Map<string, string>()
       const manifestNames: string[] = [] // 清单文件名(去重),用于 chip 校验失败时回灌"可用文件"提示
+      const productAssets: OctoProductAssets.Reference[] = []
       let declarationText: string | undefined
       try {
         const res = await client.session.messages({ path: { id: input.sessionID } })
         const msgs =
-          (res as { data?: Array<{ info?: { role?: string }; parts?: Array<{ type?: string; text?: string }> }> })
+          (res as { data?: Array<{ info?: { role?: string }; parts?: Array<{ type?: string; text?: string; metadata?: Record<string, unknown> }> }> })
             .data ?? []
         let lastUser: (typeof msgs)[number] | undefined
         for (const m of msgs) {
           if (m.info?.role !== "user") continue
           lastUser = m
           for (const p of m.parts ?? []) {
+            productAssets.push(...OctoProductAssets.fromPart(p))
             // 必须按「头在第 0 位」锚定,不能用 includes:chip 模板正文里会**提及** [附件] / [MCP声明]
             // 字面量(如调用纪律"[MCP声明] 段落是给系统读取的…"),includes 会把模板误当区块解析
             // ——2026-07-08 内网事故:声明定位命中模板,JSON.parse 到中文句子,所有 chip 调用响亮失败。
@@ -406,6 +409,19 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       } catch (err) {
         console.error(`${LOG} failed to read session messages`, { tool: input.tool, sessionID: input.sessionID, err })
         return // 读取失败不强改,交回模型原值
+      }
+
+      if (isMcpTool && productAssets.length) {
+        productAssets.filter(asset => !asset.isFolder).forEach(asset => {
+          refToPath.set(asset.filename, asset.path)
+          refToPath.set(asset.path, asset.path)
+          refToPath.set(baseNameOf(asset.path), asset.path)
+          manifestNames.push(asset.filename)
+        })
+        for (const [ref, file] of await OctoProductAssets.resolve(output.args, productAssets)) refToPath.set(ref, file)
+        if (productAssets.some(asset => asset.isFolder)) {
+          manifestNames.push("产品资产目录中的文件：先列目录，再填写实际文件的完整绝对路径；不要填写目录本身")
+        }
       }
 
       // ── chip 声明强制对齐(SPEC-INS-017 §2.1)──────────────────

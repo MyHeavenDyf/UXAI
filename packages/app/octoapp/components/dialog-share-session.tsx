@@ -1,0 +1,146 @@
+import type { Session } from "@opencode-ai/sdk/v2/client"
+import { Dialog as Kobalte } from "@kobalte/core/dialog"
+import { createStore } from "solid-js/store"
+import { createEffect, Show } from "solid-js"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { Toast, toaster } from "@opencode-ai/ui/toast"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { usePlatform } from "@/context/platform"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { directoryHeader } from "@/utils/headers"
+import { modelsApiToken } from "@/network/models-api"
+import { SessionSharePreview } from "./session-share-preview"
+import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
+import { useSessionShareBlockReason } from "@/hooks/use-session-share-block-reason"
+import { tracker } from "@/utils/tracker"
+import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
+import linkIcon from "./assets/session-share-link.svg"
+import closeIcon from "./assets/session-share-close.svg"
+import "./dialog-share-session.css"
+
+export function DialogShareSession(props: { session: Session; trackerModule?: string }) {
+  const dialog = useDialog()
+  const platform = usePlatform()
+  const globalSDK = useGlobalSDK()
+  const workspaceKind = useWorkspaceKind()
+  const shareBlockReason = useSessionShareBlockReason(() => props.session)
+  const [state, setState] = createStore({ sharing: false, url: "", error: "", toastID: -1 })
+  createEffect(() => {
+    if (shareBlockReason()) setState("url", "")
+  })
+
+  const copyLink = async () => {
+    if (state.sharing || shareBlockReason()) return
+    setState({
+      sharing: true,
+      error: "",
+    })
+    const operationID = state.url ? undefined : crypto.randomUUID()
+    const progress = operationID ? showSessionTransferProgress("正在生成分享链接") : undefined
+    const watcher = operationID ? new AbortController() : undefined
+    if (operationID && watcher) {
+      void watchSessionTransferProgress({
+        url: globalSDK.url,
+        operationID,
+        fetch: platform.fetch ?? fetch,
+        headers: directoryHeader(props.session.directory),
+        signal: watcher.signal,
+        update: progress!.update,
+      })
+    }
+    await (async () => {
+      const url = state.url || await (async () => {
+        const token = modelsApiToken()
+        const cookie = localStorage.getItem("uiplusCookie")?.trim()
+        const endpoint = new URL(
+          `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
+        )
+        if (workspaceKind() === "code") endpoint.searchParams.set("scope", "project")
+        if (operationID) endpoint.searchParams.set("operationID", operationID)
+        const response = await (platform.fetch ?? fetch)(endpoint, {
+          method: "POST",
+          headers: {
+            ...directoryHeader(props.session.directory),
+            ...(token ? { uiplustoken: token } : {}),
+            ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
+          },
+        })
+        const result: unknown = await response.json().catch(() => null)
+        if (!response.ok) {
+          throw new Error(result && typeof result === "object" && "message" in result && typeof result.message === "string"
+            ? result.message : `分享失败：${response.status}`)
+        }
+        if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
+          throw new Error("分享接口未返回链接")
+        }
+        setState("url", result.url)
+        return result.url
+      })()
+      if (shareBlockReason()) {
+        setState("url", "")
+        throw new Error(shareBlockReason())
+      }
+      const copied = platform.platform === "desktop"
+        ? await (async () => {
+          if (!platform.writeClipboardText) throw new Error("当前客户端不支持原生复制，请升级客户端")
+          await platform.writeClipboardText(url)
+          return true
+        })()
+        : await navigator.clipboard?.writeText(url).then(() => true, () => false)
+      if (!copied) {
+        const textarea = document.createElement("textarea")
+        textarea.value = url
+        textarea.setAttribute("readonly", "")
+        textarea.style.position = "fixed"
+        textarea.style.opacity = "0"
+        document.body.appendChild(textarea)
+        textarea.select()
+        const success = document.execCommand("copy")
+        textarea.remove()
+        if (!success) throw new Error("复制失败，请重试")
+      }
+      if (state.toastID >= 0) toaster.dismiss(state.toastID)
+      setState("toastID", toaster.show((toast) => (
+        <Toast toastId={toast.toastId} class="session-share-copy-toast" duration={2500}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <circle cx="7" cy="7" r="7" fill="#00B578" />
+            <path d="m4 7 2 2 4-4" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <Toast.Title>链接已复制</Toast.Title>
+        </Toast>
+      )))
+      tracker.interaction({ module: props.trackerModule ?? "session", name: "copy-share-link" })
+      dialog.close()
+    })().catch((error) => {
+      setState("error", error instanceof Error ? error.message : String(error))
+    }).finally(() => {
+      watcher?.abort()
+      progress?.dismiss()
+      setState("sharing", false)
+    })
+  }
+
+  return (
+    <Dialog fit class="session-share-dialog">
+      <header class="session-share-heading">
+        <div class="session-share-heading-text">
+          <Kobalte.Title class="session-share-title" title={`分享 ${props.session.title}`}>分享 {props.session.title}</Kobalte.Title>
+          <Kobalte.Description class="session-share-description">分享后,你的姓名以及你添加的新消息不会显示在共享聊天中。</Kobalte.Description>
+        </div>
+        <Kobalte.CloseButton class="session-share-close" aria-label="关闭分享弹窗">
+          <img src={closeIcon} width="14" height="14" alt="" />
+        </Kobalte.CloseButton>
+      </header>
+      <SessionSharePreview session={props.session} />
+      <p class="session-share-visibility">任何知道此链接的人都可以查看此聊天</p>
+      <Show when={shareBlockReason()}><p class="session-share-error" role="status">{shareBlockReason()}</p></Show>
+      <Show when={state.error}><p class="session-share-error" role="alert">{state.error}</p></Show>
+      <footer class="session-share-footer">
+        <button type="button" class="session-share-copy" disabled={state.sharing || !!shareBlockReason()} aria-busy={state.sharing} onClick={() => void copyLink()}>
+          <img src={linkIcon} width="16" height="16" alt="" />
+          <span>{state.sharing ? "正在生成…" : "复制链接"}</span>
+        </button>
+      </footer>
+    </Dialog>
+  )
+}

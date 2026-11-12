@@ -10,6 +10,7 @@ import {
   IconSettings,
 } from "@/pages/insight/icons"
 import { IconSettings1 } from "@/pages/_shell/icons"
+import { trackInsight } from "../utils/interaction-tracking"
 
 /**
  * SidebarFooter —— insight 侧栏底部「技能库 / 资产库 / 设置」公共栏目。
@@ -47,6 +48,7 @@ export function SidebarFooter(): JSX.Element {
               <button
                 type="button"
                 onClick={() => {
+                  trackInsight("navigation-open", { target: item.key === "skill_market" ? "skills" : "assets", source: "sidebar" })
                   layout.sidebarSource.set("cowork")
                   navigate(item.key === "skill_market" ? "/skills" : "/assets")
                 }}
@@ -101,6 +103,7 @@ export function SidebarFooter(): JSX.Element {
           onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
           onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
           onClick={() => {
+            trackInsight("navigation-open", { target: "settings", source: "sidebar" })
             setSettingsActive(true)
             dialog.show(() => <DialogSettings />, () => setSettingsActive(false))
           }}
@@ -123,7 +126,7 @@ export function SidebarFooter(): JSX.Element {
             />
           </Show>
         </button>
-        <UpdateButton />
+        <UpdateButton onOpen={() => trackInsight("navigation-open", { target: "update", source: "sidebar" })} />
       </div>
     </>
   )

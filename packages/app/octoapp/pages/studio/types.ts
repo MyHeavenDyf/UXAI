@@ -13,11 +13,13 @@ export type StudioImageTool = "jimeng" | "internel"
 export type StudioGenerationStatus =
   | "idle"
   | "submitting"
+  | "creating"
   | "queued"
   | "running"
   | "succeeded"
   | "create_failed"
   | "failed"
+  | "abnormal"
 
 export type StudioImage = {
   id: string

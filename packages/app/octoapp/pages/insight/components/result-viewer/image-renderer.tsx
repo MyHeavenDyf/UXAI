@@ -4,6 +4,7 @@ interface Props {
   filePath?: string
   uri?: string
   refreshKey?: number
+  onReady?: () => void
 }
 
 export function ImageRenderer(props: Props): JSX.Element {
@@ -16,7 +17,7 @@ export function ImageRenderer(props: Props): JSX.Element {
   }
   return (
     <div class="flex items-center justify-center h-full overflow-auto p-4" style={{ background: "var(--octo-surface-result)" }}>
-      <img src={url()} alt="preview" class="max-w-full max-h-full object-contain" />
+      <img src={url()} onLoad={() => props.onReady?.()} alt="preview" class="max-w-full max-h-full object-contain" />
     </div>
   )
 }

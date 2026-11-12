@@ -11,6 +11,7 @@ const API_PREFIXES = {
   main: "/main/rest.root/main",
   designAgent: "/main/rest.root/octoAgentServer/designAgent",
   deliverable: "/main/rest.root/workflow/deliverable",
+  octoAiStatis: "/pipeline/rest.root/octoAiStatis",
 }
 
 // 请求失败统一上报: 右下角 toast 报错(非阻断, 不中断用户) + 详情进 console;
@@ -174,4 +175,19 @@ export async function uploadVersion(uniqueId: string, file: Blob): Promise<{ suc
   return { success: res?.success ?? false }
 }
 
+export type AddUserProjectBody = {
+  userName: string
+  userId: string
+  domain?: string
+  productLine?: string
+  product?: string
+  version?: string
+  designOwner?: string
+  designDl?: string
+}
 
+// 数据看板统计: onboarding 确定时上报用户项目选择(octoAiStatis 前缀, POST body)。
+// fire-and-forget: silent=true 失败仅 console.error、不弹 toast, 不阻断 onboarding 主流程; 不处理返回值。
+export async function addUserProject(body: AddUserProjectBody): Promise<void> {
+  await apiFetch({ path: "/userProject/addUserProject", method: "POST", prefix: API_PREFIXES.octoAiStatis, body, silent: true })
+}

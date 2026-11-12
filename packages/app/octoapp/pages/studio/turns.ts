@@ -1,15 +1,19 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage } from "./types"
-import { getDefaultDimensions, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
+import { getDefaultDimensions, isPromptExpansionGeneration, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
+import { expansionPreviewParts, previewMetadata, promptMetadata } from "./studio-prompt-state"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
 export type StudioTurnData = {
   id: string
   userText: string
+  hideUserBubble?: boolean
   assistantText: string
+  previewParts?: Extract<Part, { type: "text" | "reasoning" }>[]
   editCapability?: StudioCapability
   editorEntryID?: string
+  recommendation?: { kind: "guide" | "result"; status: string; tags?: string[]; assistantMessageID?: string }
   toolTitle?: string
   toolError?: string
   toolName?: string
@@ -22,6 +26,7 @@ export type StudioTurnData = {
 }
 
 type StudioTurnFallback = StudioGenerationResult & {
+  hideUserBubble?: boolean
   inputImages?: StudioInputImage[]
 }
 
@@ -303,11 +308,13 @@ function studioProgress(part?: Extract<Part, { type: "tool" }>) {
   return {
     generationID: stringField(studio, "generationID"),
     status:
+      status === "creating" ||
       status === "queued" ||
       status === "running" ||
       status === "succeeded" ||
       status === "create_failed" ||
-      status === "failed"
+      status === "failed" ||
+      status === "abnormal"
         ? status
         : "running",
     rawStatus: studio?.rawStatus as number | string | undefined,
@@ -454,6 +461,7 @@ function extractUserDemand(text: string) {
 function buildResult(input: {
   messageID: string
   userText: string
+  hideUserBubble?: boolean
   assistantText: string
   tools: Extract<Part, { type: "tool" }>[]
   createdAt: number
@@ -523,7 +531,11 @@ function buildResult(input: {
   const completedGenerationID = studioProgress(completed).generationID
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
-  const failureStatus = failure.status === "create_failed" ? "create_failed" : "failed"
+  const failureStatus = failure.status === "create_failed"
+    ? "create_failed"
+    : failure.status === "abnormal"
+      ? "abnormal"
+      : "failed"
   const inputImages = buildStudioInputImages({
     capability,
     referenceImages: inputRecord?.referenceImages,
@@ -533,6 +545,7 @@ function buildResult(input: {
   return {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: displayPrompt || extractUserDemand(input.userText),
+    hideUserBubble: input.hideUserBubble || isPromptExpansionGeneration(extra),
     assistantText: input.assistantText,
     inputImages,
     mentionImages,
@@ -543,7 +556,9 @@ function buildResult(input: {
         : completed
           ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
           : errored
-            ? failureStatus === "create_failed"
+            ? failureStatus === "abnormal"
+              ? capability === "video.generate" ? "视频状态异常" : "图片状态异常"
+              : failureStatus === "create_failed"
               ? capability === "video.generate" ? "视频创建失败" : "图片创建失败"
               : capability === "video.generate" ? "视频生成失败" : "图片生成失败"
             : undefined,
@@ -646,29 +661,53 @@ function buildResult(input: {
 }
 
 export function buildStudioTurns(input: { messages: Message[]; parts: Record<string, Part[]>; fallback?: StudioTurnFallback; currentSessionID?: string }): StudioTurnData[] {
-  const messages = sortMessages(input.messages)
+  const messages = sortMessages(input.messages).filter((message) => {
+    if (message.role !== "user") return true
+    const assistant = input.messages.find((item) => item.role === "assistant" && item.parentID === message.id)
+    return !(assistant && (input.parts[assistant.id] ?? []).some((part) => {
+      const metadata = promptMetadata(part)
+      return metadata?.kind === "guide" && metadata.visible === false
+    }))
+  })
   const turns = messages
     .filter((message) => message.role === "user")
     .map((user) => {
     const index = messages.findIndex((message) => message.id === user.id)
-    const assistant = messages.slice(index + 1).find((message) => message.role === "assistant")
+    const assistant = messages.slice(index + 1).find((message) => message.role === "assistant" && message.parentID === user.id)
     const userText =
       input.parts[user.id]
         ?.filter(isTextPart)
         .map((part) => part.text)
         .join("\n")
         .trim() || ""
+    const userTextParts = (input.parts[user.id] ?? []).filter(isTextPart)
+    const hideUserBubble = !userTextParts.length || userTextParts.some((part) =>
+      isPromptExpansionGeneration({ promptExpansionSource: part.metadata?.studioPromptExpansionSource }))
     const assistantParts = assistant ? input.parts[assistant.id] ?? [] : []
     const assistantText = assistantParts
       .filter(isTextPart)
+      .filter((part) => !previewMetadata(part))
       .map((part) => part.text)
       .join("\n")
       .trim()
     const tools = assistantParts.filter(isToolPart)
+    const recommendationPart = assistantParts.find((part) => promptMetadata(part) !== undefined)
+    const recommendation = promptMetadata(recommendationPart)
+    if (recommendation) {
+      return {
+        id: user.id, userText, hideUserBubble, assistantText, createdAt: user.time.created, isLatest: false,
+        previewParts: recommendation.kind === "result" && recommendation.status === "running" && recommendationPart
+          ? expansionPreviewParts(assistantParts, recommendationPart.id) : undefined,
+        recommendation: { kind: recommendation.kind, status: recommendation.status,
+          tags: recommendation.kind === "result" ? recommendation.tags : undefined, assistantMessageID: assistant?.id },
+        inputImages: (input.parts[user.id] ?? []).flatMap((part) => part.type === "file" && part.mime.startsWith("image/") ? [{ id: part.id, url: part.url }] : []),
+      } satisfies StudioTurnData
+    }
     const entry = editorEntry(tools)
     if (entry) {
       return {
         id: `studio_editor_${entry.entryID}`,
+        hideUserBubble,
         userText,
         assistantText,
         editCapability: entry.capability,
@@ -680,6 +719,7 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
 
     return buildResult({
       messageID: user.id,
+      hideUserBubble,
       userText,
       assistantText,
       tools,
@@ -695,13 +735,16 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
   if (!input.fallback) return []
 
   // Reject fallback that belongs to a different session to avoid task ghosting.
-  if (input.currentSessionID && input.fallback.sessionID && input.fallback.sessionID !== input.currentSessionID) return []
+  // Also covers the blank new-conversation page (no current session): a pending
+  // generation scoped to a previously viewed session must not render there.
+  if (input.fallback.sessionID && input.fallback.sessionID !== input.currentSessionID) return []
 
-  const fallbackGenerating = input.fallback.status === "queued" || input.fallback.status === "running"
+  const fallbackGenerating = input.fallback.status === "creating" || input.fallback.status === "queued" || input.fallback.status === "running"
   return [
     {
       id: `studio_${input.fallback.id}`,
       userText: input.fallback.displayPrompt || extractUserDemand(input.fallback.prompt),
+      hideUserBubble: input.fallback.hideUserBubble,
       assistantText: "",
       toolTitle: `${input.fallback.capability === "video.generate" ? "视频生成" : "图片生成"}${
         fallbackGenerating

@@ -21,7 +21,43 @@ type StudioThumbnailQueueInput = {
 const tasks = new Map<string, Promise<string | undefined>>()
 const results = new Map<string, string>()
 const controllers = new Map<string, AbortController>()
+const terminalFailures = new Set<string>()
+const MAX_TERMINAL_FAILURES = 500
 let sequence = Promise.resolve()
+
+type StudioThumbnailQueueError = Error & { retryable?: boolean }
+
+function thumbnailError(message: string, retryable: boolean): StudioThumbnailQueueError {
+  return Object.assign(new Error(message), { retryable })
+}
+
+// 408/429/5xx 视为瞬时错误可重试；其余 4xx（如非 HTTPS、参数非法）为确定性失败，重试无意义。
+function retryableStatus(status: number) {
+  return status === 408 || status === 429 || status >= 500
+}
+
+// 服务端会把确定性失败标记为 retryable=false（详见 ApiStudioGenerationError），
+// 优先采信服务端标志；响应体不可解析时回退到状态码推断。
+async function responseRetryable(response: Response, fallback: boolean) {
+  try {
+    const parsed = (await response.clone().json()) as { data?: { retryable?: boolean } }
+    if (typeof parsed.data?.retryable === "boolean") return parsed.data.retryable
+  } catch {
+    // 响应体不是 JSON（如代理错误页）时忽略。
+  }
+  return fallback
+}
+
+function retryableError(error: unknown) {
+  return (error as StudioThumbnailQueueError | undefined)?.retryable !== false
+}
+
+function rememberTerminalFailure(key: string) {
+  terminalFailures.add(key)
+  if (terminalFailures.size <= MAX_TERMINAL_FAILURES) return
+  const oldest = terminalFailures.values().next().value
+  if (oldest !== undefined) terminalFailures.delete(oldest)
+}
 
 export function studioThumbnailDimensions(sourceWidth: number, sourceHeight: number) {
   if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
@@ -143,7 +179,11 @@ async function imageContent(input: StudioThumbnailQueueInput, signal: AbortSigna
     ),
     { headers: authHeaders(input), signal },
   )
-  if (!response.ok) throw new Error(`Studio thumbnail source failed with status ${response.status}.`)
+  if (!response.ok)
+    throw thumbnailError(
+      `Studio thumbnail source failed with status ${response.status}.`,
+      await responseRetryable(response, retryableStatus(response.status)),
+    )
   const blob = await response.blob()
   console.info("[studio.thumbnail] image source loaded", {
     generationID: input.generationID,
@@ -247,15 +287,20 @@ async function save(input: StudioThumbnailQueueInput, content: string, signal: A
       signal,
     },
   )
-  if (!response.ok) throw new Error(`Studio thumbnail save failed with status ${response.status}.`)
+  if (!response.ok)
+    throw thumbnailError(
+      `Studio thumbnail save failed with status ${response.status}.`,
+      await responseRetryable(response, retryableStatus(response.status)),
+    )
   const result = (await response.json()) as { thumbnailUrl?: string }
   const url = resolveStudioMediaUrl({ value: result.thumbnailUrl, sdkUrl: input.sdkUrl, directory: input.directory })
-  if (!url) throw new Error("Studio thumbnail save returned no usable thumbnail URL.")
+  if (!url) throw thumbnailError("Studio thumbnail save returned no usable thumbnail URL.", false)
   return url
 }
 
 function queue(input: StudioThumbnailQueueInput, kind: "image" | "video") {
   const key = taskKey(input)
+  if (terminalFailures.has(key)) return Promise.resolve(undefined)
   const saved = results.get(key)
   if (saved) return Promise.resolve(saved)
   const existing = tasks.get(key)
@@ -290,6 +335,16 @@ function queue(input: StudioThumbnailQueueInput, kind: "image" | "video") {
             kind,
             generationID: input.generationID,
             mediaIndex: input.mediaIndex,
+          })
+          return undefined
+        }
+        if (!retryableError(error)) {
+          rememberTerminalFailure(key)
+          console.error("[studio.thumbnail] media generation failed; not retrying", {
+            kind,
+            generationID: input.generationID,
+            mediaIndex: input.mediaIndex,
+            error: error instanceof Error ? error.message : String(error),
           })
           return undefined
         }
@@ -355,6 +410,7 @@ export async function invalidateStudioThumbnail(input: StudioThumbnailQueueInput
   )
   if (!response.ok) throw new Error(`Studio thumbnail invalidation failed with status ${response.status}.`)
   results.delete(taskKey(input))
+  terminalFailures.delete(taskKey(input))
 }
 
 export function stopStudioThumbnailQueue(input: Pick<StudioThumbnailQueueInput, "sdkUrl" | "directory">) {

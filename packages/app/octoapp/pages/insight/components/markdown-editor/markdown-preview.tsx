@@ -11,7 +11,7 @@ const VDITOR_LOCAL_CDN = "/vendor/vditor"
 // markdown 卡的预览渲染:用 Vditor 自带渲染引擎(Lute),与全屏编辑器**同一套渲染**,
 // 避免「卡片预览(上游 <Markdown>)」与「编辑器预览(Vditor)」效果不一致(加粗/表格/代码等)。
 // 见 docs/specs/ui/insight-markdown-editor.md §6.3 + output-renderers.md §1。
-export function MarkdownPreview(props: { content: string }): JSX.Element {
+export function MarkdownPreview(props: { content: string; onReady?: () => void }): JSX.Element {
   const theme = useTheme()
   const isDark = () => theme.mode() === "dark"
   let el: HTMLDivElement | undefined
@@ -19,6 +19,8 @@ export function MarkdownPreview(props: { content: string }): JSX.Element {
   // 时旧 preview 的写回会把已清空的 DOM 再污染一次 —— 仅在 .then 里比对 seq 是空操作。这里递增后,
   // 过期 resolve 在 .then 里把 DOM 纠正回当前(空)状态。
   let renderSeq = 0
+  let disposed = false
+  onCleanup(() => { disposed = true })
 
   const isEmpty = createMemo(() => !(props.content ?? "").trim())
 
@@ -38,6 +40,7 @@ export function MarkdownPreview(props: { content: string }): JSX.Element {
     // 显示空态而非纯白页,让用户分清「文件本来就是空的」与「还在加载 / 渲染挂了」。
     if (!md.trim()) {
       el.innerHTML = ""
+      props.onReady?.()
       return
     }
     void Vditor.preview(el, md, {
@@ -47,7 +50,11 @@ export function MarkdownPreview(props: { content: string }): JSX.Element {
       hljs: { style: dark ? "native" : "github", lineNumber: false },
       theme: { current: dark ? "dark" : "light", path: `${VDITOR_LOCAL_CDN}/dist/css/content-theme` },
     }).then(() => {
-      if (seq === renderSeq) return
+      if (disposed) return
+      if (seq === renderSeq) {
+        props.onReady?.()
+        return
+      }
       // 已过期:Vditor 已把旧内容写进 DOM,纠正回当前状态。
       // 过期到非空会被后一次 preview 覆盖,只有过期到空需要在这里补 —— **前提是后一次更晚 resolve**。
       // 当前 content 按保存 / 刷新粒度更新,两次 preview 并发的窗口极小,故不额外处理乱序;

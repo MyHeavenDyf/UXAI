@@ -644,12 +644,11 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       },
       projects: {
         list,
-        open(directory: string, kind?: WorkspaceKind) {
+        open(directory: string) {
           const root = rootFor(directory)
           if (server.projects.list().find((x) => x.worktree === root)) return
           void globalSync.project.loadSessions(root)
-          // kind 只在所选目录即 root 时传递;归并到别的 root 时不生效
-          server.projects.open(root, directory === root ? kind : undefined)
+          server.projects.open(root)
         },
         close(directory: string) {
           server.projects.close(directory)

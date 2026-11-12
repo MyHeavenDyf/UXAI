@@ -564,6 +564,654 @@
   background: var(--octo-brand-a8);
 }
 
+.octo-assessment-menu {
+  position: fixed;
+  z-index: 99999;
+  max-width: 360px;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: octo-pop-in 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.octo-assessment-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: rgba(0, 0, 0, 0.9);
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.octo-assessment-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.octo-assessment-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.octo-assessment-item:disabled:hover {
+  background: transparent;
+}
+
+.octo-assessment-item--active,
+.octo-assessment-item--active:hover {
+  color: #0a59f7;
+  background: rgba(10, 89, 247, 0.1);
+}
+
+/* 二级菜单当前选中项 (同 addon-menu 技能列表选中态: 0.08 浅蓝底) */
+.octo-assessment-item--selected,
+.octo-assessment-item--selected:hover {
+  color: #0a59f7;
+  background: rgba(10, 89, 247, 0.08);
+}
+
+.octo-assessment-item-text {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 二级面板:与一级菜单顶部对齐 (top: 0);宽度独立自适应,同 360px 上限 */
+.octo-assessment-secondary {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: 4px;
+  max-width: 360px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.octo-assessment-secondary::-webkit-scrollbar {
+  width: 4px;
+  display: block;
+}
+
+.octo-assessment-secondary::-webkit-scrollbar-thumb {
+  background-color: #dbdbdb;
+  border-radius: 9999px;
+}
+
+.octo-assessment-secondary::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.octo-assessment-empty {
+  padding: 16px 8px;
+  font-size: 14px;
+  color: #777777;
+  text-align: center;
+}
+
+/* ── Switch Assessment Dialog (切换领域评估确认弹窗) ──────────
+   容器规格同 delete-dialog (436px / 20px 圆角 / 大投影);
+   差异: 标题 16px + hint.svg 图标,按钮 999px 圆角、取消无边框浅灰底 */
+[data-component="dialog"]:has(.switch-assessment-dialog) [data-slot="dialog-container"] {
+  width: 436px;
+}
+
+.switch-assessment-dialog[data-slot="dialog-content"] {
+  border-radius: 20px;
+  box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
+  padding: 24px 32px;
+  background: #fff;
+  border: none;
+}
+
+[data-component="dialog"]:has(.switch-assessment-dialog) [data-slot="dialog-header"] {
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+[data-component="dialog"]:has(.switch-assessment-dialog) [data-slot="dialog-close-button"] {
+  display: none;
+}
+
+.switch-assessment-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.switch-assessment-title img {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.switch-assessment-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+  padding: 0;
+}
+
+.switch-assessment-btn {
+  height: 32px;
+  padding: 5px 16px;
+  border: none;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+button.switch-assessment-btn {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.9);
+}
+
+button.switch-assessment-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+button.switch-assessment-btn-primary {
+  background: #0a59f7;
+  color: #fff;
+}
+
+button.switch-assessment-btn-primary:hover {
+  background: #0950de;
+}
+
+/* ── Assessment pins/popup/panel（评估待修改状态 UI，需求 :63-119）────────── */
+
+/* pin 弹窗（340px，白底，12px 圆角，大投影，16px 内边距） */
+.od-assessment-popup {
+  position: absolute;
+  width: 340px;
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
+  padding: 16px;
+  box-sizing: border-box;
+  z-index: 1000;
+}
+
+.od-assessment-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.od-assessment-popup-title {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.od-assessment-popup-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  padding: 0;
+}
+
+.od-assessment-popup-close:hover {
+  color: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* 类型标签（12px/20px，999px 圆角，三类配色） */
+.od-assessment-tag {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 20px;
+  height: 20px;
+  border-radius: 999px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.od-assessment-tag--token {
+  background: rgba(28, 148, 164, 0.15);
+  color: rgba(9, 76, 87, 1);
+}
+
+.od-assessment-tag--component {
+  background: rgba(213, 211, 253, 0.6);
+  color: rgba(40, 22, 117, 1);
+}
+
+.od-assessment-tag--page {
+  background: rgba(208, 216, 253, 0.5);
+  color: rgba(31, 85, 181, 1);
+}
+
+.od-assessment-tag--default {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.od-assessment-popup-section {
+  margin-top: 16px;
+}
+
+.od-assessment-popup-section-title,
+.od-assessment-details-title {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.od-assessment-popup-section-body,
+.od-assessment-details-body {
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.9);
+  word-break: break-word;
+}
+
+/* 修改建议框（绿线 3px） */
+.od-assessment-popup-suggest,
+.od-assessment-details-suggest {
+  margin-top: 4px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(9, 170, 113, 0.06);
+  display: flex;
+  gap: 12px;
+}
+
+.od-assessment-popup-suggest-line,
+.od-assessment-details-suggest-line {
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 3px;
+  border-radius: 999px;
+  background: rgba(9, 170, 113, 1);
+}
+
+/* 多值 pin 下拉：复用 octo-assessment-menu，但锚点（pinPosition）是容器坐标——
+   必须覆盖为 absolute（fixed 会把容器坐标当视口坐标用，导致下拉整体偏移），与 pin 弹窗同锚定系 */
+.od-assessment-pin-dropdown {
+  position: absolute;
+  z-index: 1001;
+  max-width: 280px;
+}
+
+/* ── 评估结果面板 ── */
+.od-assessment-panel {
+  position: absolute;
+  width: 400px;
+  max-width: calc(100% - 24px);
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.16);
+  padding: 16px;
+  box-sizing: border-box;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.od-assessment-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.od-assessment-panel-header:active {
+  cursor: grabbing;
+}
+
+.od-assessment-panel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(25, 25, 25, 1);
+}
+
+.od-assessment-panel-close {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  padding: 0;
+}
+
+.od-assessment-panel-close:hover {
+  color: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* 空态 */
+.od-assessment-panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0 4px;
+}
+
+.od-assessment-panel-empty img {
+  margin-top: 16px;
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.od-assessment-panel-empty-text {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 22px;
+  color: black;
+  text-align: center;
+}
+
+.od-assessment-panel-empty-link {
+  color: #0a59f7;
+  cursor: pointer;
+}
+
+/* 一级 Tab（选中蓝字 + 2px 等宽下划线） */
+.od-assessment-tabs {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+  flex-shrink: 0;
+}
+
+.od-assessment-tab {
+  position: relative;
+  border: none;
+  background: transparent;
+  padding: 0 0 6px;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.od-assessment-tab--active {
+  color: rgba(10, 89, 247, 1);
+}
+
+.od-assessment-tab--active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: rgba(10, 89, 247, 1);
+  border-radius: 1px;
+}
+
+/* 二级筛选（文字 + 1×12px 分隔线，间隔 8px） */
+.od-assessment-subfilters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.od-assessment-subfilter {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.od-assessment-subfilter--active {
+  color: rgba(10, 89, 247, 1);
+}
+
+.od-assessment-subfilter-divider {
+  width: 1px;
+  height: 12px;
+  background: rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+/* 问题列表（max-height 700px，滚动条走 octo-thin-scroll） */
+.od-assessment-list {
+  margin-top: 16px;
+  max-height: 700px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.od-assessment-card {
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.od-assessment-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 复选框（16px，选中蓝底 + check 图标；半选横线态） */
+.od-assessment-checkbox {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  border: 1px solid #939393;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.od-assessment-checkbox--checked {
+  background: rgba(10, 89, 247, 1);
+  border-color: rgba(10, 89, 247, 1);
+}
+
+.od-assessment-checkbox img {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.od-assessment-checkbox[data-indeterminate="true"] {
+  border-color: rgba(10, 89, 247, 1);
+}
+
+.od-assessment-checkbox[data-indeterminate="true"]::after {
+  content: "";
+  width: 8px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: rgba(10, 89, 247, 1);
+}
+
+.od-assessment-row-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.od-assessment-row-title {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-left: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.od-assessment-row-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-drag: none;
+  transition: transform 150ms ease;
+}
+
+.od-assessment-row-chevron--open {
+  transform: rotate(180deg);
+}
+
+/* 展开明细 */
+.od-assessment-details {
+  margin-top: 8px;
+}
+
+.od-assessment-details-section {
+  margin-top: 12px;
+}
+
+.od-assessment-details-section:first-child {
+  margin-top: 0;
+}
+
+/* 底部操作栏 */
+.od-assessment-footer {
+  display: flex;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.od-assessment-select-all-label {
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.od-assessment-footer-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.od-assessment-btn-reject {
+  height: 32px;
+  padding: 5px 16px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.9);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.od-assessment-btn-reject:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.od-assessment-btn-adopt {
+  height: 32px;
+  padding: 5px 16px;
+  border: none;
+  border-radius: 999px;
+  background: #0a59f7;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.od-assessment-btn-adopt:hover {
+  background: #0950de;
+}
+
+.od-assessment-btn-adopt:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.od-assessment-btn-adopt:disabled:hover {
+  background: #0a59f7;
+}
+
 button[title="版本历史"] {
   display: none;
 }

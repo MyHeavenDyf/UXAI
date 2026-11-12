@@ -5,7 +5,7 @@ import * as Tool from "./tool"
 import * as Truncate from "./truncate"
 import { InstanceState } from "@/effect/instance-state"
 import { Session } from "@/session/session"
-import SPREADSHEETS_SKILL_RAW from "@/agent/skills/octo_insight/spreadsheets/SKILL.md"
+import XLSX_GUIDANCE from "./extract_document.xlsx.txt"
 
 // extract_document —— 把本地文档(docx/xlsx/pdf/pptx/txt/md)抽取成文本,供 insight 本地模型直接读。
 // SPEC-INS-015 文件传参路由 ②(office → 模型读)+ SPEC-INS-021 §3(txt/md 直读,解析源统一入口):
@@ -36,8 +36,7 @@ export const Parameters = Schema.Struct({
 const SUPPORTED = ["docx", "xlsx", "pdf", "pptx", "txt", "md"] as const
 type Supported = (typeof SUPPORTED)[number]
 
-const XLSX_SKILL_AGENTS = new Set(["octo_insight", "insight_reader"])
-const SPREADSHEETS_SKILL = SPREADSHEETS_SKILL_RAW.replace(/^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n/, "").trim()
+const XLSX_GUIDANCE_AGENTS = new Set(["octo_insight", "insight_reader"])
 
 type ExtractDetail = {
   pages?: number
@@ -76,15 +75,13 @@ function xlsxGuidance(format: string, detail: ExtractDetail, agent: string) {
     ...rows.map((sheet) => `- ${sheet.name}: ${sheet.nonEmptyRows} 个非空行（包含可能存在的表头）`),
     "回答数据行数时，先判断每张工作表的第一行是否为表头；若是，每张表分别减 1。",
   ].join("\n")
-  if (!XLSX_SKILL_AGENTS.has(agent)) return summary
+  if (!XLSX_GUIDANCE_AGENTS.has(agent)) return summary
   return [
     summary,
     "",
-    '<skill_content name="spreadsheets" auto_injected="true">',
-    "# Skill: spreadsheets",
-    "",
-    SPREADSHEETS_SKILL,
-    "</skill_content>",
+    '<document_guidance format="xlsx">',
+    XLSX_GUIDANCE.trim(),
+    "</document_guidance>",
   ].join("\n")
 }
 

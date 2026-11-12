@@ -121,6 +121,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   const isExternal = createMemo(() => !!local.model.current()?.isExternal)
 
+  // 代码工作区「拉取/提交代码」:git 经桌面端 git-command IPC 执行(白名单子命令),
+  // 浏览器 dev 环境无 window.api.gitCommand 时按钮保持禁用
+  const [gitAvailable, setGitAvailable] = createSignal(false)
+  const [gitBusy, setGitBusy] = createSignal<"pull" | "commit" | null>(null)
+
   // 外网模型上传限制:仅允许 .txt .html .md .png .jpg .jpeg,单文件 ≤ 2MB;不符合 toast 提示并跳过
   function checkExternalFile(file: File): boolean {
     if (!local.model.current()?.isExternal) return true
@@ -199,12 +204,21 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
   ))
 
+  // git remote -v 有输出(是代码仓且已关联远程)才启用拉取/提交按钮;非代码仓/无远程/spawn 失败均禁用
+  createEffect(on(
+    [() => sdk.directory, projectScope],
+    () => {
+      void detectGit()
+    }
+  ))
+
   const refresh = async () => {
     const category = fileStore.store.currentCategory
     const path = fileStore.store.currentPath
     const scope = projectScope() ? ("project" as const) : undefined
 
     fileStore.setLoading(true)
+    fileStore.setError(null)
     try {
       if (!category) {
         if (scope) {
@@ -242,6 +256,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       }
       fileStore.setError(null)
     } catch (err) {
+      console.error("[DesignFilesPanel] refresh failed:", err)
       const message = err instanceof Error ? err.message : String(err)
       fileStore.setError(message)
     } finally {
@@ -434,6 +449,81 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
     api.showItemInFolder(file.path)
     tracker.interaction({ module: "design", name: "files-open-in-explorer" })
+  }
+
+  // git 执行入口:桌面端 git-command IPC;不可用(浏览器 dev/无目录)或 spawn 级失败返回 undefined
+  async function runGit(args: string[]): Promise<{ ok: boolean; code: number; stdout: string; stderr: string } | undefined> {
+    const api = getDesktopApi()
+    const dir = sdk.directory
+    if (!api?.gitCommand || !dir) return undefined
+    try {
+      return await api.gitCommand(dir, args)
+    } catch (err) {
+      console.error("[DesignFilesPanel] git spawn failed:", args.join(" "), err)
+      return undefined
+    }
+  }
+
+  async function detectGit() {
+    if (!projectScope()) return
+    const result = await runGit(["remote", "-v"])
+    setGitAvailable(!!result && result.ok && result.stdout.trim() !== "")
+  }
+
+  const gitBusyGuard = () => gitBusy() !== null || !gitAvailable()
+
+  async function handleGitPull() {
+    if (gitBusyGuard()) return
+    setGitBusy("pull")
+    try {
+      const result = await runGit(["pull", "--rebase"])
+      if (result?.ok) {
+        showOctoToast({ title: "拉取完成", description: result.stdout.trim().split("\n")[0] || undefined })
+        tracker.interaction({ module: "design", name: "files-git-pull" })
+        await refresh()
+        props.onFilesRefresh?.()
+      } else {
+        showOctoToast({ title: "拉取失败", description: result ? result.stderr.trim() || `exit ${result.code}` : "当前环境不支持此操作", variant: "error" })
+      }
+    } finally {
+      setGitBusy(null)
+      void detectGit()
+    }
+  }
+
+  async function handleGitCommitPush() {
+    if (gitBusyGuard()) return
+    setGitBusy("commit")
+    try {
+      const addResult = await runGit(["add", "."])
+      if (!addResult?.ok) {
+        showOctoToast({ title: "提交失败", description: addResult ? addResult.stderr.trim() || `exit ${addResult.code}` : "当前环境不支持此操作", variant: "error" })
+        return
+      }
+      const commitResult = await runGit(["commit", "-m", "octoagent commit"])
+      if (!commitResult) {
+        showOctoToast({ title: "提交失败", description: "当前环境不支持此操作", variant: "error" })
+        return
+      }
+      // nothing to commit:本地无新变更(可能存在未推送提交),继续 push
+      if (!commitResult.ok && !/nothing to commit/i.test(commitResult.stderr + commitResult.stdout)) {
+        showOctoToast({ title: "提交失败", description: commitResult.stderr.trim() || `exit ${commitResult.code}`, variant: "error" })
+        return
+      }
+      // push.default=upstream
+      const pushResult = await runGit(["-c", "push.default=upstream", "push"])
+      if (!pushResult?.ok) {
+        showOctoToast({ title: "推送失败", description: pushResult ? pushResult.stderr.trim() || `exit ${pushResult.code}` : "当前环境不支持此操作", variant: "error" })
+        return
+      }
+      showOctoToast({ title: "提交完成" })
+      tracker.interaction({ module: "design", name: "files-git-commit-push" })
+      await refresh()
+      props.onFilesRefresh?.()
+    } finally {
+      setGitBusy(null)
+      void detectGit()
+    }
   }
 
   const handleUpload = async (files: FileList) => {
@@ -831,6 +921,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           onBatchDownload={handleBatchDownload}
           onBatchDelete={handleBatchDelete}
           showDelete={!projectScope()}
+          gitEnabled={projectScope() ? gitAvailable : undefined}
+          gitBusy={projectScope() ? gitBusy : undefined}
+          onGitPull={projectScope() ? handleGitPull : undefined}
+          onGitPush={projectScope() ? handleGitCommitPush : undefined}
         />
       </Show>
 
@@ -907,8 +1001,22 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           </Show>
 
           <Show when={fileStore.store.error}>
-            <div class="p-4 text-text-diff-delete-base text-[14px] leading-[22px]">
-              Error: {fileStore.store.error}
+            <div class="flex items-center gap-2 p-4 text-text-diff-delete-base text-[14px] leading-[22px]">
+              <span>Error: {fileStore.store.error}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  refresh()
+                  tracker.interaction({ module: "design", name: "files-refresh" })
+                }}
+                disabled={fileStore.store.loading}
+                class="flex items-center justify-center p-0 bg-transparent transition-colors cursor-pointer active:text-[#0a59f7]"
+                title="Refresh"
+              >
+                <Show when={fileStore.store.loading} fallback={<IconRefresh size={16} />}>
+                  <Spinner class="size-[16px]" />
+                </Show>
+              </button>
             </div>
           </Show>
 
@@ -1156,6 +1264,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     onOpenInExplorer={handleOpenInExplorer}
                     onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "generated")}
                     onAddToSession={props.onAddToSession}
+                    requestAddToSession={request}
                     language={language}
                   />
                 </Show>
@@ -1183,6 +1292,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onOpenInExplorer={handleOpenInExplorer}
                       onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "generated")}
                       onAddToSession={props.onAddToSession}
+                      requestAddToSession={request}
                       language={language}
                     />
                   </Show>
@@ -1210,6 +1320,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onOpenInExplorer={handleOpenInExplorer}
                       onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "uploaded")}
                       onAddToSession={props.onAddToSession}
+                      requestAddToSession={request}
                       language={language}
                     />
                   </Show>
@@ -1232,6 +1343,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     onOpenInExplorer={handleOpenInExplorer}
                     onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, fileStore.store.currentCategory!)}
                     onAddToSession={props.onAddToSession}
+                    requestAddToSession={request}
                     language={language}
                   />
                 </Show>
@@ -1313,6 +1425,7 @@ function KindGroupRows(props: {
   onOpenInExplorer: (file: ArtifactFile) => void
   onNavigateFolder?: (folder: ArtifactFile) => void
   onAddToSession?: (file: ArtifactFile) => void
+  requestAddToSession: (action: () => void) => void
   language: ReturnType<typeof useLanguage>
 }): JSX.Element {
   return (
@@ -1350,6 +1463,8 @@ function KindGroupRows(props: {
                       onOpenInExplorer={() => props.onOpenInExplorer(file)}
                       onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                       onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
+                      requestAddToSession={props.requestAddToSession}
+                      language={props.language}
                     />
                   )}
                 </For>
@@ -1387,6 +1502,8 @@ function KindGroupRows(props: {
                       onOpenInExplorer={() => props.onOpenInExplorer(file)}
                       onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                       onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
+                      requestAddToSession={props.requestAddToSession}
+                      language={props.language}
                     />
                   )}
                 </For>
@@ -1410,11 +1527,11 @@ function FileRow(props: {
   onOpenInExplorer: () => void
   onNavigateFolder?: () => void
   onAddToSession?: () => void
+  requestAddToSession: (action: () => void) => void
+  language: ReturnType<typeof useLanguage>
 }): JSX.Element {
-  const language = useLanguage()
   const [showMenu, setShowMenu] = createSignal(false)
   const [imageError, setImageError] = createSignal(false)
-  const { request: requestAddToSession, gate: addToSessionGate } = useUploadRiskGate({ module: "design" })
 
   return (
     <>
@@ -1462,7 +1579,7 @@ function FileRow(props: {
           <div class="flex items-center" style={{ gap: "10px" }}>
             {(() => {
               if ((props.file.kind === "image" || props.file.kind === "svg") && !imageError()) {
-                const imgSrc = pathToLocalUrl(props.file.path)
+                const imgSrc = `${pathToLocalUrl(props.file.path)}?v=${props.file.mtime}`
                 return (
                   <img
                     src={imgSrc}
@@ -1488,10 +1605,10 @@ function FileRow(props: {
           </div>
         </td>
       <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
-        {language.t(kindToI18nKey(props.file.kind))}
+        {props.language.t(kindToI18nKey(props.file.kind))}
       </td>
-      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>
-        {formatTimestamp(props.file.mtime, language.t)}
+      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>
+        {formatTimestamp(props.file.mtime, props.language.t)}
       </td>
       <td class="w-[60px] px-4" style={{ "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
         <Kobalte open={showMenu()} onOpenChange={setShowMenu} modal={false} placement="bottom-end" gutter={4}>
@@ -1515,7 +1632,7 @@ function FileRow(props: {
                   type="button"
                   onClick={() => {
                     setShowMenu(false)
-                    requestAddToSession(() => {
+                    props.requestAddToSession(() => {
                       props.onAddToSession!()
                       tracker.interaction({ module: "design", name: "files-add-to-session" })
                     })
@@ -1585,7 +1702,6 @@ function FileRow(props: {
         </Kobalte>
       </td>
     </tr>
-    {addToSessionGate}
     </>
   )
 }

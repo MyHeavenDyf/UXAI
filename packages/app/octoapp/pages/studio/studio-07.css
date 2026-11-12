@@ -1,5 +1,6 @@
 .studio-video-risk-overlay,
-.studio-style-template-delete-overlay {
+.studio-style-template-delete-overlay,
+.studio-history-delete-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -19,12 +20,32 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
 }
 
+.studio-history-delete-dialog {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 374px;
+  height: 184px;
+  padding: 20px 24px 24px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+}
+
 .studio-video-risk-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 10px;
+}
+
+.studio-history-delete-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 16px;
 }
 
 .studio-video-risk-heading {
@@ -34,13 +55,22 @@
   gap: 16px;
 }
 
-.studio-video-risk-icon {
+.studio-history-delete-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.studio-video-risk-icon,
+.studio-history-delete-icon {
   flex: 0 0 auto;
   width: 20px;
   height: 20px;
 }
 
-.studio-video-risk-title {
+.studio-video-risk-title,
+.studio-history-delete-title {
   margin: 0;
   color: #191919;
   font-size: 16px;
@@ -48,7 +78,8 @@
   line-height: 24px;
 }
 
-.studio-video-risk-close {
+.studio-video-risk-close,
+.studio-history-delete-close {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -65,12 +96,15 @@
   line-height: 1;
 }
 
-.studio-video-risk-close:hover {
+.studio-video-risk-close:hover,
+.studio-history-delete-close:hover {
   background: rgba(25, 25, 25, 0.06);
 }
 
 .studio-video-risk-close:focus-visible,
-.studio-video-risk-button:focus-visible {
+.studio-video-risk-button:focus-visible,
+.studio-history-delete-close:focus-visible,
+.studio-history-delete-button:focus-visible {
   outline: 2px solid #1769ff;
   outline-offset: 2px;
 }
@@ -78,6 +112,15 @@
 .studio-video-risk-content {
   margin-bottom: 30px;
   margin-left: 36px;
+  color: #191919;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.studio-history-delete-content {
+  margin-bottom: auto;
+  margin-left: 28px;
   color: #191919;
   font-size: 14px;
   font-weight: 400;
@@ -98,13 +141,15 @@
   margin-bottom: 8px;
 }
 
-.studio-video-risk-actions {
+.studio-video-risk-actions,
+.studio-history-delete-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
 }
 
-.studio-video-risk-button {
+.studio-video-risk-button,
+.studio-history-delete-button {
   width: 88px;
   height: 32px;
   border: 0;
@@ -115,20 +160,24 @@
   line-height: 22px;
 }
 
-.studio-video-risk-button-cancel {
+.studio-video-risk-button-cancel,
+.studio-history-delete-button-cancel {
   color: #191919;
   background: #f1f1f1;
 }
 
-.studio-video-risk-button-cancel:hover {
+.studio-video-risk-button-cancel:hover,
+.studio-history-delete-button-cancel:hover {
   background: #e7e7e7;
 }
 
-.studio-video-risk-button-confirm {
+.studio-video-risk-button-confirm,
+.studio-history-delete-button-confirm {
   color: #fff;
   background: #0969ff;
 }
 
-.studio-video-risk-button-confirm:hover {
+.studio-video-risk-button-confirm:hover,
+.studio-history-delete-button-confirm:hover {
   background: #0057df;
 }

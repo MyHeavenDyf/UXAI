@@ -25,6 +25,8 @@ import otherIconUrl from "../../icons/other.svg"
 export interface AssetFolder {
   name: string
   id: number
+  /** 当前文件夹自身的文件数(不含子文件夹;树节点显示值为自身+所有子孙之和) */
+  fileCount?: number
   children?: AssetFolder[]
 }
 
@@ -46,6 +48,9 @@ export interface AssetFile {
   convertHtmlUrl?: string
   /** type 40:EDM 文档路径(下载路径 = s3BaseUrl + '/' + docPath) */
   docPath?: string
+  /** type 40:md 源文件地址(与 parseDocPath 成对出现时,下载路径改用 parseS3BaseUrl + '/' + parseDocPath,文件名后缀改 md) */
+  parseS3BaseUrl?: string
+  parseDocPath?: string
   /** type 40:EDM 下载所需的文档 id */
   docId?: string
   /** type 40:文件字节数 */
@@ -108,13 +113,15 @@ const MOCK_TEAM_TREE: AssetFolder[] = [
   {
     name: "页面资产",
     id: 311100,
+    fileCount: 1,
     children: [
       {
         name: "test1",
         id: 312220,
-        children: [{ name: "test2", id: 312220 }],
+        fileCount: 2,
+        children: [{ name: "test2", id: 312220, fileCount: 2 }],
       },
-      { name: "test2", id: 323220 },
+      { name: "test2", id: 323220, fileCount: 5 },
     ],
   },
 ]
@@ -162,6 +169,16 @@ const MOCK_FILES: AssetFile[] = [
     snapshot: "image/report-thumb.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     fileSize: 20480,
+  },
+  {
+    type: 40,
+    id: 5555,
+    fileName: "接口文档.md",
+    docPath: "assets/1753/api-doc.md",
+    parseS3BaseUrl: "http://127.0.0.1:8080/",
+    parseDocPath: "src/aaa",
+    s3BaseUrl: "http://127.0.0.1:8080/",
+    fileSize: 4096,
   },
 ]
 
@@ -214,6 +231,24 @@ export function assetFileId(file: AssetFile): string {
   const base = joinUrl(file.s3BaseUrl || "", file.convertHtmlUrl || "")
   if (file.convertHtmlUrl) return base
   return joinUrl(base, file.fileName)
+}
+
+/** type 40 是否带 md 源文件字段(成对出现才生效) */
+export function hasAssetParseSource(file: Pick<AssetFile, "parseS3BaseUrl" | "parseDocPath">): boolean {
+  return !!(file.parseS3BaseUrl && file.parseDocPath)
+}
+
+/**
+ * 资产的展示/保存文件名。type 40 带 parse 字段时下载的是 md 源文件,
+ * fileName 的后缀名改为 md;其余场景原样返回 fileName。
+ */
+export function getAssetDisplayName(file: AssetFile): string {
+  if (file.type === 40 && hasAssetParseSource(file)) {
+    const dot = file.fileName.lastIndexOf(".")
+    const base = dot > 0 ? file.fileName.slice(0, dot) : file.fileName
+    return `${base}.md`
+  }
+  return file.fileName
 }
 
 async function getJson(url: string): Promise<any> {

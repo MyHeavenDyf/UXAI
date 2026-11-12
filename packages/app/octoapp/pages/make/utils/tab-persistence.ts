@@ -21,7 +21,7 @@ export interface PersistenceOptions {
   snapshotStore: { save: (tab: ResultTab) => void }
   refreshSnapshots: () => void
   skipSnapshot?: boolean
-  /** 工作区分类:"code"(代码工作区)时产物落项目根;缺省 "normal" 落 .octo/<sessionId>/outputs */
+  /** 工作区分类:"code"(代码工作区)时产物落 output/<sid前缀>/<原名>;缺省 "normal" 落 .octo/<sessionId>/outputs */
   workspaceKind?: WorkspaceKind
 }
 
@@ -56,7 +56,7 @@ export async function persistTabChanges(
   
   // 3. Auto-save to project directory (Electron environment only)
   // Skip if file is from Design Files panel (already exists on disk)
-  // 代码工作区:项目根文件同样已在盘上,autoSaveArtifact 的"已存在即跳过"策略兜底 (isFromDesignFiles 不匹配 .octo 路径)
+  // 代码工作区:output/ 下的产物文件同样已在盘上,autoSaveArtifact 的"已存在即跳过"策略兜底 (isFromDesignFiles 不匹配 .octo 路径)
   const normalizedPath = tab.filePath?.replace(/\\/g, "/")
   const isFromDesignFiles = normalizedPath && normalizedPath.includes(".octo/") && normalizedPath.includes(`/${options.sessionId}/`)
   if (options.projectDir && !isFromDesignFiles && tab.type !== "local-file") {

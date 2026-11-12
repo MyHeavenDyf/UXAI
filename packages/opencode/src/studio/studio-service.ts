@@ -47,14 +47,19 @@ import { Instance } from "@/project/instance"
 import { registerDisposer } from "@/effect/instance-registry"
 import { makeRuntime } from "@/effect/run-service"
 import { Effect, Stream } from "effect"
+import { assertCanGenerate, withStudioSubmission } from "./prompt-recommendation-state"
 import type { ImageGenerationQuery, ImageGenerationTask, ImageGenerateOutput, StudioCapability } from "./image-provider"
+import { resolveStudioVideoQualityMode } from "./image-provider"
 import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-generation.sql"
 import {
   enqueueStudioMediaThumbnails,
   prepareStudioThumbnailMedia,
 } from "./studio-media-thumbnail"
+import { generationHistorySnapshot, materializeStudioGeneration } from "./studio-history-service"
 
 type StudioProvider = "jimeng" | "internel"
+const STUDIO_GENERATION_POLL_TIMEOUT_MS = 60 * 60_000
+const STUDIO_GENERATION_ABNORMAL_MESSAGE = "生成耗时较长，状态异常，请刷新状态"
 type StudioPersistedTurn = {
   assistantInfo: MessageV2.Assistant
   toolPart: MessageV2.ToolPart & { state: MessageV2.ToolStateRunning }
@@ -158,7 +163,9 @@ export type StudioGenerationResult = {
   task_type?: string
   taskId?: string
   model: string
+  styleModel?: string
   aspectRatio: string
+  isCustom?: boolean
   videoMode?: "text" | "first_last_frame"
   duration?: string
   videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -243,6 +250,7 @@ export type StudioGenerationAccepted = Pick<
   | "detailTitle"
   | "provider"
   | "model"
+  | "styleModel"
   | "aspectRatio"
   | "taskId"
   | "images"
@@ -291,12 +299,7 @@ function videoDuration(input: StudioGenerationRequest) {
 }
 
 function videoQualityMode(input: StudioGenerationRequest): "480" | "720" | "1080" | "4k" {
-  const value = input.extra?.resolution
-  if (value === "480p") return "480"
-  if (value === "720p") return "720"
-  if (value === "1080p") return "1080"
-  if (value === "4k") return "4k"
-  return "480"
+  return resolveStudioVideoQualityMode(input) ?? "480"
 }
 
 function isEditorGenerationCapability(capability: StudioCapability) {
@@ -1258,6 +1261,13 @@ async function generateStudioDetailTitle(input: {
   }
 }
 
+export function promptExpansionMessageMetadata(extra: Record<string, unknown> | undefined) {
+  const source = extra?.promptExpansionSource
+  if (!source || typeof source !== "object" || Array.isArray(source)) return
+  if (!("assistantMessageID" in source) || typeof source.assistantMessageID !== "string" || !source.assistantMessageID.trim()) return
+  return { studioPromptExpansionSource: { assistantMessageID: source.assistantMessageID } }
+}
+
 function persistStudioSession(input: {
   generationID: string
   sessionID: SessionID
@@ -1321,6 +1331,7 @@ function persistStudioSession(input: {
     messageID: userID,
     type: "text",
     text: displayPrompt,
+    metadata: promptExpansionMessageMetadata(input.request.extra),
   }
   const assistantTextPart: MessageV2.TextPart = {
     id: assistantTextPartID,
@@ -1343,7 +1354,7 @@ function persistStudioSession(input: {
       metadata: {
         studio: {
           generationID: input.generationID,
-          status: "queued",
+          status: "creating",
           progress: 0,
         },
       },
@@ -1360,22 +1371,26 @@ function persistStudioSession(input: {
     time: input.createdAt,
   })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: input.createdAt })
-  Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: input.createdAt }).where(eq(SessionTable.id, input.sessionID)).run(),
-  )
+  SyncEvent.run(Session.Event.Updated, { sessionID: input.sessionID, info: { time: { updated: input.createdAt } } })
   return {
     assistantInfo,
     toolPart,
   }
 }
 
-export async function createEditorEntry(input: StudioEditorEntryRequest): Promise<StudioEditorEntryResult> {
+export function createEditorEntry(input: StudioEditorEntryRequest): Promise<StudioEditorEntryResult> {
+  return withStudioSubmission(input.sessionID, () => createEditorEntryImpl(input))
+}
+
+async function createEditorEntryImpl(input: StudioEditorEntryRequest): Promise<StudioEditorEntryResult> {
   const sessionID = SessionID.zod.parse(input.sessionID)
   const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
   if (!session) throw new Error(`Studio session not found: ${sessionID}`)
   if (session.directory !== Instance.directory)
     throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
   if (session.agent !== "octo_studio") throw new Error(`Session is not a Studio session: ${sessionID}`)
+
+  assertCanGenerate(input.sessionID)
 
   const callID = `studio_editor_entry_${input.entryID}`
   const existing = Database.use((db) =>
@@ -1494,9 +1509,7 @@ export async function createEditorEntry(input: StudioEditorEntryRequest): Promis
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID, part: userTextPart, time: createdAt })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID, part: assistantTextPart, time: createdAt })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID, part: toolPart, time: createdAt })
-  Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: createdAt }).where(eq(SessionTable.id, sessionID)).run(),
-  )
+  SyncEvent.run(Session.Event.Updated, { sessionID, info: { time: { updated: createdAt } } })
   return {
     entryID: input.entryID,
     userMessageID: userID,
@@ -1592,13 +1605,10 @@ function completeStudioSession(input: {
     part: toolPart,
     time: input.result.completedAt,
   })
-  Database.use((db) =>
-    db
-      .update(SessionTable)
-      .set({ time_updated: input.result.completedAt })
-      .where(eq(SessionTable.id, input.sessionID))
-      .run(),
-  )
+  SyncEvent.run(Session.Event.Updated, {
+    sessionID: input.sessionID,
+    info: { time: { updated: input.result.completedAt } },
+  })
 }
 
 function failStudioSession(input: {
@@ -1607,7 +1617,7 @@ function failStudioSession(input: {
   error: unknown
   rawStatus?: number | string
   taskId?: string
-  studioStatus?: Extract<StudioGenerationStatus, "create_failed" | "failed">
+  studioStatus?: Extract<StudioGenerationStatus, "create_failed" | "failed" | "abnormal">
 }) {
   const completedAt = Date.now()
   const message = input.error instanceof Error ? input.error.message : String(input.error)
@@ -1643,13 +1653,16 @@ function failStudioSession(input: {
   }
   SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo })
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: completedAt })
-  Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: completedAt }).where(eq(SessionTable.id, input.sessionID)).run(),
-  )
+  SyncEvent.run(Session.Event.Updated, { sessionID: input.sessionID, info: { time: { updated: completedAt } } })
 }
 
-function restoreStudioSession(input: { record: StudioGenerationRecord; task: ImageGenerationTask }) {
-  const updatedAt = Date.now()
+function prepareStudioSessionRestore(input: {
+  record: StudioGenerationRecord
+  task: ImageGenerationTask
+  query?: ImageGenerationQuery
+  updatedAt?: number
+}) {
+  const updatedAt = input.updatedAt ?? Date.now()
   const turn = loadAnyPersistedTurn(input.record)
   const state = turn.toolPart.state
   const metadata = state.status === "pending" ? undefined : state.metadata
@@ -1668,7 +1681,7 @@ function restoreStudioSession(input: { record: StudioGenerationRecord; task: Ima
     state: {
       status: "running",
       input: state.input,
-      title: "图片生成",
+      title: input.record.capability === "video.generate" ? "视频生成" : "图片生成",
       metadata: {
         ...metadata,
         statusCode: undefined,
@@ -1677,10 +1690,10 @@ function restoreStudioSession(input: { record: StudioGenerationRecord; task: Ima
             ? (studioMetadata as Record<string, unknown>)
             : {}),
           generationID: input.record.id,
-          status: "running",
-          rawStatus: undefined,
-          progress: 0,
-          order: undefined,
+          status: input.query?.status === "queued" ? "queued" : "running",
+          rawStatus: input.query?.rawStatus,
+          progress: input.query?.progress ?? 0,
+          order: input.query?.order,
           taskId: input.task.taskId,
         },
       },
@@ -1689,11 +1702,30 @@ function restoreStudioSession(input: { record: StudioGenerationRecord; task: Ima
       },
     },
   }) as MessageV2.ToolPart
-  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.record.session_id, info: assistantInfo })
-  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.record.session_id, part: toolPart, time: updatedAt })
-  Database.use((db) =>
-    db.update(SessionTable).set({ time_updated: updatedAt }).where(eq(SessionTable.id, input.record.session_id)).run(),
-  )
+  return { sessionID: input.record.session_id, assistantInfo, toolPart, updatedAt }
+}
+
+function applyStudioSessionUpdate(input: {
+  sessionID: SessionID
+  assistantInfo: MessageV2.Assistant
+  toolPart: MessageV2.ToolPart
+  updatedAt: number
+}) {
+  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: input.assistantInfo })
+  SyncEvent.run(MessageV2.Event.PartUpdated, {
+    sessionID: input.sessionID,
+    part: input.toolPart,
+    time: input.updatedAt,
+  })
+  SyncEvent.run(Session.Event.Updated, { sessionID: input.sessionID, info: { time: { updated: input.updatedAt } } })
+}
+
+function restoreStudioSession(input: {
+  record: StudioGenerationRecord
+  task: ImageGenerationTask
+  query?: ImageGenerationQuery
+}) {
+  applyStudioSessionUpdate(prepareStudioSessionRestore(input))
 }
 
 function failGenerationCreation(input: {
@@ -1730,6 +1762,29 @@ function generationRequest(record: StudioGenerationRecord) {
   const data = record.request as { input?: StudioGenerationRequest; task?: ImageGenerationTask }
   if (!data.input) throw new Error(`Studio generation ${record.id} has no request input.`)
   return data as { input: StudioGenerationRequest; task?: ImageGenerationTask }
+}
+
+function internalGenerationTask(record: StudioGenerationRecord): ImageGenerationTask {
+  if (record.provider !== "internel")
+    throw new Error(`Studio generation provider cannot be queried: ${record.provider}`)
+  if (!record.provider_task_id) throw new Error(`Studio generation has no provider task id: ${record.id}`)
+  const data = generationRequest(record)
+  if (data.task?.taskId && data.task.taskId !== record.provider_task_id) {
+    console.warn("[studio.service] provider task id mismatch", {
+      id: record.id,
+      persistedTaskId: data.task.taskId,
+      providerTaskId: record.provider_task_id,
+    })
+  }
+  return {
+    provider: "internel",
+    model: data.task?.model ?? data.input.styleModel ?? "internel",
+    capability: data.task?.capability ?? data.input.capability,
+    toolAction: data.task?.toolAction ?? toolActionForCapability(data.input.capability),
+    taskId: record.provider_task_id,
+    input: data.task?.input ?? data.input,
+    request: data.task?.request ?? {},
+  }
 }
 
 function loadAnyPersistedTurn(record: StudioGenerationRecord): StudioAnyPersistedTurn {
@@ -1832,12 +1887,13 @@ function markGenerationCancelled(input: {
       if (current.status === "create_failed" && current.raw_status === "4" && input.status === "create_failed")
         return "cancelled" as const
       if (
+        current.status !== "creating" &&
         current.status !== "queued" &&
         current.status !== "running" &&
         !(current.status === "create_failed" && current.raw_status === "4" && input.status === "failed")
       )
         return "terminal" as const
-      const updateTurn = current.status === "queued" || current.status === "running"
+      const updateTurn = current.status === "creating" || current.status === "queued" || current.status === "running"
       db.update(StudioGenerationTable)
         .set({
           status: input.status,
@@ -1868,6 +1924,14 @@ function markGenerationCancelled(input: {
   return claimed
 }
 
+function videoSnapshotFields(record: StudioGenerationRecord): Pick<StudioGenerationResult, "videoMode" | "videoQualityMode"> {
+  const input = generationRequest(record).input
+  return {
+    videoMode: videoMode(input),
+    videoQualityMode: resolveStudioVideoQualityMode(input, record.result?.videoQualityMode),
+  }
+}
+
 function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAccepted {
   const data = generationRequest(record)
   const result = record.result as StudioGenerationResult | undefined
@@ -1882,6 +1946,9 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     detailTitle: data.input.detailTitle,
     provider: record.provider,
     model: result?.model ?? data.task?.model ?? data.input.styleModel ?? "internel",
+    // 详情面板优先展示 styleModel，与生成时选择的风格模型保持一致；
+    // 编辑类能力与工具输入同口径，不携带 styleModel。
+    styleModel: isEditorGenerationCapability(record.capability) ? undefined : data.input.styleModel,
     aspectRatio: result?.aspectRatio ?? data.input.aspectRatio ?? "3:4",
     taskId: result?.taskId ?? data.task?.taskId ?? record.provider_task_id ?? undefined,
     images: result?.images ?? [],
@@ -2070,13 +2137,308 @@ async function completeGeneration(record: StudioGenerationRecord, output: ImageG
   )
   if (!claimed) return
   completeStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), result })
+  // 历史物化是非关键副作用：失败只记日志（backfill 会在下次列表时自愈），
+  // 不能让它跳过后续的服务端缩略图生成。
+  try {
+    materializeStudioGeneration(record.directory, record.id)
+  } catch (error) {
+    console.error("[studio.service] history materialization failed", { id: record.id, error })
+  }
   enqueueStudioMediaThumbnails(record.id)
+}
+
+function studioGenerationPollExpired(record: StudioGenerationRecord, now = Date.now()) {
+  return record.poll_started_at !== null && now - record.poll_started_at >= STUDIO_GENERATION_POLL_TIMEOUT_MS
+}
+
+async function markGenerationAbnormal(record: StudioGenerationRecord) {
+  const updatedAt = Date.now()
+  const claimed = Database.use((db) =>
+    db
+      .update(StudioGenerationTable)
+      .set({
+        status: "abnormal",
+        error: null,
+        last_poll_error: null,
+        completed_at: null,
+        next_poll_at: Number.MAX_SAFE_INTEGER,
+        time_updated: updatedAt,
+      })
+      .where(and(eq(StudioGenerationTable.id, record.id), inArray(StudioGenerationTable.status, ["queued", "running"])))
+      .returning({ id: StudioGenerationTable.id })
+      .get(),
+  )
+  if (!claimed) return
+  console.warn("[studio.worker] generation polling became abnormal", {
+    id: record.id,
+    taskId: record.provider_task_id,
+    pollStartedAt: record.poll_started_at,
+    elapsedMs: record.poll_started_at ? updatedAt - record.poll_started_at : undefined,
+    progress: record.progress,
+    rawStatus: record.raw_status,
+    pollAttempts: record.poll_attempts,
+    lastPollError: record.last_poll_error,
+  })
+  failStudioSession({
+    sessionID: record.session_id,
+    turn: loadPersistedTurn(record),
+    error: STUDIO_GENERATION_ABNORMAL_MESSAGE,
+    rawStatus: record.raw_status ?? undefined,
+    taskId: record.provider_task_id ?? undefined,
+    studioStatus: "abnormal",
+  })
+}
+
+function restoreAbnormalGeneration(
+  record: StudioGenerationRecord,
+  task: ImageGenerationTask,
+  query: ImageGenerationQuery,
+) {
+  if (query.status === "failed") throw new Error(`Cannot restore failed Studio generation: ${record.id}`)
+  const updatedAt = Date.now()
+  const session = prepareStudioSessionRestore({ record, task, query, updatedAt })
+  const status = query.status === "succeeded" ? "running" : query.status
+  const nextPollAt = query.status === "succeeded"
+    ? updatedAt + 60_000
+    : updatedAt + (query.status === "queued" ? 4000 : 2500)
+  const claimed = Database.transaction(
+    (db) => {
+      const current = db
+        .select({
+          status: StudioGenerationTable.status,
+          provider_task_id: StudioGenerationTable.provider_task_id,
+        })
+        .from(StudioGenerationTable)
+        .where(eq(StudioGenerationTable.id, record.id))
+        .get()
+      if (!current) return "missing" as const
+      if (current.status !== "abnormal" || current.provider_task_id !== task.taskId) return "changed" as const
+      db.update(StudioGenerationTable)
+        .set({
+          status,
+          raw_status: String(query.rawStatus),
+          progress: query.progress,
+          queue_order: query.order,
+          error: null,
+          last_poll_error: null,
+          poll_started_at: updatedAt,
+          poll_attempts: 0,
+          completed_at: null,
+          next_poll_at: nextPollAt,
+          time_updated: updatedAt,
+        })
+        .where(eq(StudioGenerationTable.id, record.id))
+        .run()
+      return "claimed" as const
+    },
+    { behavior: "immediate" },
+  )
+  if (claimed === "missing") throw new Error(`Studio generation not found: ${record.id}`)
+  if (claimed === "changed") return false
+  try {
+    applyStudioSessionUpdate(session)
+  } catch (error) {
+    const rollbackAt = Date.now()
+    const rolledBack = Database.use((db) =>
+      db
+        .update(StudioGenerationTable)
+        .set({
+          status: "abnormal",
+          raw_status: record.raw_status,
+          progress: record.progress,
+          queue_order: record.queue_order,
+          error: record.error,
+          last_poll_error: record.last_poll_error,
+          poll_started_at: record.poll_started_at,
+          poll_attempts: record.poll_attempts,
+          completed_at: record.completed_at,
+          next_poll_at: Number.MAX_SAFE_INTEGER,
+          time_updated: rollbackAt,
+        })
+        .where(
+          and(
+            eq(StudioGenerationTable.id, record.id),
+            eq(StudioGenerationTable.provider_task_id, task.taskId),
+            eq(StudioGenerationTable.time_updated, updatedAt),
+            inArray(StudioGenerationTable.status, ["queued", "running"]),
+          ),
+        )
+        .returning({ id: StudioGenerationTable.id })
+        .get(),
+    )
+    if (!rolledBack) startStudioGenerationWorker()
+    if (rolledBack) {
+      try {
+        updateErroredStudioSession({
+          record,
+          error: STUDIO_GENERATION_ABNORMAL_MESSAGE,
+          status: "abnormal",
+          rawStatus: record.raw_status ?? undefined,
+          taskId: task.taskId,
+        })
+      } catch (restoreError) {
+        console.error("[studio.service] abnormal session rollback failed", {
+          id: record.id,
+          taskId: task.taskId,
+          error: restoreError instanceof Error ? restoreError.message : String(restoreError),
+        })
+      }
+    }
+    throw error
+  }
+  return true
+}
+
+function prepareErroredStudioSession(input: {
+  record: StudioGenerationRecord
+  error: string
+  status: Extract<StudioGenerationStatus, "failed" | "abnormal">
+  rawStatus?: number | string
+  taskId: string
+  updatedAt?: number
+}) {
+  const updatedAt = input.updatedAt ?? Date.now()
+  const turn = loadAnyPersistedTurn(input.record)
+  const state = turn.toolPart.state
+  const metadata = state.status === "pending" ? undefined : state.metadata
+  const studioMetadata = metadata?.studio
+  return {
+    sessionID: input.record.session_id,
+    assistantInfo: {
+      ...turn.assistantInfo,
+      finish: "error",
+      time: { ...turn.assistantInfo.time, completed: updatedAt },
+    } as MessageV2.Assistant,
+    toolPart: {
+      ...turn.toolPart,
+      state: {
+        status: "error",
+        input: state.input,
+        error: input.error,
+        metadata: {
+          ...metadata,
+          statusCode: 500,
+          studio: {
+            ...(studioMetadata && typeof studioMetadata === "object" && !Array.isArray(studioMetadata)
+              ? (studioMetadata as Record<string, unknown>)
+              : {}),
+            generationID: input.record.id,
+            status: input.status,
+            taskId: input.taskId,
+            ...(input.rawStatus === undefined ? {} : { rawStatus: input.rawStatus }),
+          },
+        },
+        time: {
+          start: "time" in state ? state.time.start : updatedAt,
+          end: updatedAt,
+        },
+      },
+    } as MessageV2.ToolPart,
+    updatedAt,
+  }
+}
+
+function updateErroredStudioSession(input: Parameters<typeof prepareErroredStudioSession>[0]) {
+  applyStudioSessionUpdate(prepareErroredStudioSession(input))
+}
+
+function markAbnormalGenerationFailed(record: StudioGenerationRecord, query: ImageGenerationQuery) {
+  const taskId = record.provider_task_id
+  if (!taskId) return false
+  const updatedAt = Date.now()
+  const message = Number(query.rawStatus) === 4 ? "用户取消生成" : (query.error ?? "生成任务失败")
+  const session = prepareErroredStudioSession({
+    record,
+    error: message,
+    status: "failed",
+    rawStatus: query.rawStatus,
+    taskId,
+    updatedAt,
+  })
+  const claimed = Database.use((db) =>
+    db
+      .update(StudioGenerationTable)
+      .set({
+        status: "failed",
+        raw_status: String(query.rawStatus),
+        error: message,
+        last_poll_error: null,
+        completed_at: updatedAt,
+        next_poll_at: Number.MAX_SAFE_INTEGER,
+        time_updated: updatedAt,
+      })
+      .where(
+        and(
+          eq(StudioGenerationTable.id, record.id),
+          eq(StudioGenerationTable.status, "abnormal"),
+          eq(StudioGenerationTable.provider_task_id, taskId),
+        ),
+      )
+      .returning({ id: StudioGenerationTable.id })
+      .get(),
+  )
+  if (!claimed) return false
+  try {
+    applyStudioSessionUpdate(session)
+  } catch (error) {
+    const rolledBack = Database.use((db) =>
+      db
+        .update(StudioGenerationTable)
+        .set({
+          status: "abnormal",
+          raw_status: record.raw_status,
+          progress: record.progress,
+          queue_order: record.queue_order,
+          error: record.error,
+          last_poll_error: record.last_poll_error,
+          poll_started_at: record.poll_started_at,
+          poll_attempts: record.poll_attempts,
+          completed_at: record.completed_at,
+          next_poll_at: Number.MAX_SAFE_INTEGER,
+          time_updated: Date.now(),
+        })
+        .where(
+          and(
+            eq(StudioGenerationTable.id, record.id),
+            eq(StudioGenerationTable.status, "failed"),
+            eq(StudioGenerationTable.provider_task_id, taskId),
+            eq(StudioGenerationTable.time_updated, updatedAt),
+          ),
+        )
+        .returning({ id: StudioGenerationTable.id })
+        .get(),
+    )
+    if (rolledBack) {
+      try {
+        updateErroredStudioSession({
+          record,
+          error: STUDIO_GENERATION_ABNORMAL_MESSAGE,
+          status: "abnormal",
+          rawStatus: record.raw_status ?? undefined,
+          taskId,
+        })
+      } catch (restoreError) {
+        console.error("[studio.service] failed session rollback failed", {
+          id: record.id,
+          taskId,
+          error: restoreError instanceof Error ? restoreError.message : String(restoreError),
+        })
+      }
+    }
+    if (!rolledBack) {
+      const latest = loadGenerationRecord(record.id)
+      if (latest?.status === "queued" || latest?.status === "running") startStudioGenerationWorker()
+    }
+    throw error
+  }
+  return true
 }
 
 async function processGeneration(record: StudioGenerationRecord) {
   try {
-    if (Date.now() - record.time_created > 30 * 60_000) {
-      throw new Error(`Studio generation timed out after 30 minutes. id=${record.id}`)
+    if (studioGenerationPollExpired(record)) {
+      await markGenerationAbnormal(record)
+      return
     }
     const data = generationRequest(record)
     if (record.provider === "jimeng") {
@@ -2099,6 +2461,7 @@ async function processGeneration(record: StudioGenerationRecord) {
     const task = data.task
     if (!task) throw new Error(`Studio generation ${record.id} has no provider task id.`)
     if (!record.provider_task_id) {
+      const providerStartedAt = Date.now()
       Database.use((db) =>
         db
           .update(StudioGenerationTable)
@@ -2106,7 +2469,8 @@ async function processGeneration(record: StudioGenerationRecord) {
             provider_task_id: task.taskId,
             request: stripUndefined({ input: data.input, task }) as Record<string, unknown>,
             status: "running",
-            time_updated: Date.now(),
+            poll_started_at: providerStartedAt,
+            time_updated: providerStartedAt,
           })
           .where(eq(StudioGenerationTable.id, record.id))
           .run(),
@@ -2128,8 +2492,11 @@ async function processGeneration(record: StudioGenerationRecord) {
     updateStudioGenerationProgress(record, query)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    if (studioGenerationPollExpired(record)) {
+      await markGenerationAbnormal(record)
+      return
+    }
     if (
-      Date.now() - record.time_created < 30 * 60_000 &&
       (/network failed/i.test(message) || /(?:status=(408|409|425|429|500|502|503|504)|resp_code=\d+)/.test(message))
     ) {
       Database.use((db) =>
@@ -2171,6 +2538,7 @@ const activeGenerations = new Set<string>()
 const activeGenerationControllers = new Map<string, AbortController>()
 const activeGenerationTitleControllers = new Map<string, { controller: AbortController; directory: string }>()
 const rebootingGenerations = new Set<string>()
+const refreshingGenerations = new Map<string, Promise<StudioGenerationResult & { sessionID: string }>>()
 
 function loadGenerationRecord(id: string) {
   return Database.use((db) =>
@@ -2300,7 +2668,7 @@ async function runGenerationCreatePipeline(id: string) {
           request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
           time_updated: Date.now(),
         })
-        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["queued", "running"])))
+        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["creating", "queued", "running"])))
         .run(),
     )
     if (isGenerationCancelled(loadGenerationRecord(id))) return
@@ -2327,6 +2695,7 @@ async function runGenerationCreatePipeline(id: string) {
     const persistedInput = task?.input
       ? { ...displayInput(generationInput, task), aspectRatio: task.input.aspectRatio ?? generationInput.aspectRatio }
       : generationInput
+    const providerStartedAt = Date.now()
     Database.use((db) =>
       db
         .update(StudioGenerationTable)
@@ -2334,10 +2703,11 @@ async function runGenerationCreatePipeline(id: string) {
           provider_task_id: task?.taskId,
           status: task ? "running" : "queued",
           request: stripUndefined({ input: persistedInput, task }) as Record<string, unknown>,
-          next_poll_at: Date.now(),
-          time_updated: Date.now(),
+          poll_started_at: task ? providerStartedAt : null,
+          next_poll_at: providerStartedAt,
+          time_updated: providerStartedAt,
         })
-        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["queued", "running"])))
+        .where(and(eq(StudioGenerationTable.id, id), inArray(StudioGenerationTable.status, ["creating", "queued", "running"])))
         .run(),
     )
     startStudioGenerationWorker()
@@ -2440,7 +2810,11 @@ registerDisposer(async (directory) => {
     })
 })
 
-export async function createGeneration(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
+export function createGeneration(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
+  return withStudioSubmission(input.sessionID ?? "", () => createGenerationImpl(input))
+}
+
+async function createGenerationImpl(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
   const sessionID = SessionID.zod.parse(input.sessionID)
   const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
   if (!session) throw new Error(`Studio session not found: ${sessionID}`)
@@ -2448,6 +2822,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
     throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
   const createdAt = Date.now()
   const id = Identifier.create("studio_gen", "ascending")
+  assertCanGenerate(sessionID)
   const provider = resolveProvider(input)
   const promptRefine = submittingPromptRefine(input)
   const generationInput: StudioGenerationPromptInput = {
@@ -2478,7 +2853,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
         tool_part_id: turn.toolPart.id,
         provider,
         capability: input.capability,
-        status: "running",
+        status: "creating",
         progress: 0,
         request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
         next_poll_at: Number.MAX_SAFE_INTEGER,
@@ -2496,12 +2871,58 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   return generationSnapshot(record)
 }
 
-export async function rebootGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+async function refreshGenerationOnce(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+  const record = loadGenerationRecord(id)
+  if (!record) throw new Error(`Studio generation not found: ${id}`)
+  if (record.status !== "abnormal") return getGeneration(id)
+  assertCanGenerate(record.session_id)
+  const task = internalGenerationTask(record)
+  const query = await queryInternalGeneration(task).catch((error) => {
+    console.warn("[studio.service] refresh generation query failed", {
+      id,
+      taskId: task.taskId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw new Error("任务状态查询失败，请稍后重试")
+  })
+  if (query.status === "queued" || query.status === "running") {
+    if (restoreAbnormalGeneration(record, task, query)) startStudioGenerationWorker()
+    return getGeneration(id)
+  }
+  if (query.status === "succeeded") {
+    if (!restoreAbnormalGeneration(record, task, query)) return getGeneration(id)
+    startStudioGenerationWorker()
+    const latest = loadGenerationRecord(id)
+    if (!latest) throw new Error(`Studio generation not found: ${id}`)
+    await completeGeneration(latest, query)
+    return getGeneration(id)
+  }
+  markAbnormalGenerationFailed(record, query)
+  return getGeneration(id)
+}
+
+export function refreshGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+  const key = `${Instance.directory}:${id}`
+  const current = refreshingGenerations.get(key)
+  if (current) return current
+  const record = loadGenerationRecord(id)
+  const operation = withStudioSubmission(record?.session_id ?? id, () => refreshGenerationOnce(id)).finally(() => refreshingGenerations.delete(key))
+  refreshingGenerations.set(key, operation)
+  return operation
+}
+
+export function rebootGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+  const record = loadGenerationRecord(id)
+  return withStudioSubmission(record?.session_id ?? id, () => rebootGenerationImpl(id))
+}
+
+async function rebootGenerationImpl(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
   if (rebootingGenerations.has(id)) throw new Error("该任务正在重新生成")
   rebootingGenerations.add(id)
   try {
     const record = loadGenerationRecord(id)
     if (!record) throw new Error(`Studio generation not found: ${id}`)
+    assertCanGenerate(record.session_id)
     if (record.status === "create_failed")
       throw new Error(`Studio generation was not created and cannot be rebooted: ${id}`)
     if (record.status !== "failed") throw new Error(`Only failed Studio generations can be rebooted: ${id}`)
@@ -2546,6 +2967,7 @@ export async function rebootGeneration(id: string): Promise<StudioGenerationResu
             last_poll_error: null,
             result: null,
             request: stripUndefined({ input: data.input, task }) as Record<string, unknown>,
+            poll_started_at: updatedAt,
             poll_attempts: 0,
             completed_at: null,
             next_poll_at: updatedAt,
@@ -2577,11 +2999,59 @@ export async function getGeneration(id: string): Promise<StudioGenerationResult 
       .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
       .get(),
   )
-  if (!record) throw new Error(`Studio generation not found: ${id}`)
+  // 会话删除会级联清理 studio_generation 行:此时历史详情面板仍在请求 /studio/generations/:id,
+  // 直接抛 not found 会让前端右栏一直停在 loading。改为回退到历史表里保留的快照,
+  // 文案/媒体/模型等字段足以支撑详情面板渲染;只有进度/错误等运行时字段用占位值。
+  if (!record) {
+    const history = generationHistorySnapshot(Instance.directory, id)
+    if (history) {
+      const result: StudioGenerationResult & { sessionID: string } = {
+        id: history.id,
+        sessionID: history.sessionID,
+        status: "succeeded",
+        capability: (history.capability ?? "image.generate") as StudioGenerationResult["capability"],
+        prompt: history.prompt ?? "",
+        displayPrompt: history.displayPrompt,
+        detailPrompt: history.detailPrompt,
+        detailTitle: history.detailTitle,
+        provider: (history.provider ?? "internel") as StudioGenerationResult["provider"],
+        model: history.model ?? history.styleModel ?? "internel",
+        styleModel: history.styleModel,
+        aspectRatio: history.aspectRatio ?? "3:4",
+        isCustom: history.isCustom,
+        videoMode: history.videoMode === "text" || history.videoMode === "first_last_frame" ? history.videoMode : undefined,
+        // 历史快照可能存有旧 provider 的 std/pro 档位，与响应 schema 的 480/720/1080/4k
+        // 不兼容；与上面 videoSnapshotFields 同口径做白名单过滤，保证回退响应符合契约。
+        videoQualityMode: resolveStudioVideoQualityMode(undefined, history.videoQualityMode),
+        toolAction: history.toolAction as StudioGenerationResult["toolAction"],
+        duration: history.duration,
+        images: history.images.map((img) => ({
+          id: img.id,
+          kind: img.kind,
+          url: img.url,
+          remoteUrl: img.url,
+          thumbnailUrl: img.thumbnailUrl,
+          thumbnailStatus: (img.thumbnailStatus ?? undefined) as "pending" | "ready" | "failed" | undefined,
+          width: img.width,
+          height: img.height,
+        })),
+        progress: 100,
+        createdAt: history.createdAt,
+        updatedAt: history.createdAt,
+        completedAt: history.createdAt,
+      }
+      return result
+    }
+    throw new Error(`Studio generation not found: ${id}`)
+  }
   const snapshot = generationSnapshot(record)
   return {
     ...snapshot,
     ...(record.status === "succeeded" ? (record.result as StudioGenerationResult | undefined) : {}),
+    // 旧视频记录把 provider 的 "std"/"pro" 模式写进了 videoQualityMode，与响应 schema 的
+    // 480/720/1080/4k 不兼容，会让整个 GET 请求 400（历史详情面板因此一直 loading）。
+    // 与资产筛选共用请求档位解析，缺失时仅使用合法结果档位，保证响应符合契约。
+    ...(record.capability === "video.generate" ? videoSnapshotFields(record) : {}),
     sessionID: record.session_id,
     status: record.status,
     progress: record.progress,
@@ -2604,6 +3074,8 @@ export async function cancelGeneration(id: string): Promise<StudioGenerationResu
   if (record.status === "create_failed" && record.raw_status === "4") return getGeneration(id)
   if (record.status === "succeeded")
     throw new Error(`Studio generation is already completed and cannot be cancelled: ${id}`)
+  if (record.status === "abnormal")
+    throw new Error(`Studio generation status must be refreshed before cancellation: ${id}`)
   if (record.status === "create_failed")
     throw new Error(`Studio generation creation has already failed and cannot be cancelled: ${id}`)
   if (record.status === "failed") throw new Error(`Studio generation has already failed and cannot be cancelled: ${id}`)

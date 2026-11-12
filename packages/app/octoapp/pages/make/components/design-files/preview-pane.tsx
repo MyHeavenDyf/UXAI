@@ -167,7 +167,7 @@ export function PreviewPane(props: Props): JSX.Element {
                 }
               >
                 <iframe
-                  src={pathToLocalUrl(props.file.path)}
+                  src={`${pathToLocalUrl(props.file.path)}?v=${props.file.mtime}`}
                   sandbox="allow-scripts"
                   style={{
                     position: "absolute",

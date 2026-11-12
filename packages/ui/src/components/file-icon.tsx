@@ -7,11 +7,18 @@ export type FileIconProps = JSX.GSVGAttributes<SVGSVGElement> & {
   node: { path: string; type: "file" | "directory" }
   expanded?: boolean
   mono?: boolean
+  plain?: boolean
 }
 
 export const FileIcon: Component<FileIconProps> = (props) => {
-  const [local, rest] = splitProps(props, ["node", "class", "classList", "expanded", "mono"])
-  const name = createMemo(() => chooseIconName(local.node.path, local.node.type, local.expanded || false))
+  const [local, rest] = splitProps(props, ["node", "class", "classList", "expanded", "mono", "plain"])
+  const name = createMemo(() => {
+    if (local.plain) {
+      if (local.node.type === "directory") return local.expanded ? ICON_MAPS.defaults.folderOpen : ICON_MAPS.defaults.folder
+      return ICON_MAPS.defaults.file
+    }
+    return chooseIconName(local.node.path, local.node.type, local.expanded || false)
+  })
   const id = `file-icon-mono-${createUniqueId()}`
   return (
     <svg

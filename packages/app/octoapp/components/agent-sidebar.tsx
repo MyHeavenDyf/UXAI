@@ -6,15 +6,14 @@ import { batch, createEffect, createMemo, createResource, createSignal, on, onCl
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
-// useGlobalSync is currently unused; re-enable when sync-specific hooks are needed
-// import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSync } from "@/context/global-sync"
 import { sessionTitle } from "@/utils/session-title"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
 import { pickNextSession } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
-import { useSessionPin, peekRecentSortOrderBeforePin } from "@/hooks/use-session-pin"
+import { useSessionPin, peekRecentPositionBeforePin } from "@/hooks/use-session-pin"
 // disableIframesDuringDrag is currently unused after recent refactors
 // import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 import { SidebarShell, SidebarSectionHeader } from "@/components/sidebar-shell"
@@ -50,9 +49,12 @@ export type BeforeSectionApi = {
   onSessionDragOver: (e: DragEvent, session: Session) => void
   onSessionDragLeave: (e: DragEvent, session: Session) => void
   handleSessionDrop: (target: SessionDropTarget) => void
+  /** Leading content renderer passed through to nested session rows (e.g. studio thumbnails). */
+  renderLeading?: (session: Session) => JSX.Element
 }
 
 export type AgentSidebarProps = {
+  onNavigation?: (target: "project" | "skills" | "assets" | "design_system" | "best_practices" | "settings" | "update") => void
   // ── Data ──
   /** Current project directory. Caller is responsible for resolving this. */
   directory: string | null | undefined
@@ -98,10 +100,21 @@ export type AgentSidebarProps = {
   beforeSection?: (api: BeforeSectionApi) => JSX.Element
   inlineBeforeSection?: boolean
 
+  /** Leading content rendered in each session row's left slot (e.g. studio thumbnails). Replaces the status indicator when provided. */
+  renderLeading?: (session: Session) => JSX.Element
+  /** Content rendered at the right edge of the new-session button row (passed to the shell). */
+  newButtonSuffix?: () => JSX.Element
+  /** Content rendered between the new-session button and the divider (passed to the shell). */
+  headerExtra?: () => JSX.Element
+  /** Called with the current session list whenever it changes (e.g. to batch-load thumbnails). */
+  onSessionsChange?: (sessions: Session[]) => void
+
   /** Called when a session is clicked, before navigation. Useful for parent components to react to clicks even when the URL does not change. */
   onSessionClick?: (session: Session) => void
-  /** Called when the user clicks the top "new session" button, before navigation. */
-  onNewSession?: () => void
+  /** Called when the user clicks the top "new session" button, before navigation. Returning false marks the action as fully
+   *  handled by the caller (it owns tracking + navigation), so AgentSidebar skips its own navigate() — e.g. studio's
+   *  composer-reset flow navigates with extra query state. */
+  onNewSession?: () => boolean | void
   /** Called after scrolling reveals more recent sessions. */
   onLoadMore?: (limit: number) => void
 
@@ -154,6 +167,7 @@ function writeSidebarCache(key: string, value: { sessions: Session[]; cursor?: s
 
 export function AgentSidebar(props: AgentSidebarProps) {
   const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const location = useLocation()
   const dialog = useDialog()
@@ -235,6 +249,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const [loadingMoreSessions, setLoadingMoreSessions] = createSignal(false)
   const useServerPagination = () => !!props.fetchSessionPage
   const [pinnedCollapsed, setPinnedCollapsed] = createSignal(false)
+  // Declared before loadMoreFromServer and the auto-fill effects below: every
+  // auto-fill path must gate on collapsed() — in inlineBeforeSection mode
+  // (insight sidebar) collapsing the recent section unmounts SessionList but
+  // keeps the scroll container alive, so scrollHeight <= clientHeight holds
+  // and the "viewport not filled" heuristic would otherwise keep fetching
+  // pages (and firing load-more-sessions) until the cursor is exhausted.
+  const [collapsed, setCollapsed] = createSignal(false)
 
   const [draggingSessionId, setDraggingSessionId] = createSignal<string | null>(null)
   const [dragOverSessionId, setDragOverSessionId] = createSignal<string | null>(null)
@@ -265,7 +286,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   )
 
   const loadMoreFromServer = async (fromScroll = false) => {
-    if (loadingMoreSessions() || sessionCursor() === undefined) return
+    if (collapsed() || loadingMoreSessions() || sessionCursor() === undefined) return
     const d = resolvedDir()
     if (!d || !props.fetchSessionPage) return
     tracker.interaction({ module: props.trackerModule ?? "session", name: "load-more-sessions" })
@@ -302,7 +323,11 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   createEffect(on(resolvedDir, () => { userScrolled = false; setVisibleCount(VISIBLE_BATCH); setSessionCursor(undefined) }, { defer: true }))
 
-  createEffect(on(displayedRecentSessions, () => {
+  // Watching collapsed as well as the list: skip fill checks while the recent
+  // section is collapsed (the list is hidden, so scrollHeight is meaningless),
+  // and re-check on expand so a viewport grown while collapsed still auto-fills.
+  createEffect(on([displayedRecentSessions, collapsed], () => {
+    if (collapsed()) return
     requestAnimationFrame(() => {
       if (!scrollContainer || !scrollContainer.clientHeight) return
       if (hasMoreSessions() && scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
@@ -314,7 +339,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   const { togglePin: togglePinSession } = useSessionPin()
 
-  async function togglePin(id: string) {
+  async function togglePin(id: string, options?: { skipRestore?: boolean }) {
     const idx = sessionList.findIndex(s => s.id === id)
     if (idx < 0) return
     const session = sessionList[idx]
@@ -323,7 +348,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const newVal = !session.pinned
     tracker.interaction({ module: props.trackerModule ?? "session", name: newVal ? "pin-session" : "unpin-session" })
     const previousSortOrder = session.sort_order
-    const restore = peekRecentSortOrderBeforePin(id) ?? 0
+    // Position to restore on unpin: sort_order alone can't pin the slot because
+    // sessions created before any manual reorder share sort_order 0 and are then
+    // ordered by activity time — which pin/unpin itself bumps. So we also
+    // remember the neighbour below it and reinsert before it afterwards.
+    const remembered = peekRecentPositionBeforePin(id)
+    const restore = remembered?.order ?? 0
+    const anchorId = remembered?.nextId
+    const anchorAtEnd = remembered?.atEnd ?? false
+    const recentBeforePin = recentSessions()
+    const pos = recentBeforePin.findIndex(s => s.id === id)
+    const nextId = pos >= 0 ? recentBeforePin[pos + 1]?.id : undefined
+    const atEnd = pos >= 0 && pos === recentBeforePin.length - 1
     if (newVal) {
       batch(() => {
         setSessionList(idx, "sort_order", -1)
@@ -341,7 +377,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         id,
         newVal,
         d,
-        newVal ? { rememberRecentOrder: Number(previousSortOrder) } : { restoreRecentOrder: restore },
+        newVal
+          ? { rememberRecentOrder: Number(previousSortOrder), rememberNextId: nextId, rememberAtEnd: atEnd }
+          : { restoreRecentOrder: restore },
       )
     } catch (err) {
       // Revert optimistic update on failure
@@ -350,6 +388,24 @@ export function AgentSidebar(props: AgentSidebarProps) {
         setSessionList(idx, "sort_order", previousSortOrder)
       })
       throw err
+    }
+    // Reinsert the unpinned session at its previous slot: before the session
+    // that used to sit below it, or at the very bottom if it was last. Skipped
+    // when the caller will reorder anyway (drag-drop). This runs outside the
+    // pin try/catch: it is a cosmetic follow-up, so a failure here must not
+    // revert an unpin that already succeeded server-side.
+    if (!newVal && !options?.skipRestore && resolvedDir() === d) {
+      try {
+        const recent = recentSessions()
+        if (anchorId && recent.some(s => s.id === anchorId)) {
+          await reorderRecent(id, anchorId, "before")
+        } else if (anchorAtEnd) {
+          const last = recent.filter(s => s.id !== id).at(-1)
+          if (last) await reorderRecent(id, last.id, "after")
+        }
+      } catch (err) {
+        console.error("[agent-sidebar] restore unpinned session position failed", { id, anchorId, error: String(err) })
+      }
     }
   }
 
@@ -449,8 +505,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
         } else if (section === "recent") {
           // Await the unpin toggle so its sort_order write lands before the drag
           // reorder below; concurrent requests can otherwise persist the wrong
-          // order on the server.
-          if (sourceIsPinned) await togglePin(sourceId)
+          // order on the server. The drag reorder below sets the final position,
+          // so skip the pin toggle's own position restore.
+          if (sourceIsPinned) await togglePin(sourceId, { skipRestore: true })
           if (sourceGroup) props.onRemoveFromGroup?.(source)
           tracker.interaction({ module: mod, name: "reorder-recent-session" })
           void reorderRecent(sourceId, targetId, position)
@@ -493,13 +550,25 @@ export function AgentSidebar(props: AgentSidebarProps) {
     setSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
 
+  // Notify callers (e.g. studio's thumbnail loader) whenever the session list
+  // changes — initial load, SSE merges, pin/unpin mutations and reorders.
+  createEffect(() => {
+    if (sessionList.length === 0) return
+    props.onSessionsChange?.(sessionList)
+  })
+
   const stable = createMemo(() => fetchedDir() === resolvedDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
+  let importScrollTimer: ReturnType<typeof setTimeout> | undefined
   let pendingScrollId: string | null = null
   let userScrolled = false
   let programmaticScroll = false
   let programmaticScrollTimer: ReturnType<typeof setTimeout> | undefined
+  // scrollTop saved when the recent section collapses: unmounting SessionList
+  // clamps the browser's scrollTop to 0, so without restoring it on expand the
+  // list would always come back at the very top.
+  let savedCollapseScrollTop = 0
 
   type PendingSessionEvent = {
     type: "session.created" | "session.updated" | "session.deleted"
@@ -517,16 +586,43 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   function scrollToSession(id: string) {
+    const recentIndex = recentSessions().findIndex((session) => session.id === id)
+    if (!useServerPagination() && recentIndex >= visibleCount()) setVisibleCount(recentIndex + 1)
     programmaticScroll = true
     clearTimeout(programmaticScrollTimer)
     setTimeout(() => {
       if (!scrollContainer) { programmaticScroll = false; return }
       const el = scrollContainer.querySelector<HTMLElement>(`[data-session-id="${id}"]`)
       if (!el) { programmaticScroll = false; return }
-      const elTop = el.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top + scrollContainer.scrollTop
+      const containerRect = scrollContainer.getBoundingClientRect()
+      const itemRect = el.getBoundingClientRect()
+      if (itemRect.top >= containerRect.top + 46 && itemRect.bottom <= containerRect.bottom) {
+        programmaticScroll = false
+        return
+      }
+      const elTop = itemRect.top - containerRect.top + scrollContainer.scrollTop
       scrollContainer.scrollTo({ top: Math.max(0, elTop - 46), behavior: "smooth" })
       armProgrammaticScrollReset()
     }, 50)
+  }
+
+  function toggleRecentCollapse() {
+    tracker.interaction({ module: props.trackerModule ?? "session", name: "toggle-recent-section" })
+    const collapsing = !collapsed()
+    // Save before setCollapsed: unmounting the list immediately clamps scrollTop.
+    if (collapsing && scrollContainer) savedCollapseScrollTop = scrollContainer.scrollTop
+    setCollapsed(collapsing)
+    if (collapsing) return
+    // By the next frame the list is remounted and laid out; restore the saved
+    // position (clamped by the browser if content shrank while collapsed) and
+    // mark it programmatic so onScroll doesn't treat the restore as a manual
+    // scroll (which would suppress auto-scroll-to-active on the next update).
+    requestAnimationFrame(() => {
+      if (!scrollContainer) return
+      programmaticScroll = true
+      scrollContainer.scrollTop = savedCollapseScrollTop
+      armProgrammaticScrollReset()
+    })
   }
 
   function applySessionEvent(ev: PendingSessionEvent) {
@@ -589,9 +685,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
     refetchTimer = setTimeout(action, delay)
   }
 
-  async function backfillActiveSession() {
+  async function backfillActiveSession(sessionID = props.activeSessionId()) {
     if (!useServerPagination()) return
-    const id = props.activeSessionId()
+    const id = sessionID
     if (!id) return
     if (sessionList.some(s => s.id === id)) return
     const d = resolvedDir()
@@ -652,7 +748,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const onScroll = () => {
       if (programmaticScroll) armProgrammaticScrollReset()
       else userScrolled = true
-      if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && hasMoreSessions()) {
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && hasMoreSessions() && !collapsed()) {
         if (useServerPagination()) void loadMoreFromServer(true)
         else {
           setVisibleCount(prev => prev + VISIBLE_BATCH)
@@ -664,7 +760,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     onCleanup(() => el.removeEventListener("scroll", onScroll))
 
     const resizeObserver = new ResizeObserver(() => {
-      if (hasMoreSessions() && el.clientHeight > 0 && el.scrollHeight <= el.clientHeight) {
+      if (hasMoreSessions() && el.clientHeight > 0 && el.scrollHeight <= el.clientHeight && !collapsed()) {
         if (useServerPagination()) void loadMoreFromServer()
         else setVisibleCount(prev => prev + VISIBLE_BATCH)
       }
@@ -673,26 +769,29 @@ export function AgentSidebar(props: AgentSidebarProps) {
     onCleanup(() => resizeObserver.disconnect())
   })
   onCleanup(() => { clearTimeout(refetchTimer) })
+  onCleanup(() => clearTimeout(importScrollTimer))
   onCleanup(() => clearTimeout(programmaticScrollTimer))
 
-  // Listen for rename events from chat area to scroll to active session
+  // Listen for rename events from chat area to scroll to active session.
+  // Guarded like the SSE path: a manual scroll must suppress the bounce-back
+  // while reading a given session, including renames from the chat header.
   const handleSessionRenamed = () => {
     const activeId = props.activeSessionId()
-    if (!activeId) return
+    if (!activeId || userScrolled) return
     pendingScrollId = activeId
     scheduleSidebarAction(500, async () => {
       if (useServerPagination()) {
         if (pendingScrollId) {
           const id = pendingScrollId
           pendingScrollId = null
-          scrollToSession(id)
+          if (!userScrolled) scrollToSession(id)
         }
       } else {
         await refetch()
         if (pendingScrollId) {
           const id = pendingScrollId
           pendingScrollId = null
-          scrollToSession(id)
+          if (!userScrolled) scrollToSession(id)
         }
       }
     })
@@ -700,7 +799,27 @@ export function AgentSidebar(props: AgentSidebarProps) {
   window.addEventListener("octo:session-renamed", handleSessionRenamed)
   onCleanup(() => window.removeEventListener("octo:session-renamed", handleSessionRenamed))
 
-  const [collapsed, setCollapsed] = createSignal(false)
+  const handleSessionImported = (event: Event) => {
+    const detail = (event as CustomEvent<{ sessionID: string; directory: string; agent: string }>).detail
+    if (!detail || detail.directory !== resolvedDir() || detail.agent !== props.agentFilter) return
+    userScrolled = false
+    clearTimeout(importScrollTimer)
+    importScrollTimer = setTimeout(async () => {
+      if (sessionList.some((session) => session.id === detail.sessionID)) {
+        scrollToSession(detail.sessionID)
+        return
+      }
+      if (useServerPagination()) {
+        await backfillActiveSession(detail.sessionID)
+        return
+      }
+      await refetch()
+      scrollToSession(detail.sessionID)
+    }, 100)
+  }
+  window.addEventListener("octo:session-imported", handleSessionImported)
+  onCleanup(() => window.removeEventListener("octo:session-imported", handleSessionImported))
+
   const [activeNav, setActiveNav] = createSignal<string | null>(null)
   const [creating, setCreating] = createSignal(false)
   let createTimer: ReturnType<typeof setTimeout> | undefined
@@ -760,7 +879,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   function handleMoveToGroup(session: Session, groupId: string) {
     const mod = props.trackerModule ?? "session"
     tracker.interaction({ module: mod, name: "move-session-to-group" })
-    if (session.pinned) void togglePin(session.id)
+    if (session.pinned) void togglePin(session.id, { skipRestore: true })
     props.onMoveToGroup?.(session, groupId)
     closeContextMenu()
   }
@@ -773,7 +892,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   }
 
   function handleCreateGroupForSession(session: Session) {
-    if (session.pinned) void togglePin(session.id)
+    if (session.pinned) void togglePin(session.id, { skipRestore: true })
     props.onCreateGroupForSession?.(session)
     closeContextMenu()
   }
@@ -821,6 +940,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
     const ok = await removeSession(globalSDK.createClient({ directory: session.directory }), session.id)
     if (!ok) return
+    globalSync.child(session.directory, { bootstrap: false })[1]("deleted", session.id, true)
     bustSidebarCache()
 
     closeContextMenu()
@@ -842,7 +962,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const deleted = new Set<string>()
     await Promise.all(sessions.map(async (s) => {
       const ok = await removeSession(globalSDK.createClient({ directory: s.directory }), s.id)
-      if (ok) deleted.add(s.id)
+      if (!ok) return
+      deleted.add(s.id)
+      globalSync.child(s.directory, { bootstrap: false })[1]("deleted", s.id, true)
     }))
     if (deleted.size) {
       bustSidebarCache()
@@ -896,21 +1018,24 @@ export function AgentSidebar(props: AgentSidebarProps) {
     setCreating(true)
     clearTimeout(createTimer)
     createTimer = setTimeout(() => setCreating(false), 500)
-    const mod = props.trackerModule ?? "session"
-    tracker.interaction({ module: mod, name: "new-session" })
     if (props.sidebarSourceKey) {
       layout.lastSessionPerTab.setNewConversation(
         props.sidebarSourceKey === "insight" ? "cowork" : props.sidebarSourceKey,
         true,
       )
     }
-    props.onNewSession?.()
+    // Caller fully handled the action (returned false): it also owns tracking
+    // and navigation (e.g. studio's composer-reset flow).
+    if (props.onNewSession?.() === false) return
+    const mod = props.trackerModule ?? "session"
+    tracker.interaction({ module: mod, name: "new-session" })
     navigate(props.buildNewRoute())
   }
 
   return (
     <>
     <SidebarShell
+      onNavigation={props.onNavigation}
       showProjectInfo={props.showProjectInfo}
       showBottomNav={props.showBottomNav}
       newButtonText={props.newButtonText ?? "新建对话"}
@@ -918,6 +1043,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionTitle={props.sectionTitle}
       sectionIcon={props.sectionIcon}
       listScrollRef={(el) => { scrollContainer = el }}
+      newButtonSuffix={props.newButtonSuffix}
+      headerExtra={props.headerExtra}
       beforeSection={() => (
         <>
           <Show when={pinnedSessions().length > 0}>
@@ -934,6 +1061,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 stable={stable()}
                 hoverOnActive
                 useIndex
+                leading={props.renderLeading}
                 onSessionClick={handleSessionClick}
                 onSessionContextMenu={handleSessionContextMenu}
                 onSessionActionClick={handleSessionContextMenu}
@@ -980,20 +1108,21 @@ export function AgentSidebar(props: AgentSidebarProps) {
             onSessionDragOver: handleSessionDragOver,
             onSessionDragLeave: handleSessionDragLeave,
             handleSessionDrop: performSessionMove,
+            renderLeading: props.renderLeading,
           })}
         </>
       )}
       inlineBeforeSection={props.inlineBeforeSection}
       collapsed={collapsed()}
-      onToggleCollapse={() => { tracker.interaction({ module: props.trackerModule ?? "session", name: "toggle-recent-section" }); setCollapsed(v => !v) }}
-      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : activeNav()}
+      onToggleCollapse={toggleRecentCollapse}
+      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : location.pathname === "/design-system" ? "design_system" : location.pathname === "/best-practices" ? "best_practice" : activeNav()}
       onNavClick={(key) => {
-        if (key === "skill_market" || key === "knowledge_base") {
+        if (key === "skill_market" || key === "knowledge_base" || key === "design_system" || key === "best_practice") {
           if (key === "skill_market" && props.onSkillClick) {
             props.onSkillClick()
           } else {
             if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
-            navigate(key === "skill_market" ? "/skills" : "/assets")
+            navigate(key === "skill_market" ? "/skills" : key === "knowledge_base" ? "/assets" : key === "design_system" ? "/design-system" : "/best-practices")
           }
           return
         }
@@ -1007,6 +1136,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         stable={stable()}
         isOnboarding={isOnboarding()}
         hoverOnActive
+        leading={props.renderLeading}
         onSessionClick={handleSessionClick}
         onSessionContextMenu={handleSessionContextMenu}
         onSessionActionClick={handleSessionContextMenu}
@@ -1037,6 +1167,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         hasMessages={contextMenu.hasMessages}
         groups={props.groups}
         sessionGroupMapping={props.sessionGroupMapping}
+        trackerModule={props.trackerModule}
         onClose={closeContextMenu}
         onRename={(s) => { closeContextMenu(); startRename(s) }}
         onTogglePin={(s) => { closeContextMenu(); togglePin(s.id) }}

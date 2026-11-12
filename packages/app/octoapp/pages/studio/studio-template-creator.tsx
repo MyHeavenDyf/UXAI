@@ -1,5 +1,6 @@
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import { showFloatingNotice } from "@/components/floating-notice"
 import {
   STUDIO_STYLE_TEMPLATE_DIMENSIONS,
@@ -301,7 +302,10 @@ function TemplateCreatorCategoryCards(props: { value: TemplateCreatorCategory; o
             class="studio-template-creator-category-card"
             classList={{ active: props.value === category.value }}
             aria-pressed={props.value === category.value}
-            onClick={() => props.onChange(category.value)}
+            onClick={() => {
+              tracker.interaction({ module: "studio", name: "template-category", extend: JSON.stringify({ category: category.value }) })
+              props.onChange(category.value)
+            }}
           >
             <div class="studio-template-creator-category-card-head">
               <span class="studio-template-creator-category-title-wrap">
@@ -362,6 +366,7 @@ function TemplateCreatorSelect<T extends string>(props: {
                 class="studio-template-creator-select-option"
                 classList={{ active: option.value === props.value }}
                 onClick={() => {
+                  tracker.interaction({ module: "studio", name: "template-select", extend: JSON.stringify({ field: props.ariaLabel, value: option.value }) })
                   props.onChange(option.value)
                   setOpen(false)
                 }}
@@ -461,6 +466,7 @@ function TemplateVisibleUserSelect(props: {
                 aria-label={`移除${templateVisibleUserLabel(user)}`}
                 onClick={(event) => {
                   event.stopPropagation()
+                  tracker.interaction({ module: "studio", name: "template-user-remove" })
                   props.onChange(props.value.filter((item) => item.user_id !== user.user_id))
                 }}
               />
@@ -498,7 +504,10 @@ function TemplateVisibleUserSelect(props: {
                       role="option"
                       aria-selected={false}
                       class="studio-template-creator-user-option"
-                      onClick={() => selectUser(user)}
+                      onClick={() => {
+                        tracker.interaction({ module: "studio", name: "template-user-select", extend: JSON.stringify({ userID: user.user_id }) })
+                        selectUser(user)
+                      }}
                     >
                       <span class="studio-template-creator-user-option-title">{templateVisibleUserLabel(user)}</span>
                       <Show when={user.dept1}>
@@ -587,9 +596,13 @@ function TemplateImageUploader(props: {
 }): JSX.Element {
   let inputRef!: HTMLInputElement
   const canAddImage = () => props.value.length < props.maxCount
-  const triggerPicker = () => inputRef?.click()
+  const triggerPicker = () => {
+    tracker.interaction({ module: "studio", name: "template-upload-open", extend: JSON.stringify({ title: props.title }) })
+    inputRef?.click()
+  }
 
   const removeImage = (index: number) => {
+    tracker.interaction({ module: "studio", name: "template-upload-remove", extend: JSON.stringify({ title: props.title }) })
     props.onChange(props.value.filter((_, currentIndex) => currentIndex !== index))
     props.onMessage("")
   }
@@ -738,7 +751,10 @@ function StyleDescriptionSection(props: {
               type="button"
               class="studio-template-creator-chip"
               classList={{ active: props.selectedDimensions.includes(dimension.id) }}
-              onClick={() => props.onToggleDimension(dimension.id)}
+              onClick={() => {
+                tracker.interaction({ module: "studio", name: "template-style-dimension", extend: JSON.stringify({ dimension: dimension.id }) })
+                props.onToggleDimension(dimension.id)
+              }}
             >
               {dimension.label}
             </button>
@@ -750,7 +766,10 @@ function StyleDescriptionSection(props: {
           type="button"
           class="studio-template-creator-generate-button"
           disabled={!props.canGenerateStyleDescription || props.styleDescriptionGenerating}
-          onClick={props.onGenerateStyleDescription}
+          onClick={() => {
+            tracker.interaction({ module: "studio", name: "template-generate-style-description" })
+            props.onGenerateStyleDescription()
+          }}
         >
           <img class="studio-template-creator-generate-icon" src="/studio/studio_template_icon.svg" alt="" />
           <span>生成风格描述</span>
@@ -1202,12 +1221,12 @@ function TemplateCreatorFooter(props: {
       <div class="studio-template-creator-footer-actions">
         <Show when={props.mode === "edit"} fallback={
           <Show when={props.currentStep !== "make"}>
-            <button type="button" class="studio-template-creator-prev" onClick={props.onPrev}>
+            <button type="button" class="studio-template-creator-prev" onClick={() => { tracker.interaction({ module: "studio", name: "template-step-prev", extend: JSON.stringify({ step: props.currentStep }) }); props.onPrev() }}>
               上一步
             </button>
           </Show>
         }>
-          <button type="button" class="studio-template-creator-prev" onClick={props.onCancel}>
+          <button type="button" class="studio-template-creator-prev" onClick={() => { tracker.interaction({ module: "studio", name: "template-cancel" }); props.onCancel?.() }}>
             取消
           </button>
         </Show>
@@ -1217,7 +1236,7 @@ function TemplateCreatorFooter(props: {
           classList={{ invalid: !props.canNext }}
           disabled={props.submitting}
           aria-disabled={!props.canNext || props.submitting}
-          onClick={props.onNext}
+          onClick={() => { tracker.interaction({ module: "studio", name: "template-next", extend: JSON.stringify({ label: props.primaryLabel, step: props.currentStep, mode: props.mode }) }); props.onNext() }}
         >
           {props.primaryLabel}
         </button>

@@ -152,6 +152,7 @@ export function ModelSelectorPopover(props: {
   triggerAs?: ValidComponent
   triggerProps?: ModelSelectorTriggerProps
   onClose?: (cause: "escape" | "select") => void
+  onModelSelect?: (model: { modelId: string; providerId: string; isExternal: boolean }) => void
   riskDialog?: RiskDialogComponent
 }) {
   const [store, setStore] = createStore<{
@@ -234,7 +235,11 @@ export function ModelSelectorPopover(props: {
             <ModelList
               provider={props.provider}
               model={props.model}
-              onSelect={() => close("select")}
+              onSelect={() => {
+                const selected = model.current()
+                if (selected) props.onModelSelect?.({ modelId: selected.id, providerId: selected.provider.id, isExternal: isExternalModel(selected) })
+                close("select")
+              }}
               onExternalRisk={(x) => {
                 setRisk("pending", x)
                 setRisk("open", true)
@@ -283,6 +288,7 @@ export function ModelSelectorPopover(props: {
           const pending = risk.pending
           if (pending) {
             model.set({ modelID: pending.id, providerID: pending.provider.id }, { recent: true })
+            props.onModelSelect?.({ modelId: pending.id, providerId: pending.provider.id, isExternal: true })
           }
           setRisk("pending", undefined)
           close("select")

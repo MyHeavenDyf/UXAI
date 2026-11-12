@@ -3,6 +3,43 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "studio.history.tab.all": "全部",
+  "studio.history.tab.image": "图片",
+  "studio.history.tab.video": "视频",
+  "studio.history.filter": "筛选",
+  "studio.history.sort": "排序",
+  "studio.history.filter.resolution": "分辨率",
+  "studio.history.filter.ratio": "比例",
+  "studio.history.filter.active": "已筛选：",
+  "studio.history.filter.clear": "清除筛选",
+  "studio.history.sort.time": "时间顺序",
+  "studio.history.sort.desc": "近-远",
+  "studio.history.sort.asc": "远-近",
+  "studio.history.batch.manage": "批量管理",
+  "studio.history.batch.download": "下载",
+  "studio.history.batch.cancel": "取消选择",
+  "studio.download.success": "下载成功",
+  "studio.download.partial": "部分文件下载失败",
+  "studio.download.fallback": "部分文件无法保存，已转交浏览器下载，请注意浏览器下载列表",
+  "studio.action.download": "下载",
+  "studio.action.upscale": "变清晰",
+  "studio.action.cutout": "抠图",
+  "studio.action.inpaint": "智能重绘",
+  "studio.action.outpaint": "扩图",
+  "studio.history.empty.image": "暂无相关图片",
+  "studio.history.empty.video": "暂无相关视频",
+  "studio.history.empty.file": "暂无相关文件",
+  "studio.history.retry": "重试",
+  "studio.history.delete.title": "确认删除",
+  "studio.history.delete.message": "删除我的资产后将无法找回",
+  "studio.history.sessionDeleted": "该会话已删除，仅保留历史媒体。",
+  "studio.history.openSession": "查看会话",
+  "studio.history.back": "返回",
+  "studio.history.detail.collapse": "收起详情",
+  "studio.history.detail.expand": "展开详情",
+  "studio.history.closeFullscreen": "关闭全屏",
+  "studio.generating": "生成中...",
+  "studio.history.loading": "数据加载中",
   "command.category.suggested": "建议",
   "command.category.view": "视图",
   "command.category.project": "项目",
@@ -179,7 +216,8 @@ export const dict = {
   "provider.connect.oauth.code.invalid": "授权码无效",
   "provider.connect.oauth.auto.visit.prefix": "访问 ",
   "provider.connect.oauth.auto.visit.link": "此链接",
-  "provider.connect.oauth.auto.visit.suffix": " 并输入以下代码，以连接你的帐户并在 OctoAgent 中使用 {{provider}} 模型。",
+  "provider.connect.oauth.auto.visit.suffix":
+    " 并输入以下代码，以连接你的帐户并在 OctoAgent 中使用 {{provider}} 模型。",
   "provider.connect.oauth.auto.confirmationCode": "确认码",
   "provider.connect.toast.connected.title": "{{provider}} 已连接",
   "provider.connect.toast.connected.description": "现在可以使用 {{provider}} 模型了。",
@@ -570,6 +608,19 @@ export const dict = {
   "session.header.open.ariaLabel": "在 {{app}} 中打开",
   "session.header.open.menu": "打开选项",
   "session.header.open.copyPath": "复制路径",
+  "session.portable.menu": "Session 导入与导出",
+  "session.portable.export": "导出",
+  "session.portable.import": "导入",
+  "session.portable.export.picker": "选择 Session 导出位置",
+  "session.portable.import.picker": "选择要导入的 Session 文件",
+  "session.portable.export.success": "导出成功",
+  "session.portable.export.success.description":
+    "已成功导出 {{sessions}} 个 Session、{{files}} 个文件。保存位置：{{path}}",
+  "session.portable.import.success": "导入成功",
+  "session.portable.import.success.description":
+    "已成功导入 {{sessions}} 个 Session、{{files}} 个文件，并已打开导入的对话。",
+  "session.portable.failed": "Session 导入或导出失败",
+  "session.portable.summary": "共 {{sessions}} 个 Session、{{files}} 个文件",
 
   "status.popover.trigger": "状态",
   "status.popover.ariaLabel": "服务器配置",
@@ -620,8 +671,8 @@ export const dict = {
   "sidebar.menu.toggle": "切换菜单",
   "sidebar.nav.projectsAndSessions": "项目和会话",
   "sidebar.settings": "设置",
-  "sidebar.history.title": "历史记录",
-  "sidebar.history.empty": "暂无历史记录",
+  "sidebar.history.title": "我的资产",
+  "sidebar.history.empty": "暂无资产",
   "sidebar.help": "帮助",
   "sidebar.workspaces.enable": "启用工作区",
   "sidebar.workspaces.disable": "禁用工作区",
@@ -639,6 +690,25 @@ export const dict = {
 
   "settings.tab.general": "通用",
   "settings.tab.shortcuts": "快捷键",
+
+  "settings.workspaceUpgrade.title": "工作区升级",
+  "settings.workspaceUpgrade.description":
+    "把普通工作区升级为代码工作区：历史产物文件将按会话目录保留原目录结构复制到工作区 output/ 目录，聊天记录中的文件引用同步更新；升级前自动备份数据库，原 .octo 产物目录保留不删。此操作不可撤销。",
+  "settings.workspaceUpgrade.counts": "{{sessions}} 个会话 · {{files}} 个文件",
+  "settings.workspaceUpgrade.noArtifacts": "无历史产物",
+  "settings.workspaceUpgrade.previewFailed": "预览不可用",
+  "settings.workspaceUpgrade.button": "升级",
+  "settings.workspaceUpgrade.buttonBusy": "升级中...",
+  "settings.workspaceUpgrade.confirm.title": "升级为代码工作区",
+  "settings.workspaceUpgrade.confirm.description":
+    "将把「{{name}}」升级为代码工作区：{{sessions}} 个会话的 {{files}} 个产物文件会按会话目录保留原目录结构复制到 output/ 目录，聊天记录中的引用同步更新；升级前自动备份数据库，原 .octo 产物目录保留不删。此操作不可撤销。",
+  "settings.workspaceUpgrade.confirm.unknown":
+    "将把「{{name}}」升级为代码工作区。未能获取该工作区的产物统计，升级时会以实际扫描结果为准。",
+  "settings.workspaceUpgrade.success.title": "已升级为代码工作区",
+  "settings.workspaceUpgrade.success.description":
+    "已迁移 {{sessions}} 个会话的 {{files}} 个文件；升级前的数据已备份到 {{backup}}，确认无误后可自行删除",
+  "settings.workspaceUpgrade.failed": "升级失败",
+  "settings.workspaceUpgrade.unsupported": "当前版本不支持该功能，请更新后重试",
 
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL 集成",
@@ -815,7 +885,7 @@ export const dict = {
   "settings.mcp.type.http": "http",
   "settings.mcp.type.sse": "sse",
   "settings.mcp.delete.title": "删除 MCP",
-  "settings.mcp.delete.confirm": "确定删除 \"{{name}}\"?该操作会从配置文件中移除此 MCP 条目。",
+  "settings.mcp.delete.confirm": '确定删除 "{{name}}"?该操作会从配置文件中移除此 MCP 条目。',
   "settings.mcp.toast.saved.title": "MCP 已保存,正在重新连接",
   "settings.mcp.toast.deleted.title": "MCP 已删除",
   "settings.mcp.toast.failed.title": "MCP 配置操作失败",
@@ -857,6 +927,9 @@ export const dict = {
   "settings.mcp.form.err.json.url": "需要合法的 url 字段(http/https)",
   "settings.mcp.form.err.homepage": "主页链接必须是合法的 http/https URL",
   "settings.mcp.form.err.docs": "文档链接必须是合法的 http/https URL",
+
+  // jk-j60099994-replace-with-dyf-bridge-i18n-zh-start
+  // jk-j60099994-replace-with-dyf-bridge-i18n-zh-end
 
   "settings.permissions.title": "权限",
   "settings.permissions.description": "控制服务器默认可以使用哪些工具。",
@@ -1040,7 +1113,7 @@ export const dict = {
   "designFiles.kindDocument": "文档",
   "designFiles.kindBinary": "二进制",
   "designFiles.kindFolder": "文件夹",
-  
+
   "designFiles.group": "分组：",
   "designFiles.groupKind": "类型",
   "designFiles.groupModified": "修改时间",
@@ -1056,7 +1129,9 @@ export const dict = {
 
   "designFiles.download": "下载",
   "designFiles.batchDelete": "删除",
-  
+  "designFiles.pullCode": "拉取代码",
+  "designFiles.pushCode": "提交代码",
+
   "designFiles.timeToday": "今天",
   "designFiles.timeYesterday": "昨天",
   "designFiles.timePrevious7Days": "前7天",
@@ -1069,12 +1144,4 @@ export const dict = {
 
   "titlebar.workspace.select": "选择工作区",
   "titlebar.workspace.chooseFolder": "选择文件夹...",
-
-  "titlebar.workspace.kind.title": "选择工作区类型",
-  "titlebar.workspace.kind.normal": "普通工作区",
-  "titlebar.workspace.kind.code": "代码工作区",
-  "titlebar.workspace.kind.normalDesc": "一般用途的文件夹",
-  "titlebar.workspace.kind.codeDesc": "用于代码开发",
-  "titlebar.workspace.kind.badge.normal": "普通",
-  "titlebar.workspace.kind.badge.code": "代码",
 } satisfies Partial<Record<Keys, string>>

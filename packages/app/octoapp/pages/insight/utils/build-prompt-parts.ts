@@ -209,6 +209,7 @@ export function decideInlineStrategy(input?: InlineFileInput[]): InlineDecision 
 
 export interface AssembleInsightPartsInput {
   text: string
+  textMetadata?: TextPartInput["metadata"]
   /** 有序 synthetic 文本块（[附件]清单 / chipTemplate / chipDeclaration / <skill_content> / [引用文件]…），均已算好 */
   syntheticTexts?: string[]
   /** 可内联文件（本地 path；附件栏文件 + `@` 引用的会话文件合并后传入）→ FilePart(file://, text/plain)，
@@ -232,7 +233,7 @@ export interface AssembledInsightParts {
 }
 
 export function assembleInsightParts(input: AssembleInsightPartsInput): AssembledInsightParts {
-  const parts: Array<TextPartInput | FilePartInput> = [{ type: "text", text: input.text }]
+  const parts: Array<TextPartInput | FilePartInput> = [{ type: "text", text: input.text, ...(input.textMetadata ? { metadata: input.textMetadata } : {}) }]
   const inlineDecision = input.inlineDecision ?? decideInlineStrategy(input.textInlineFiles)
 
   for (const t of input.syntheticTexts ?? []) {

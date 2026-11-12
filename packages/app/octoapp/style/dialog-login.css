@@ -1,0 +1,255 @@
+[data-component="dialog-overlay"]:has(+ [data-component="dialog"] .login-dialog),
+body:has(.login-dialog) [data-component="dialog-overlay"] {
+  z-index: 20000;
+}
+
+[data-component="dialog"]:has(.login-dialog) {
+  z-index: 20000;
+}
+
+[data-component="dialog"]:has(.login-dialog) [data-slot="dialog-container"] {
+  width: min(calc(100vw - 32px), 400px);
+  height: min(calc(100vh - 32px), 520px);
+}
+
+.login-dialog[data-slot="dialog-content"] {
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  border: 0;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+}
+
+.login-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+  height: 100%;
+}
+
+.login-dialog-content {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.login-dialog-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-dialog-logo {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 20px;
+}
+
+.login-dialog-title {
+  margin: 0 0 16px;
+  color: rgba(0, 0, 0, 0.9);
+  font-family: "HarmonyOS Sans", var(--font-family-sans);
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.login-dialog-subtitle {
+  margin: 0;
+  color: #6e737a;
+  font-family: "HarmonyHeiTi", var(--font-family-sans);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: 2px;
+}
+
+.login-dialog-actions {
+  position: absolute;
+  right: 32px;
+  bottom: 32px;
+  left: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.login-dialog-actions [data-component="button"] {
+  width: 100%;
+  height: 48px;
+  border-radius: 12px;
+  font-family: "HarmonyOS Sans SC", var(--font-family-sans);
+  font-size: 16px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.login-dialog-primary[data-component="button"] {
+  border-color: #0a59f7;
+  background: #0a59f7;
+}
+
+.login-dialog-secondary[data-component="button"] {
+  background: #fff;
+}
+
+.avatar-component {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.avatar-component[data-login-required="true"] {
+  cursor: pointer;
+}
+
+.avatar-component.header-user-icon {
+  display: block;
+}
+
+.avatar-component-image {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatar-component [data-slot="popover-trigger"] {
+  border-radius: 50%;
+}
+
+.avatar-component-popover[data-component="popover-content"] {
+  width: 128px;
+  min-width: 128px;
+  padding: 4px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+
+.avatar-component-popover [data-slot="popover-body"] {
+  padding: 0;
+}
+
+.avatar-component-logout {
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(10, 89, 247, 0.08);
+  color: #0a59f7;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.avatar-component-logout:hover {
+  background: rgba(10, 89, 247, 0.12);
+}
+
+.logout-dialog,
+.logout-dialog [data-slot="dialog-container"],
+.logout-dialog [data-slot="dialog-content"] {
+  width: min(calc(100vw - 32px), 436px);
+  height: 162px;
+}
+
+.logout-dialog [data-slot="dialog-content"] {
+  min-height: 0;
+}
+
+.logout-dialog [data-slot="dialog-body"] {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding: 20px 32px 24px;
+}
+
+.logout-dialog .header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 17px;
+}
+
+.logout-dialog .header .info {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: #0a59f7;
+  color: #fff;
+  font-family: "HarmonyOS Sans SC", var(--font-family-sans);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.logout-dialog .header > span:not(.info) {
+  color: rgba(0, 0, 0, 0.9);
+  font-family: "HarmonyHeiTi", var(--font-family-sans);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.logout-dialog .header .close {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #6e737a;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.logout-dialog .content {
+  color: #191919;
+  font-family: "HarmonyOS Sans SC", var(--font-family-sans);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.logout-dialog .btn_group {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.logout-dialog .btn_group [data-component="button"] {
+  display: flex;
+  width: 88px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-family: "HarmonyOS Sans SC", var(--font-family-sans);
+  font-size: 16px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.logout-dialog .btn_group .secondary[data-component="button"] {
+  border: 1px solid #c9c9c9;
+  background: #fff;
+  color: #191919;
+}
+
+.logout-dialog .btn_group .primary[data-component="button"] {
+  border-color: #0a59f7;
+  background: #0a59f7;
+  color: #fff;
+}

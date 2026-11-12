@@ -1,5 +1,8 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 import { OctoUploadInjectPlugin } from "../../src/agent/octo-upload-inject"
+import { mkdtemp, mkdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 
 // octo-upload-inject 通用路径的早退顺序回归(2026-07-11 修复):
 // endpoint 检查必须在「args 确实引用了清单文件」之后——否则外网(未配 OCTO_UPLOAD_ENDPOINT)
@@ -25,14 +28,80 @@ const input = { tool: "read", sessionID: "ses_test", callID: "call_1" }
 const MANIFEST = "[附件]\n- 访谈稿.docx: /tmp/uploads/访谈稿.docx"
 
 const savedEndpoint = process.env.OCTO_UPLOAD_ENDPOINT
+const assetRoots: string[] = []
 
 beforeEach(() => {
   delete process.env.OCTO_UPLOAD_ENDPOINT
 })
 
-afterEach(() => {
+afterEach(async () => {
   if (savedEndpoint === undefined) delete process.env.OCTO_UPLOAD_ENDPOINT
   else process.env.OCTO_UPLOAD_ENDPOINT = savedEndpoint
+  await Promise.all(assetRoots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+describe("产品资产按地址交给 MCP，调用时才解析所需文件", () => {
+  async function selected() {
+    const root = await mkdtemp(path.join(tmpdir(), "octo-upload-asset-"))
+    assetRoots.push(root)
+    const folder = path.join(root, "selected")
+    await mkdir(folder)
+    const file = path.join(folder, "interview.txt")
+    await Bun.write(file, "interview text")
+    const messages = [{ info: { role: "user" }, parts: [
+      { type: "text", text: `读取${folder} 这个文件夹`, metadata: { displayText: "@interviews.zip", insightProductAssets: [{ filename: "interviews.zip", path: folder, isFolder: true }] } },
+      { type: "text", text: '[MCP声明]\n{"tool":"uxr-tool_key_findings","outline_required":false,"user_prompt":"分析"}' },
+    ] }]
+    return { root, folder, file, messages }
+  }
+
+  test("目录内实际文件绝对路径可以进入原有上传链路", async () => {
+    const source = await selected()
+    const hook = await beforeHook(source.messages)
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args: { download_links: [source.file] } })).rejects.toThrow("上传服务未配置")
+  })
+
+  test("实际 MCP 调用只上传被引用文件，保留原声明的用户文本", async () => {
+    const source = await selected()
+    await Bun.write(path.join(source.folder, "unused.txt"), "do not upload")
+    const uploaded: string[] = []
+    // 沙箱不允许回连本机 HTTP；只替换上传网络边界，路径解析、真实读盘和表单组装仍走实现。
+    const networkFetch = globalThis.fetch
+    const upload = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (_request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const file = init?.body instanceof FormData ? init.body.get("file") : null
+      if (file instanceof File) uploaded.push(`${file.name}:${await file.text()}`)
+      return Response.json({ success: true, content: { url: "https://assets.test/interview" }, errorCode: 0, errorMessage: null })
+    }, { preconnect: networkFetch.preconnect }))
+    try {
+      process.env.OCTO_UPLOAD_ENDPOINT = "https://upload.example.test/api"
+      const hook = await beforeHook(source.messages)
+      const args = { download_links: [source.file], user_prompt: `${source.file} 这份材料的分析请求` }
+      await hook({ ...input, tool: "uxr-tool_key_findings" }, { args })
+      expect(uploaded).toEqual(["interview.txt:interview text"])
+      expect(args.download_links).toEqual(["https://assets.test/interview"])
+      expect(args.user_prompt).toBe("分析")
+    } finally {
+      upload.mockRestore()
+    }
+  })
+
+  test("裸文件名不能猜测匹配目录内容，目录外路径仍拒绝", async () => {
+    const source = await selected()
+    const hook = await beforeHook(source.messages)
+    for (const ref of ["interview.txt", path.join(source.root, "outside.txt")]) {
+      await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args: { download_links: [ref] } })).rejects.toThrow("不在本会话的文件清单中")
+    }
+  })
+
+  test("read/glob 只读工具原值通过，不扫描或上传资产", async () => {
+    const source = await selected()
+    const hook = await beforeHook(source.messages)
+    for (const tool of ["read", "glob"]) {
+      const args = { path: source.folder }
+      await hook({ ...input, tool }, { args })
+      expect(args).toEqual({ path: source.folder })
+    }
+  })
 })
 
 describe("octo-upload-inject 早退顺序(endpoint 未配置时不误杀无关调用)", () => {

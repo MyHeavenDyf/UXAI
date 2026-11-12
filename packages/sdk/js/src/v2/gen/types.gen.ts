@@ -1058,7 +1058,7 @@ export type ProviderConfig = {
         output: Array<"text" | "audio" | "image" | "video" | "pdf">
       }
       experimental?: boolean
-      status?: "alpha" | "beta" | "deprecated"
+      status?: "alpha" | "beta" | "deprecated" | "active"
       provider?: {
         npm?: string
         api?: string
@@ -1288,6 +1288,7 @@ export type Model = {
   name: string
   family?: string
   isExternal?: boolean
+  defaultDisabled?: boolean
   capabilities: {
     temperature: boolean
     reasoning: boolean
@@ -1628,6 +1629,18 @@ export type McpUnsupportedOAuthError = {
   error: string
 }
 
+export type BadRequestError = {
+  data: unknown
+  errors: Array<{
+    [key: string]: unknown
+  }>
+  success: false
+}
+
+export type InternalServerError = {
+  message: string
+}
+
 export type NotFoundError = {
   name: "NotFoundError"
   data: {
@@ -1814,11 +1827,20 @@ export type StudioGenerationError = {
   name: "StudioGenerationError"
   data: {
     message: string
+    retryable?: boolean
   }
 }
 
 export type ChatMigrationError = {
   name: "ChatMigrationError"
+  data: {
+    stage: string
+    message: string
+  }
+}
+
+export type WorkspaceUpgradeError = {
+  name: "WorkspaceUpgradeError"
   data: {
     stage: string
     message: string
@@ -3431,14 +3453,6 @@ export type EventTuiToastShow1 = {
   }
 }
 
-export type BadRequestError = {
-  data: unknown
-  errors: Array<{
-    [key: string]: unknown
-  }>
-  success: false
-}
-
 export type AuthRemoveData = {
   body?: never
   path: {
@@ -4044,9 +4058,9 @@ export type CommentDeleteData = {
     directory?: string
     workspace?: string
     sessionId?: string
+    scope?: "project"
     commentFilePath: string
     commentId: string
-    scope?: "project"
   }
   url: "/comment/file"
 }
@@ -4078,8 +4092,8 @@ export type CommentLoadData = {
     directory?: string
     workspace?: string
     sessionId?: string
-    commentFilePath: string
     scope?: "project"
+    commentFilePath: string
   }
   url: "/comment/file"
 }
@@ -4137,6 +4151,7 @@ export type CommentLoadResponse = CommentLoadResponses[keyof CommentLoadResponse
 export type CommentSaveData = {
   body?: {
     sessionId?: string
+    scope?: "project"
     commentFilePath: string
     comment: {
       id: string
@@ -4169,7 +4184,6 @@ export type CommentSaveData = {
       commenterName?: string
       commenterAvatar?: string
     }
-    scope?: "project"
   }
   path?: never
   query?: {
@@ -4208,9 +4222,9 @@ export type CommentDeleteAttachmentData = {
     directory?: string
     workspace?: string
     sessionId?: string
+    scope?: "project"
     commentFilePath: string
     commentId: string
-    scope?: "project"
   }
   url: "/comment/file/attachment/{attachmentId}"
 }
@@ -4242,13 +4256,13 @@ export type CommentDeleteAttachmentResponse = CommentDeleteAttachmentResponses[k
 export type CommentUploadAttachmentData = {
   body?: {
     sessionId?: string
+    scope?: "project"
     commentFilePath: string
     commentId: string
     sourceFilePath: string
     filename: string
     mime: string
     size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    scope?: "project"
   }
   path?: never
   query?: {
@@ -4604,6 +4618,7 @@ export type ExperimentalSessionListData = {
     grouped?: boolean | "true" | "false"
     archived?: boolean | "true" | "false"
     agent?: string
+    order?: "updated" | "sort_order"
   }
   url: "/experimental/session"
 }
@@ -5367,6 +5382,19 @@ export type ProjectInitGitData = {
   url: "/project/git/init"
 }
 
+export type ProjectInitGitErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
+}
+
+export type ProjectInitGitError = ProjectInitGitErrors[keyof ProjectInitGitErrors]
+
 export type ProjectInitGitResponses = {
   /**
    * Project information after git initialization
@@ -5375,6 +5403,76 @@ export type ProjectInitGitResponses = {
 }
 
 export type ProjectInitGitResponse = ProjectInitGitResponses[keyof ProjectInitGitResponses]
+
+export type ProjectGetGitRemoteData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/git/remote"
+}
+
+export type ProjectGetGitRemoteErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
+}
+
+export type ProjectGetGitRemoteError = ProjectGetGitRemoteErrors[keyof ProjectGetGitRemoteErrors]
+
+export type ProjectGetGitRemoteResponses = {
+  /**
+   * Origin remote URL (empty string if not configured)
+   */
+  200: {
+    remoteUrl: string
+  }
+}
+
+export type ProjectGetGitRemoteResponse = ProjectGetGitRemoteResponses[keyof ProjectGetGitRemoteResponses]
+
+export type ProjectAddGitRemoteData = {
+  body?: {
+    url: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/git/remote"
+}
+
+export type ProjectAddGitRemoteErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
+}
+
+export type ProjectAddGitRemoteError = ProjectAddGitRemoteErrors[keyof ProjectAddGitRemoteErrors]
+
+export type ProjectAddGitRemoteResponses = {
+  /**
+   * Origin remote URL after add/update
+   */
+  200: {
+    remoteUrl: string
+  }
+}
+
+export type ProjectAddGitRemoteResponse = ProjectAddGitRemoteResponses[keyof ProjectAddGitRemoteResponses]
 
 export type ProjectUpdateData = {
   body?: {
@@ -6005,6 +6103,173 @@ export type SessionStatusResponses = {
 }
 
 export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
+
+export type SessionPortableImportData = {
+  body?: {
+    path: string
+    scope?: "project" | "session"
+    operationID?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/import"
+}
+
+export type SessionPortableImportErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+}
+
+export type SessionPortableImportError = SessionPortableImportErrors[keyof SessionPortableImportErrors]
+
+export type SessionPortableImportResponses = {
+  /**
+   * Imported portable session
+   */
+  200: {
+    sessionID: string
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableImportResponse = SessionPortableImportResponses[keyof SessionPortableImportResponses]
+
+export type SessionPortableExportData = {
+  body?: {
+    path: string
+    scope?: "project"
+    operationID?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/export"
+}
+
+export type SessionPortableExportErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionPortableExportError = SessionPortableExportErrors[keyof SessionPortableExportErrors]
+
+export type SessionPortableExportResponses = {
+  /**
+   * Exported portable session
+   */
+  200: {
+    output: string
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableExportResponse = SessionPortableExportResponses[keyof SessionPortableExportResponses]
+
+export type SessionPortableShareData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    scope?: "project"
+    operationID?: string
+  }
+  url: "/session/{sessionID}/portable-share"
+}
+
+export type SessionPortableShareErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionPortableShareError = SessionPortableShareErrors[keyof SessionPortableShareErrors]
+
+export type SessionPortableShareResponses = {
+  /**
+   * Shared portable session
+   */
+  200: {
+    uniqueId: string
+    url: string
+  }
+}
+
+export type SessionPortableShareResponse = SessionPortableShareResponses[keyof SessionPortableShareResponses]
+
+export type SessionSharePreviewData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    limit?: number
+    before?: string
+  }
+  url: "/session/{sessionID}/share-preview"
+}
+
+export type SessionSharePreviewErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionSharePreviewError = SessionSharePreviewErrors[keyof SessionSharePreviewErrors]
+
+export type SessionSharePreviewResponses = {
+  /**
+   * Read-only share preview
+   */
+  200: {
+    messages: Array<{
+      id: string
+      role: "user" | "assistant"
+      text: string
+      reasoning?: string
+      truncated: boolean
+      files: Array<{
+        name: string
+        mime: string
+      }>
+    }>
+    before?: string
+    running: boolean
+  }
+}
+
+export type SessionSharePreviewResponse = SessionSharePreviewResponses[keyof SessionSharePreviewResponses]
 
 export type SessionDeleteData = {
   body?: never
@@ -6945,13 +7210,42 @@ export type PartUpdateResponses = {
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
 
+export type SessionPortableProgressData = {
+  body?: never
+  path: {
+    operationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/portable-progress/{operationID}"
+}
+
+export type SessionPortableProgressResponses = {
+  /**
+   * Portable session transfer progress
+   */
+  200: {
+    type: "export" | "import" | "share"
+    stage: string
+    percent: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completed?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    total?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    processedBytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    totalBytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableProgressResponse = SessionPortableProgressResponses[keyof SessionPortableProgressResponses]
+
 export type SessionGroupListData = {
   body?: never
   path?: never
   query: {
     directory?: string
     workspace?: string
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
   }
   url: "/session-group"
 }
@@ -6974,7 +7268,7 @@ export type SessionGroupListResponses = {
       id: string
       project_id: string
       directory: string
-      namespace: "make" | "insight"
+      namespace: "make" | "insight" | "studio"
       name: string
       position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -6993,7 +7287,7 @@ export type SessionGroupListResponse = SessionGroupListResponses[keyof SessionGr
 
 export type SessionGroupCreateData = {
   body?: {
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
     name: string
   }
   path?: never
@@ -7021,7 +7315,7 @@ export type SessionGroupCreateResponses = {
     id: string
     project_id: string
     directory: string
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
     name: string
     position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -7993,6 +8287,589 @@ export type ExperimentalWorkspaceWarpResponses = {
 export type ExperimentalWorkspaceWarpResponse =
   ExperimentalWorkspaceWarpResponses[keyof ExperimentalWorkspaceWarpResponses]
 
+export type StudioPromptRecommendationsInitializeData = {
+  body?: {
+    requestID: string
+    sessionID?: string
+    expectedStateToken?: string
+    showGuide?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/prompt-recommendations"
+}
+
+export type StudioPromptRecommendationsInitializeErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptRecommendationsInitializeError =
+  StudioPromptRecommendationsInitializeErrors[keyof StudioPromptRecommendationsInitializeErrors]
+
+export type StudioPromptRecommendationsInitializeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sessionID: string
+    guideMessageID: string
+    guidePartID: string
+    guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+    resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    userMessageID?: string
+    assistantMessageID?: string
+    submission?: {
+      requestID: string
+    }
+    stateToken: string
+  }
+}
+
+export type StudioPromptRecommendationsInitializeResponse =
+  StudioPromptRecommendationsInitializeResponses[keyof StudioPromptRecommendationsInitializeResponses]
+
+export type StudioPromptRecommendationsDismissData = {
+  body?: never
+  path: {
+    sessionID: string
+    guidePartID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/sessions/{sessionID}/prompt-recommendations/{guidePartID}/dismiss"
+}
+
+export type StudioPromptRecommendationsDismissErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptRecommendationsDismissError =
+  StudioPromptRecommendationsDismissErrors[keyof StudioPromptRecommendationsDismissErrors]
+
+export type StudioPromptRecommendationsDismissResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sessionID: string
+    guideMessageID: string
+    guidePartID: string
+    guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+    resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    userMessageID?: string
+    assistantMessageID?: string
+    submission?: {
+      requestID: string
+    }
+    stateToken: string
+  }
+}
+
+export type StudioPromptRecommendationsDismissResponse =
+  StudioPromptRecommendationsDismissResponses[keyof StudioPromptRecommendationsDismissResponses]
+
+export type StudioPromptExpansionsCreateData = {
+  body?: {
+    requestID: string
+    sessionID: string
+    guidePartID: string
+    prompt: string
+    images?: Array<{
+      path: string
+    }>
+    availableModels: Array<{
+      providerID: string
+      modelID: string
+    }>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/prompt-expansions"
+}
+
+export type StudioPromptExpansionsCreateErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptExpansionsCreateError =
+  StudioPromptExpansionsCreateErrors[keyof StudioPromptExpansionsCreateErrors]
+
+export type StudioPromptExpansionsCreateResponses = {
+  /**
+   * Success
+   */
+  202: {
+    sessionID: string
+    guideMessageID: string
+    guidePartID: string
+    guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+    resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    userMessageID?: string
+    assistantMessageID?: string
+    submission?: {
+      requestID: string
+    }
+    stateToken: string
+  }
+}
+
+export type StudioPromptExpansionsCreateResponse =
+  StudioPromptExpansionsCreateResponses[keyof StudioPromptExpansionsCreateResponses]
+
+export type StudioPromptRecommendationsGetData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    guidePartID?: string
+  }
+  url: "/studio/sessions/{sessionID}/prompt-recommendation"
+}
+
+export type StudioPromptRecommendationsGetErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptRecommendationsGetError =
+  StudioPromptRecommendationsGetErrors[keyof StudioPromptRecommendationsGetErrors]
+
+export type StudioPromptRecommendationsGetResponses = {
+  /**
+   * Success
+   */
+  200: {
+    stateToken: string
+    recommendation: {
+      sessionID: string
+      guideMessageID: string
+      guidePartID: string
+      guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+      resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      userMessageID?: string
+      assistantMessageID?: string
+      submission?: {
+        requestID: string
+      }
+    }
+  }
+}
+
+export type StudioPromptRecommendationsGetResponse =
+  StudioPromptRecommendationsGetResponses[keyof StudioPromptRecommendationsGetResponses]
+
+export type StudioPromptExpansionsCancelData = {
+  body?: never
+  path: {
+    sessionID: string
+    assistantMessageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/sessions/{sessionID}/prompt-expansions/{assistantMessageID}/cancel"
+}
+
+export type StudioPromptExpansionsCancelErrors = {
+  /**
+   * Error
+   */
+  400: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  404: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  413: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  429: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+  /**
+   * Error
+   */
+  503: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioPromptExpansionsCancelError =
+  StudioPromptExpansionsCancelErrors[keyof StudioPromptExpansionsCancelErrors]
+
+export type StudioPromptExpansionsCancelResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sessionID: string
+    guideMessageID: string
+    guidePartID: string
+    guideRevision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    status: "armed" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "dismissed"
+    resultRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    userMessageID?: string
+    assistantMessageID?: string
+    submission?: {
+      requestID: string
+    }
+    stateToken: string
+  }
+}
+
+export type StudioPromptExpansionsCancelResponse =
+  StudioPromptExpansionsCancelResponses[keyof StudioPromptExpansionsCancelResponses]
+
 export type StudioPromptTagsListData = {
   body?: never
   path?: never
@@ -8286,9 +9163,9 @@ export type StudioTemplateListListData = {
     directory?: string
     workspace?: string
     user_id: string
-    only_public: string
-    page: string
-    page_size: string
+    only_public: number
+    page: number
+    page_size: number
   }
   url: "/studio/template-list"
 }
@@ -8414,6 +9291,18 @@ export type StudioGenerationsCreateErrors = {
    * BadRequest | StudioGenerationError
    */
   400: BadRequestError | StudioGenerationError
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
 }
 
 export type StudioGenerationsCreateError = StudioGenerationsCreateErrors[keyof StudioGenerationsCreateErrors]
@@ -8425,7 +9314,7 @@ export type StudioGenerationsCreateResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8444,7 +9333,9 @@ export type StudioGenerationsCreateResponses = {
     task_type?: string
     taskId?: string
     model: string
+    styleModel?: string
     aspectRatio: string
+    isCustom?: boolean
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -8493,6 +9384,18 @@ export type StudioEditorEntriesCreateErrors = {
    * BadRequest | StudioGenerationError
    */
   400: BadRequestError | StudioGenerationError
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
 }
 
 export type StudioEditorEntriesCreateError = StudioEditorEntriesCreateErrors[keyof StudioEditorEntriesCreateErrors]
@@ -8539,7 +9442,7 @@ export type StudioGenerationsCancelResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8558,7 +9461,9 @@ export type StudioGenerationsCancelResponses = {
     task_type?: string
     taskId?: string
     model: string
+    styleModel?: string
     aspectRatio: string
+    isCustom?: boolean
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -8605,6 +9510,18 @@ export type StudioGenerationsRebootErrors = {
    * BadRequest | StudioGenerationError
    */
   400: BadRequestError | StudioGenerationError
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
 }
 
 export type StudioGenerationsRebootError = StudioGenerationsRebootErrors[keyof StudioGenerationsRebootErrors]
@@ -8616,7 +9533,7 @@ export type StudioGenerationsRebootResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8635,7 +9552,9 @@ export type StudioGenerationsRebootResponses = {
     task_type?: string
     taskId?: string
     model: string
+    styleModel?: string
     aspectRatio: string
+    isCustom?: boolean
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -8693,7 +9612,7 @@ export type StudioGenerationsGetResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
     capability:
       | "image.generate"
       | "video.generate"
@@ -8712,7 +9631,9 @@ export type StudioGenerationsGetResponses = {
     task_type?: string
     taskId?: string
     model: string
+    styleModel?: string
     aspectRatio: string
+    isCustom?: boolean
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -8742,181 +9663,288 @@ export type StudioGenerationsGetResponses = {
 
 export type StudioGenerationsGetResponse = StudioGenerationsGetResponses[keyof StudioGenerationsGetResponses]
 
-export type StudioGenerationsVideoPosterSaveData = {
+export type StudioGenerationsRefreshData = {
+  body?: never
+  path: {
+    generationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/refresh"
+}
+
+export type StudioGenerationsRefreshErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+  /**
+   * Error
+   */
+  409: {
+    name: "StudioPromptRecommendationError"
+    data: {
+      code: string
+      message: string
+      guidePartID?: string
+      stateToken?: string
+    }
+  }
+}
+
+export type StudioGenerationsRefreshError = StudioGenerationsRefreshErrors[keyof StudioGenerationsRefreshErrors]
+
+export type StudioGenerationsRefreshResponses = {
+  /**
+   * Refreshed Studio generation
+   */
+  200: {
+    id: string
+    sessionID: string
+    status: "creating" | "queued" | "running" | "succeeded" | "create_failed" | "failed" | "abnormal"
+    capability:
+      | "image.generate"
+      | "video.generate"
+      | "image.upscale"
+      | "image.cutout"
+      | "image.inpaint"
+      | "image.outpaint"
+      | "image.fusion"
+    prompt: string
+    displayPrompt?: string
+    detailPrompt?: string
+    detailTitle?: string
+    provider: "jimeng" | "internel"
+    toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+    taskType?: string
+    task_type?: string
+    taskId?: string
+    model: string
+    styleModel?: string
+    aspectRatio: string
+    isCustom?: boolean
+    videoMode?: "text" | "first_last_frame"
+    duration?: string
+    videoQualityMode?: "480" | "720" | "1080" | "4k"
+    images: Array<{
+      id: string
+      kind?: "image" | "video"
+      url: string
+      thumbnailUrl?: string
+      thumbnailStatus?: "pending" | "ready" | "failed"
+      remoteUrl?: string
+      width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      duration?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    progress: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    rawStatus?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN" | string
+    error?: string
+    request?: unknown
+    response?: unknown
+    rawBody?: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioGenerationsRefreshResponse =
+  StudioGenerationsRefreshResponses[keyof StudioGenerationsRefreshResponses]
+
+export type StudioHistoryListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    kind?: "image" | "video"
+    resolution?: string
+    ratio?: string
+    sort?: "desc" | "asc"
+    cursor?: string
+    limit?: number
+  }
+  url: "/studio/history"
+}
+
+export type StudioHistoryListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryListError = StudioHistoryListErrors[keyof StudioHistoryListErrors]
+
+export type StudioHistoryListResponses = {
+  /**
+   * Studio history media list
+   */
+  200: {
+    items: Array<{
+      id: string
+      sessionID: string
+      generationID: string
+      mediaIndex: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      kind: "image" | "video"
+      url: string
+      thumbnailUrl?: string
+      thumbnailStatus?: string
+      width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      aspectRatio?: string
+      capability?: string
+      duration?: string
+      prompt?: string
+      displayPrompt?: string
+      detailPrompt?: string
+      detailTitle?: string
+      model?: string
+      styleModel?: string
+      provider?: string
+      videoMode?: string
+      videoQualityMode?: string
+      toolAction?: string
+      isCustom?: boolean
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    nextCursor?: string
+  }
+}
+
+export type StudioHistoryListResponse = StudioHistoryListResponses[keyof StudioHistoryListResponses]
+
+export type StudioHistorySnapshotData = {
   body?: {
-    mediaIndex: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    content: string
-  }
-  path: {
-    generationID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/generations/{generationID}/video-poster"
-}
-
-export type StudioGenerationsVideoPosterSaveErrors = {
-  /**
-   * BadRequest | StudioGenerationError
-   */
-  400: BadRequestError | StudioGenerationError
-}
-
-export type StudioGenerationsVideoPosterSaveError =
-  StudioGenerationsVideoPosterSaveErrors[keyof StudioGenerationsVideoPosterSaveErrors]
-
-export type StudioGenerationsVideoPosterSaveResponses = {
-  /**
-   * Saved Studio video poster
-   */
-  200: {
-    thumbnailUrl: string
-  }
-}
-
-export type StudioGenerationsVideoPosterSaveResponse =
-  StudioGenerationsVideoPosterSaveResponses[keyof StudioGenerationsVideoPosterSaveResponses]
-
-export type StudioGenerationsThumbnailSourceGetData = {
-  body?: never
-  path: {
-    generationID: string
-    mediaIndex: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail-source"
-}
-
-export type StudioGenerationsThumbnailSourceGetErrors = {
-  /**
-   * BadRequest | StudioGenerationError
-   */
-  400: BadRequestError | StudioGenerationError
-}
-
-export type StudioGenerationsThumbnailSourceGetError =
-  StudioGenerationsThumbnailSourceGetErrors[keyof StudioGenerationsThumbnailSourceGetErrors]
-
-export type StudioGenerationsThumbnailSourceGetResponses = {
-  /**
-   * Studio thumbnail source
-   */
-  200: string
-}
-
-export type StudioGenerationsThumbnailSourceGetResponse =
-  StudioGenerationsThumbnailSourceGetResponses[keyof StudioGenerationsThumbnailSourceGetResponses]
-
-export type StudioGenerationsThumbnailSaveData = {
-  body?: {
-    content: string
-  }
-  path: {
-    generationID: string
-    mediaIndex: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail"
-}
-
-export type StudioGenerationsThumbnailSaveErrors = {
-  /**
-   * BadRequest | StudioGenerationError
-   */
-  400: BadRequestError | StudioGenerationError
-}
-
-export type StudioGenerationsThumbnailSaveError =
-  StudioGenerationsThumbnailSaveErrors[keyof StudioGenerationsThumbnailSaveErrors]
-
-export type StudioGenerationsThumbnailSaveResponses = {
-  /**
-   * Saved Studio media thumbnail
-   */
-  200: {
-    thumbnailUrl: string
-  }
-}
-
-export type StudioGenerationsThumbnailSaveResponse =
-  StudioGenerationsThumbnailSaveResponses[keyof StudioGenerationsThumbnailSaveResponses]
-
-export type StudioGenerationsThumbnailInvalidateData = {
-  body?: never
-  path: {
-    generationID: string
-    mediaIndex: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/studio/generations/{generationID}/media/{mediaIndex}/thumbnail/invalidate"
-}
-
-export type StudioGenerationsThumbnailInvalidateErrors = {
-  /**
-   * BadRequest | StudioGenerationError
-   */
-  400: BadRequestError | StudioGenerationError
-}
-
-export type StudioGenerationsThumbnailInvalidateError =
-  StudioGenerationsThumbnailInvalidateErrors[keyof StudioGenerationsThumbnailInvalidateErrors]
-
-export type StudioGenerationsThumbnailInvalidateResponses = {
-  /**
-   * Invalidated Studio media thumbnail
-   */
-  200: {
-    invalidated: boolean
-  }
-}
-
-export type StudioGenerationsThumbnailInvalidateResponse =
-  StudioGenerationsThumbnailInvalidateResponses[keyof StudioGenerationsThumbnailInvalidateResponses]
-
-export type StudioSessionsThumbnailsEnsureData = {
-  body?: never
-  path: {
     sessionID: string
   }
+  path?: never
   query?: {
     directory?: string
     workspace?: string
   }
-  url: "/studio/sessions/{sessionID}/thumbnails/ensure"
+  url: "/studio/history/snapshot"
 }
 
-export type StudioSessionsThumbnailsEnsureErrors = {
+export type StudioHistorySnapshotErrors = {
   /**
    * BadRequest | StudioGenerationError
    */
   400: BadRequestError | StudioGenerationError
 }
 
-export type StudioSessionsThumbnailsEnsureError =
-  StudioSessionsThumbnailsEnsureErrors[keyof StudioSessionsThumbnailsEnsureErrors]
+export type StudioHistorySnapshotError = StudioHistorySnapshotErrors[keyof StudioHistorySnapshotErrors]
 
-export type StudioSessionsThumbnailsEnsureResponses = {
+export type StudioHistorySnapshotResponses = {
   /**
-   * Queued Studio thumbnail jobs
+   * Snapshot result
    */
   200: {
-    queued: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    snapshotted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   }
 }
 
-export type StudioSessionsThumbnailsEnsureResponse =
-  StudioSessionsThumbnailsEnsureResponses[keyof StudioSessionsThumbnailsEnsureResponses]
+export type StudioHistorySnapshotResponse = StudioHistorySnapshotResponses[keyof StudioHistorySnapshotResponses]
+
+export type StudioHistoryDeleteData = {
+  body?: {
+    mediaIds: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/delete"
+}
+
+export type StudioHistoryDeleteErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryDeleteError = StudioHistoryDeleteErrors[keyof StudioHistoryDeleteErrors]
+
+export type StudioHistoryDeleteResponses = {
+  /**
+   * Deleted media count
+   */
+  200: {
+    deleted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistoryDeleteResponse = StudioHistoryDeleteResponses[keyof StudioHistoryDeleteResponses]
+
+export type StudioHistoryExcludedListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/excluded"
+}
+
+export type StudioHistoryExcludedListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryExcludedListError = StudioHistoryExcludedListErrors[keyof StudioHistoryExcludedListErrors]
+
+export type StudioHistoryExcludedListResponses = {
+  /**
+   * Excluded media IDs
+   */
+  200: {
+    ids: Array<string>
+  }
+}
+
+export type StudioHistoryExcludedListResponse =
+  StudioHistoryExcludedListResponses[keyof StudioHistoryExcludedListResponses]
+
+export type StudioHistoryRevisionData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/history/revision"
+}
+
+export type StudioHistoryRevisionErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioHistoryRevisionError = StudioHistoryRevisionErrors[keyof StudioHistoryRevisionErrors]
+
+export type StudioHistoryRevisionResponses = {
+  /**
+   * Studio history revision
+   */
+  200: {
+    revision: string
+    count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    headId?: string
+    headCreatedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioHistoryRevisionResponse = StudioHistoryRevisionResponses[keyof StudioHistoryRevisionResponses]
 
 export type InsightSessionsListData = {
   body?: never
@@ -9141,6 +10169,77 @@ export type InsightChatMigrationRunResponses = {
 }
 
 export type InsightChatMigrationRunResponse = InsightChatMigrationRunResponses[keyof InsightChatMigrationRunResponses]
+
+export type WorkspaceUpgradePreviewData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workspace-upgrade/preview"
+}
+
+export type WorkspaceUpgradePreviewErrors = {
+  /**
+   * WorkspaceUpgradeError
+   */
+  400: WorkspaceUpgradeError
+}
+
+export type WorkspaceUpgradePreviewError = WorkspaceUpgradePreviewErrors[keyof WorkspaceUpgradePreviewErrors]
+
+export type WorkspaceUpgradePreviewResponses = {
+  /**
+   * Workspace upgrade preview
+   */
+  200: {
+    sessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    files: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    bytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    studioSkipped: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkspaceUpgradePreviewResponse = WorkspaceUpgradePreviewResponses[keyof WorkspaceUpgradePreviewResponses]
+
+export type WorkspaceUpgradeRunData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workspace-upgrade/run"
+}
+
+export type WorkspaceUpgradeRunErrors = {
+  /**
+   * WorkspaceUpgradeError
+   */
+  400: WorkspaceUpgradeError
+}
+
+export type WorkspaceUpgradeRunError = WorkspaceUpgradeRunErrors[keyof WorkspaceUpgradeRunErrors]
+
+export type WorkspaceUpgradeRunResponses = {
+  /**
+   * Workspace upgrade result
+   */
+  200: {
+    migratedSessions: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    movedFiles: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    movedBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    skippedStudio: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    backupPath?: string
+  }
+}
+
+export type WorkspaceUpgradeRunResponse = WorkspaceUpgradeRunResponses[keyof WorkspaceUpgradeRunResponses]
 
 export type PtyConnectData = {
   body?: never

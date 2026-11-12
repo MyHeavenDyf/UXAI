@@ -7,6 +7,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
+import { beginInsightOperation } from "../utils/interaction-tracking"
 import { useSync } from "@/context/sync"
 import { sessionQuestionRequest } from "@/pages/session/composer/session-request-tree"
 import "./question-dock.css"
@@ -570,21 +571,25 @@ export function InsightQuestionDock(props: { sessionID?: string }) {
 
   const reply = (req: QuestionRequest, answers: QuestionAnswer[]) => {
     if (state.sending) return
+    const finish = beginInsightOperation("question-response", { sessionId: req.sessionID, action: "reply", questionCount: req.questions.length })
     setState("sending", true)
     console.log("[octo:question] reply", { questionID: req.id, count: answers.length })
     sdk.client.question
       .reply({ requestID: req.id, answers })
-      .catch(fail)
+      .then((result) => finish(result.error ? "failure" : "success", result.error ? { reason: "request" } : {}))
+      .catch((error) => { finish("failure", { reason: "request" }); fail(error) })
       .finally(() => setState("sending", false))
   }
 
   const reject = (req: QuestionRequest) => {
     if (state.sending) return
+    const finish = beginInsightOperation("question-response", { sessionId: req.sessionID, action: "reject", questionCount: req.questions.length })
     setState("sending", true)
     console.log("[octo:question] reject", { questionID: req.id })
     sdk.client.question
       .reject({ requestID: req.id })
-      .catch(fail)
+      .then((result) => finish(result.error ? "failure" : "success", result.error ? { reason: "request" } : {}))
+      .catch((error) => { finish("failure", { reason: "request" }); fail(error) })
       .finally(() => setState("sending", false))
   }
 

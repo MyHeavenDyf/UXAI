@@ -275,7 +275,7 @@ export const layer = Layer.effect(
       console.info("[TitleModel] selected", titleModelLog)
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
-        : yield* MessageV2.toModelMessagesEffect(titleContext, mdl)
+        : yield* MessageV2.toModelMessagesEffect(titleContext, mdl, { stripMedia: true })
       const text = yield* llm
         .stream({
           agent: ag,
@@ -781,7 +781,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       session: Session.Info
       model: Provider.Model
     }) {
-      const messages = structuredClone(yield* MessageV2.filterCompactedEffect(input.sessionID))
+      // 不要 structuredClone:对象是本次从 SQLite 新读的、无共享引用,深拷贝只会在
+      // 大会话上把峰值内存翻倍(2026-10-15 用户侧 sidecar OOM 的放大器之一)
+      const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
       const lastUser = messages.findLast((message) => message.info.role === "user")?.info
       const lastAssistant = messages.findLast((message) => message.info.role === "assistant")?.info
       if (!lastUser || lastUser.role !== "user") throw new Error("Compacted context has no user message")
@@ -2188,17 +2190,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         messageID: result.info.id,
       })
 
-      // 如果该命令是 skill，额外发布 skill.used 事件供前端消费
-      elog.info("skill.used-debug", {
-        command: input.command,
-        source: cmd.source,
-        agent: userAgent,
-        isSubtask,
-      })
-      if (cmd.source === "skill") {
-        yield* bus.publish(SkillUsed, { skillName: input.command })
-        elog.info("skill.used-debug", { action: "PUBLISHED", command: input.command })
-      }
+      // skill 命令的 skill.used 事件已由上面的 extra.skills 在 prompt() 公共入口统一发布；此处再发会双触发
+      // （2026-08-13 278550243f 给 command 路径补传 extra 后，两处发布开始同时命中同一轮调用）。
 
       return result
     })

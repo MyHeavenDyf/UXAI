@@ -1,5 +1,5 @@
 import type { StudioStyleTemplateListItem } from "./studio-style-template-menu"
-import { styleModelId } from "./data"
+import { isSeedreamStyleModel, styleModelId } from "./data"
 
 export type StudioStyleDimensionId =
   | "tonal"
@@ -104,7 +104,8 @@ export function splitStyleTemplatePlayDescription(text: string) {
 
 export function styleTemplateTargetModel(canUseSeedream: boolean, currentStyleModel?: string) {
   const current = styleModelId(currentStyleModel)
-  if (current === "seedream-5-lite" || current === "qwen") return current
+  if (current && isSeedreamStyleModel(current)) return canUseSeedream ? current : "qwen"
+  if (current === "qwen") return current
   return canUseSeedream ? "seedream-5-lite" : "qwen"
 }
 

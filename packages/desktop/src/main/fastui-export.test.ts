@@ -1,7 +1,7 @@
 /**
  * 导出脚本的定位(SPEC-DES-001 §8.6.2)。
  *
- * 这里只测 `resolveScript` —— 2026-09 那次故障(存量会话报「找不到 export-zip.mjs」)
+ * 主要测 `resolveScript`(末尾一组测 `exportZip` 的调用参数)—— 2026-09 那次故障(存量会话报「找不到 export-zip.mjs」)
  * 整个发生在定位这一步,跑脚本那一步没问题。用**真起一个 HTTP server** 扮演 sidecar 的
  * `/skill`,真在临时目录里放脚本文件,于是「宿主最终挑中了哪一份」可以直接判定。
  *
@@ -11,9 +11,10 @@
  * 目录名影响,这是本次改动的要害,所以单开一条用例钉住。
  *
  * 候选链读的 `homedir()` / `XDG_CONFIG_HOME` 一律走 `PathEnv` 注入:测试结果不能取决于
- * 跑测试的人本地装没装某个 skill。
+ * 跑测试的人本地装没装某个 skill。candidate #3 现在经 `effectiveXdgConfigHome()` 读
+ * activeStorage(app-data-fallback 覆盖时的真实落点),对应用例直接注入 holder。
  */
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -21,7 +22,14 @@ import { join } from "node:path"
 const root = realpathSync(mkdtempSync(join(tmpdir(), "fastui-export-")))
 const SKILL_NAME = "fastui-vue-creator"
 
+// fastui-export.ts 经 ./storage → ./store 传递导入 electron;bun 的 ESM 加载器对 CJS
+// 字符串导出做具名链接会失败,必须 mock。`default` 不能省:electron-store 是 ESM 且
+// default-import electron。注册必须先于下面的动态 import。
+const electronMock = { app: { getPath: () => join(root, "user-data"), isPackaged: false }, dialog: {} }
+mock.module("electron", () => ({ ...electronMock, default: electronMock }))
+
 const Export = await import("./fastui-export")
+const Storage = await import("./storage")
 
 /** 空目录,保证候选链上每一条都落到「确实不存在」而不是碰巧命中真实机器上的东西 */
 const EMPTY_ENV = { xdgConfig: join(root, "empty-xdg"), homeDir: join(root, "empty-home") }
@@ -77,11 +85,13 @@ let stopServer: (() => void) | null = null
 
 beforeEach(() => {
   Export.setServerInfo(null)
+  Storage.setActiveStorage(null)
 })
 
 afterEach(() => {
   stopServer?.()
   stopServer = null
+  Storage.setActiveStorage(null)
 })
 
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -94,7 +104,7 @@ describe("resolveScript", () => {
     stopServer = server.stop
     Export.setServerInfo({ url: server.url, username: "opencode", password: "pw" })
 
-    const found = await Export.resolveScript(sessionDir, undefined, {
+    const found = await Export.resolveScript(projectDir, undefined, {
       // 候选 #3/#4 指向「名字干净」的那个目录:它不存在,正如现场
       xdgConfig: join(root, "space-suffix"),
       homeDir: join(root, "space-suffix-home"),
@@ -109,12 +119,12 @@ describe("resolveScript", () => {
     stopServer = server.stop
     Export.setServerInfo({ url: server.url, username: "opencode", password: "pw" })
 
-    expect(await Export.resolveScript(sessionDir, undefined, EMPTY_ENV)).toBe(
+    expect(await Export.resolveScript(projectDir, undefined, EMPTY_ENV)).toBe(
       join(real, "scripts", "export-zip.mjs"),
     )
   })
 
-  test("查询按会话推出的项目目录发起,并带上 Basic auth", async () => {
+  test("查询按工作区目录发起,并带上 Basic auth", async () => {
     const inProject = installSkill(join(root, "proj", "octo-skills"))
     const expected = `Basic ${Buffer.from("opencode:pw").toString("base64")}`
     const server = fakeServer((directory) => (directory === projectDir ? join(inProject, "SKILL.md") : null), {
@@ -123,7 +133,7 @@ describe("resolveScript", () => {
     stopServer = server.stop
     Export.setServerInfo({ url: server.url, username: "opencode", password: "pw" })
 
-    expect(await Export.resolveScript(sessionDir, undefined, EMPTY_ENV)).toBe(
+    expect(await Export.resolveScript(projectDir, undefined, EMPTY_ENV)).toBe(
       join(inProject, "scripts", "export-zip.mjs"),
     )
     expect(server.captured).toEqual([{ directory: projectDir, authorization: expected }])
@@ -135,7 +145,7 @@ describe("resolveScript", () => {
     stopServer = server.stop
     Export.setServerInfo({ url: server.url, username: "opencode", password: "pw" })
 
-    expect(await Export.resolveScript(sessionDir, recorded, EMPTY_ENV)).toBe(
+    expect(await Export.resolveScript(projectDir, recorded, EMPTY_ENV)).toBe(
       join(recorded, "scripts", "export-zip.mjs"),
     )
   })
@@ -146,7 +156,7 @@ describe("resolveScript", () => {
     stopServer = () => server.stop(true)
     Export.setServerInfo({ url: `http://127.0.0.1:${server.port}`, username: "opencode", password: "pw" })
 
-    expect(await Export.resolveScript(sessionDir, recorded, EMPTY_ENV)).toBe(
+    expect(await Export.resolveScript(projectDir, recorded, EMPTY_ENV)).toBe(
       join(recorded, "scripts", "export-zip.mjs"),
     )
   })
@@ -155,7 +165,7 @@ describe("resolveScript", () => {
     const recorded = installSkill(join(root, "recorded"))
     Export.setServerInfo({ url: "http://127.0.0.1:1", username: "opencode", password: "pw" })
 
-    expect(await Export.resolveScript(sessionDir, recorded, EMPTY_ENV)).toBe(
+    expect(await Export.resolveScript(projectDir, recorded, EMPTY_ENV)).toBe(
       join(recorded, "scripts", "export-zip.mjs"),
     )
   })
@@ -165,7 +175,7 @@ describe("resolveScript", () => {
     const xdgBase = join(root, "xdg-side", "octo")
     const good = installSkill(xdgBase)
 
-    expect(await Export.resolveScript(sessionDir, stale, { ...EMPTY_ENV, xdgConfig: join(root, "xdg-side") })).toBe(
+    expect(await Export.resolveScript(projectDir, stale, { ...EMPTY_ENV, xdgConfig: join(root, "xdg-side") })).toBe(
       join(good, "scripts", "export-zip.mjs"),
     )
   })
@@ -174,14 +184,77 @@ describe("resolveScript", () => {
     const homeDir = join(root, "home-side")
     const good = installSkill(join(homeDir, ".config", "octo"))
 
-    expect(await Export.resolveScript(sessionDir, undefined, { xdgConfig: join(root, "empty-xdg"), homeDir })).toBe(
+    expect(await Export.resolveScript(projectDir, undefined, { xdgConfig: join(root, "empty-xdg"), homeDir })).toBe(
       join(good, "scripts", "export-zip.mjs"),
     )
   })
 
   test("一处都没有时返回 null,由调用方给出用户可读的失败", async () => {
-    expect(await Export.resolveScript(join(root, "nowhere", ".octo", "ses_x"), join(root, "nowhere"), EMPTY_ENV)).toBe(
+    expect(await Export.resolveScript(join(root, "nowhere"), join(root, "nowhere"), EMPTY_ENV)).toBe(
       null,
     )
+  })
+
+  test("app-data-fallback 覆盖激活时,候选 #3 跟随 activeStorage 而非主进程 env", async () => {
+    const overrideXdg = join(root, "override-xdg")
+    const good = installSkill(join(overrideXdg, "octo"))
+    const fallback: Storage.DesktopStorage = {
+      mode: "app-data-fallback",
+      dataHome: join(root, "override-user"),
+      dataDirectory: join(root, "override-user", "opencode"),
+      databasePath: join(root, "override-user", "opencode", "opencode-local.db"),
+      env: { XDG_CONFIG_HOME: overrideXdg },
+      explicitDatabase: false,
+    }
+    Storage.setActiveStorage(fallback)
+    // 主进程 env 指向空目录:没跟随 storage 的话这条候选必 miss
+    const prev = process.env.XDG_CONFIG_HOME
+    process.env.XDG_CONFIG_HOME = join(root, "empty-xdg")
+    try {
+      expect(await Export.resolveScript(projectDir, undefined)).toBe(join(good, "scripts", "export-zip.mjs"))
+    } finally {
+      if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = prev
+    }
+  })
+
+  test("activeStorage 为空时退回主进程 env 的 XDG_CONFIG_HOME", async () => {
+    const procXdg = join(root, "proc-env-xdg")
+    const good = installSkill(join(procXdg, "octo"))
+    const prev = process.env.XDG_CONFIG_HOME
+    process.env.XDG_CONFIG_HOME = procXdg
+    try {
+      expect(await Export.resolveScript(projectDir, undefined)).toBe(join(good, "scripts", "export-zip.mjs"))
+    } finally {
+      if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = prev
+    }
+  })
+})
+
+describe("exportZip", () => {
+  // SPEC-DES-008 §3.7:按(工作区, 会话, 产物名)找工程,以 --project-dir 调脚本 —— 不再传会话目录。
+  // 假脚本把收到的参数原样当 ZIP_PATH 回出来,「宿主怎么调的」直接可判。
+  test("代码工作区的工程:以 --project-dir 调标记里记的 skill 脚本", async () => {
+    const skillDir = join(root, "export-skill")
+    mkdirSync(join(skillDir, "scripts"), { recursive: true })
+    writeFileSync(
+      join(skillDir, "scripts", "export-zip.mjs"),
+      'console.log("RESULT: OK\\nZIP_PATH: " + process.argv.slice(2).join(" ") + "\\nZIP_BYTES: 1\\nFILE_COUNT: 1")\n',
+    )
+    const ws = join(root, "export-ws")
+    const proj = join(ws, "dash")
+    mkdirSync(join(proj, "packages", "portal"), { recursive: true })
+    writeFileSync(
+      join(proj, ".octo-fastui.json"),
+      JSON.stringify({ schema: 1, skill: SKILL_NAME, name: "dash", sessions: ["ses_a"], skillDir, envDir: join(root, "no-env") }),
+    )
+    const r = await Export.exportZip({ workspaceDir: ws, sessionId: "ses_a", name: "dash" })
+    expect(r).toEqual({ ok: true, zipPath: `--project-dir=${proj}`, bytes: 1, fileCount: 1 })
+  })
+
+  test("找不到工程:返回可读的错误,不跑脚本", async () => {
+    const r = await Export.exportZip({ workspaceDir: join(root, "export-none"), sessionId: "ses_a", name: "dash" })
+    expect(r.ok).toBe(false)
   })
 })

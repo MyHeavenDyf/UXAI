@@ -121,6 +121,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
           roots: ctx.query.roots,
           start: ctx.query.start,
           cursor: ctx.query.cursor,
+          order: ctx.query.order === "sort_order" ? "sort_order" : undefined,
           search: ctx.query.search,
           limit: limit + 1,
           archived: ctx.query.archived,
@@ -133,7 +134,12 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       return HttpServerResponse.jsonUnsafe(list, {
         headers:
           sessions.length > limit && list.length > 0
-            ? { "x-next-cursor": `${list[list.length - 1].time.updated}:${list[list.length - 1].id}` }
+            ? {
+                "x-next-cursor":
+                  ctx.query.order === "sort_order"
+                    ? `${list[list.length - 1].sort_order}:${list[list.length - 1].time.updated}:${list[list.length - 1].id}`
+                    : `${list[list.length - 1].time.updated}:${list[list.length - 1].id}`,
+              }
             : undefined,
       })
     })

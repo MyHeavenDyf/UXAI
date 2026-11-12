@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import type { StudioImage } from "./types"
 import type { StudioInpaintMode } from "./studio-shared"
 
@@ -279,7 +280,7 @@ export function StudioInpaintEditor(props: {
       <div class="studio-inpaint-header">
         <span class="studio-canvas-tab">
           <span class="studio-canvas-label-text">智能重绘</span>
-          <span class="studio-canvas-tab-close" onClick={props.onClose} aria-label="关闭智能重绘" title="关闭智能重绘" />
+          <span class="studio-canvas-tab-close" onClick={() => { tracker.interaction({ module: "studio", name: "inpaint-close" }); props.onClose() }} aria-label="关闭智能重绘" title="关闭智能重绘" />
         </span>
       </div>
       <div class="studio-inpaint-body">
@@ -346,7 +347,10 @@ export function StudioInpaintEditor(props: {
                     class="studio-inpaint-mode-option"
                     classList={{ active: editMode() === option.value }}
                     aria-pressed={editMode() === option.value}
-                    onClick={() => setEditMode(option.value)}
+                    onClick={() => {
+                      tracker.interaction({ module: "studio", name: "inpaint-mode", extend: JSON.stringify({ mode: option.value }) })
+                      setEditMode(option.value)
+                    }}
                   >
                     <span class="studio-inpaint-mode-dot" />
                     <span class="studio-inpaint-mode-text">{option.label}</span>
@@ -358,7 +362,7 @@ export function StudioInpaintEditor(props: {
               <div class="studio-inpaint-tool-row">
                 <button
                   type="button"
-                  onClick={clearMask}
+                  onClick={() => { tracker.interaction({ module: "studio", name: "inpaint-clear" }); clearMask() }}
                   disabled={!hasDrawing() || props.busy}
                   class="studio-inpaint-tool studio-inpaint-tool-clean"
                   aria-label="清空"
@@ -366,7 +370,7 @@ export function StudioInpaintEditor(props: {
                 />
                 <button
                   type="button"
-                  onClick={undoMask}
+                  onClick={() => { tracker.interaction({ module: "studio", name: "inpaint-undo" }); undoMask() }}
                   disabled={undoList().length < 2 || props.busy}
                   class="studio-inpaint-tool studio-inpaint-tool-undo"
                   aria-label="撤销"
@@ -374,7 +378,7 @@ export function StudioInpaintEditor(props: {
                 />
                 <button
                   type="button"
-                  onClick={redoMask}
+                  onClick={() => { tracker.interaction({ module: "studio", name: "inpaint-redo" }); redoMask() }}
                   disabled={redoList().length === 0 || props.busy}
                   class="studio-inpaint-tool studio-inpaint-tool-redo"
                   aria-label="重做"
@@ -418,7 +422,7 @@ export function StudioInpaintEditor(props: {
               <div class="studio-inpaint-prompt-placeholder">{promptPlaceholder()}</div>
             </Show>
           </div>
-            <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
+            <button type="button" class="studio-editor-delete" onClick={() => { tracker.interaction({ module: "studio", name: "inpaint-delete" }); props.onDelete() }}>删除</button>
             <button
               type="button"
               disabled={(!hasDrawing() && !editorPrompt().trim()) || props.busy}

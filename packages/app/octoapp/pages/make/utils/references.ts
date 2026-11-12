@@ -21,6 +21,10 @@ const JS_IMPORT_REGEX = /import\s*\(\s*["']([^"']+)["']\s*\)/gi
 // 第二参数必须是 import.meta.url,否则解析基准不同(浏览器用文档 base),不能按 JS 文件目录解析
 const JS_NEW_URL_REGEX = /new\s+URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/gi
 const SOURCEMAP_REGEX = /\/\/#\s*sourceMappingURL=(\S+)/gi
+const JS_STATIC_IMPORT_REGEX = /\bimport\b\s*(?:[\w$*{},\s]+?from\s*)?["']([^"']+)["']/gi
+// re-export：export {a} from "./x.js" / export * from "./x.js" / export * as ns from "./x.js"
+const JS_EXPORT_FROM_REGEX = /\bexport\b\s*(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s*["']([^"']+)["']/gi
+const IMPORTMAP_SCRIPT_REGEX = /<script\b[^>]*\btype\s*=\s*["']importmap["'][^>]*>([\s\S]*?)<\/script>/gi
 
 function isRelativeRef(ref: string): boolean {
   if (!ref) return false
@@ -71,6 +75,28 @@ function unique(arr: string[]): string[] {
   return Array.from(new Set(arr))
 }
 
+function extractImportmapRefs(html: string): string[] {
+  const values: string[] = []
+  const collectValues = (node: unknown) => {
+    if (!node || typeof node !== "object") return
+    for (const value of Object.values(node as Record<string, unknown>)) {
+      if (typeof value === "string") values.push(value)
+      else collectValues(value)
+    }
+  }
+  IMPORTMAP_SCRIPT_REGEX.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = IMPORTMAP_SCRIPT_REGEX.exec(html)) !== null) {
+    const body = m[1]
+    try {
+      collectValues(JSON.parse(body))
+    } catch {
+      for (const s of body.match(/"([^"]+)"/g) ?? []) values.push(s.slice(1, -1))
+    }
+  }
+  return values
+}
+
 /** 从一段内容中提取所有相对路径引用（剥 query/hash、URL 解码、过滤绝对/协议/锚点） */
 export function extractReferences(content: string, type: ContentType): string[] {
   if (!content) return []
@@ -103,6 +129,9 @@ export function extractReferences(content: string, type: ContentType): string[] 
     collectAllMatches(CSS_IMPORT_REGEX)
     collectAllMatches(JS_IMPORT_REGEX)
     collectAllMatches(JS_NEW_URL_REGEX)
+    collectAllMatches(JS_STATIC_IMPORT_REGEX)
+    collectAllMatches(JS_EXPORT_FROM_REGEX)
+    refs.push(...extractImportmapRefs(content))
     collectAllMatches(SOURCEMAP_REGEX)
   } else if (type === "css") {
     collectAllMatches(URL_FUNC_REGEX)
@@ -111,6 +140,8 @@ export function extractReferences(content: string, type: ContentType): string[] 
     // js
     collectAllMatches(JS_IMPORT_REGEX)
     collectAllMatches(JS_NEW_URL_REGEX)
+    collectAllMatches(JS_STATIC_IMPORT_REGEX)
+    collectAllMatches(JS_EXPORT_FROM_REGEX)
     collectAllMatches(URL_FUNC_REGEX)
     collectAllMatches(SOURCEMAP_REGEX)
   }

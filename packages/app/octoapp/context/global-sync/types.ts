@@ -43,6 +43,9 @@ export type State = {
   path: Path
   session: Session[]
   sessionTotal: number
+  deleted?: {
+    [sessionID: string]: true | undefined
+  }
   session_status: {
     [sessionID: string]: SessionStatus
   }

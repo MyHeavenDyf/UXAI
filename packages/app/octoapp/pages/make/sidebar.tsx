@@ -14,6 +14,10 @@ export function MakeSidebar() {
       limit: PAGE_SIZE,
       cursor,
       agent: "octo_make",
+      // 按侧栏「最近」显示顺序分页(sort_order 优先、time 次之),否则后续页
+      // 会含 sort_order 更小的会话,追加后被 recentSessions 重排到已显示条目
+      // 之上,把列表第一条顶下去。
+      order: "sort_order",
     })
     const sessions = (result.data ?? []) as Session[]
     const next = result.response.headers.get("x-next-cursor")

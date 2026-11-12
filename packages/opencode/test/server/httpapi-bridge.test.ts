@@ -213,6 +213,64 @@ afterEach(async () => {
 })
 
 describe("HttpApi server", () => {
+  test("Studio prompt recommendation contracts match both HTTP stacks", async () => {
+    const hono = await Server.openapiHono()
+    const effect = effectOpenApi()
+    const routes = openApiRouteKeys(hono).filter((route) => route.includes("/studio/") && (route.includes("prompt-recommend") || route.includes("prompt-expansion")))
+    expect(routes).toHaveLength(5)
+    expect(routes.every((route) => openApiRouteKeys(effect).includes(route))).toBe(true)
+    const honoParams = openApiParameters(hono)
+    const effectParams = openApiParameters(effect)
+    const honoBodies = openApiRequestBodies(hono)
+    const effectBodies = openApiRequestBodies(effect)
+    routes.forEach((route) => {
+      expect(honoParams[route]).toEqual(effectParams[route])
+      expect(honoBodies[route]).toEqual(effectBodies[route])
+    })
+  })
+
+  test("Studio recommendation initializes, replays and validates through either HTTP stack", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const effect = app()
+    const hono = Server.Legacy().app
+    const headers = { "x-opencode-directory": tmp.path, "content-type": "application/json" }
+    for (const client of [hono, effect]) {
+      const body = JSON.stringify({ requestID: crypto.randomUUID() })
+      const initialized = await client.request("http://localhost/studio/prompt-recommendations", { method: "POST", headers, body })
+      expect(initialized.status).toBe(200)
+      const first = await initialized.json() as { sessionID: string; guidePartID: string }
+      const repeated = await client.request("http://localhost/studio/prompt-recommendations", { method: "POST", headers, body })
+      expect(await repeated.json()).toMatchObject(first)
+      const state = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation?guidePartID=${first.guidePartID}`, { headers })
+      expect(state.status).toBe(200)
+      expect(await state.json()).toMatchObject({ recommendation: { status: "armed", guidePartID: first.guidePartID } })
+      const entry = await client.request("http://localhost/studio/editor-entries", {
+        method: "POST", headers,
+        body: JSON.stringify({ sessionID: first.sessionID, entryID: crypto.randomUUID(), capability: "image.upscale" }),
+      })
+      expect(entry.status).toBe(200)
+      expect(await entry.json()).toMatchObject({ entryID: expect.any(String), assistantMessageID: expect.any(String) })
+      const retained = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation`, { headers })
+      expect(await retained.json()).toMatchObject({ recommendation: { status: "armed", guidePartID: first.guidePartID } })
+      const invalid = await client.request("http://localhost/studio/prompt-expansions", { method: "POST", headers, body: "{broken" })
+      expect(invalid.status).toBe(400)
+      expect(await invalid.json()).toMatchObject({ name: "StudioPromptRecommendationError", data: { code: "INVALID_INPUT" } })
+      const path = `http://localhost/studio/sessions/${first.sessionID}/prompt-recommendations/${first.guidePartID}/dismiss`
+      const dismissed = await client.request(path, { method: "POST", headers })
+      expect(dismissed.status).toBe(200)
+      expect(await dismissed.json()).toMatchObject({ status: "dismissed", guidePartID: first.guidePartID })
+      expect((await client.request(path, { method: "POST", headers })).status).toBe(200)
+      const nextState = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation`, { headers })
+      const next = await nextState.json() as { stateToken: string }
+      const silent = await client.request("http://localhost/studio/prompt-recommendations", {
+        method: "POST", headers,
+        body: JSON.stringify({ requestID: crypto.randomUUID(), sessionID: first.sessionID, expectedStateToken: next.stateToken, showGuide: false }),
+      })
+      expect(silent.status).toBe(200)
+      expect(await silent.json()).toMatchObject({ status: "armed", sessionID: first.sessionID })
+    }
+  })
+
   test("keeps Effect HttpApi behind the feature flag", () => {
     Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = false
     expect(Server.backend()).toEqual({ backend: "hono", reason: "stable" })
@@ -226,13 +284,27 @@ describe("HttpApi server", () => {
     const effectRoutes = openApiRouteKeys(effectOpenApi())
 
     expect(honoRoutes.filter((route) => !effectRoutes.includes(route))).toEqual([])
+    // Fork (Octo) adds HttpApi-only routes that intentionally have no legacy Hono
+    // counterpart: the /api/session surface plus studio generation/refresh,
+    // insight, and artifact serve routes. Keep this list in sync when adding them.
     expect(effectRoutes.filter((route) => !honoRoutes.includes(route))).toEqual([
       "GET /api/session",
       "GET /api/session/{sessionID}/context",
       "GET /api/session/{sessionID}/message",
+      "GET /artifact/serve",
+      "GET /insight/files",
+      "GET /insight/sessions",
+      "GET /studio/generations/{generationID}",
       "POST /api/session/{sessionID}/compact",
       "POST /api/session/{sessionID}/prompt",
       "POST /api/session/{sessionID}/wait",
+      "POST /insight/chat-migration/preview",
+      "POST /insight/chat-migration/run",
+      "POST /insight/upload",
+      "POST /insight/upload-folder",
+      "POST /studio/generations/{generationID}/cancel",
+      "POST /studio/generations/{generationID}/reboot",
+      "POST /studio/generations/{generationID}/refresh",
     ])
   })
 
@@ -291,6 +363,38 @@ describe("HttpApi server", () => {
     const sessionUpdateProperties = sessionUpdateSchema?.properties as Record<string, OpenApiSchema> | undefined
     const time = sessionUpdateProperties?.time
     expect(time?.properties?.archived).toEqual({ type: "number" })
+  })
+
+  // 历史条目的生成级文案快照列（会话删除后详情面板复原依赖）必须出现在公共 spec 里，
+  // 否则 SDK 拿不到字段、HttpApi 编码时也会把它们剥掉。
+  test("documents studio history text snapshot fields in the SDK spec", () => {
+    const effect = effectOpenApi()
+    const responseFields = (path: string, method: (typeof methods)[number]) => {
+      const operation = effect.paths[path]?.[method] as
+        | { responses?: Record<string, { content?: Record<string, { schema?: OpenApiSchema }> }> }
+        | undefined
+      return operation?.responses?.["200"]?.content?.["application/json"]?.schema?.properties ?? {}
+    }
+    const historyFields = ((responseFields("/studio/history", "get").items as { items?: OpenApiSchema })
+      ?.items?.properties ?? {}) as Record<string, unknown>
+    for (const name of [
+      "prompt",
+      "displayPrompt",
+      "detailPrompt",
+      "detailTitle",
+      "model",
+      "styleModel",
+      "provider",
+      "videoMode",
+      "videoQualityMode",
+      "toolAction",
+      "isCustom",
+    ]) {
+      expect(historyFields[name], `studio history item field ${name}`).toBeDefined()
+    }
+    const generationFields = responseFields("/studio/generations/{generationID}", "get")
+    expect(generationFields.styleModel, "generation result styleModel").toBeDefined()
+    expect(generationFields.isCustom, "generation result isCustom").toBeDefined()
   })
 
   test("documents event routes as server-sent events", () => {
@@ -439,5 +543,37 @@ describe("HttpApi server", () => {
 
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ success: false })
+  })
+
+  test("keeps legacy compat paths working while hiding them from OpenAPI", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    // Pre-rename file-write path still writes.
+    const write = await app().request("/content", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-opencode-directory": tmp.path },
+      body: JSON.stringify({ path: `${tmp.path}/legacy.txt`, content: "legacy" }),
+    })
+    expect(write.status).toBe(200)
+    expect(await write.json()).toMatchObject({ ok: true })
+    expect(await Bun.file(`${tmp.path}/legacy.txt`).text()).toBe("legacy")
+
+    // `filePath` is accepted as an alias for `commentFilePath`.
+    const alias = await app().request("/comment/file?sessionId=s&filePath=foo.html", {
+      headers: { "x-opencode-directory": tmp.path },
+    })
+    expect(alias.status).toBe(200)
+    expect(await alias.json()).toMatchObject({ comments: [] })
+
+    // Both legacy paths stay out of the public OpenAPI/SDK surface.
+    const effect = effectOpenApi()
+    expect(effect.paths["/content"]).toBeUndefined()
+    expect(effect.paths["/comment/file/{commentId}"]).toBeUndefined()
+    // `filePath` is accepted at runtime but hidden from the SDK; `commentFilePath`
+    // is the documented (and required) field.
+    expect(parameterSchema({ spec: effect, path: "/comment/file", method: "get", name: "filePath" })).toBeUndefined()
+    expect(parameterSchema({ spec: effect, path: "/comment/file", method: "get", name: "commentFilePath" })).toEqual({
+      type: "string",
+    })
   })
 })

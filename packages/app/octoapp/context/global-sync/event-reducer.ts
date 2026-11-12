@@ -199,6 +199,7 @@ export function applyDirectoryEvent(input: {
     }
     case "session.created": {
       const info = (event.properties as { info: Session }).info
+      if (input.store.deleted?.[info.id]) input.setStore("deleted", info.id, undefined)
       const result = Binary.search(input.store.session, info.id, (s) => s.id)
       if (result.found) {
         input.setStore("session", result.index, reconcile(keepRealSessionTitle(input.store.session[result.index], info)))
@@ -216,6 +217,7 @@ export function applyDirectoryEvent(input: {
       const info = (event.properties as { info: Session }).info
       const result = Binary.search(input.store.session, info.id, (s) => s.id)
       if (info.time.archived) {
+        input.setStore("deleted", info.id, true)
         if (result.found) {
           input.setStore(
             "session",
@@ -229,6 +231,7 @@ export function applyDirectoryEvent(input: {
         input.setStore("sessionTotal", (value) => Math.max(0, value - 1))
         break
       }
+      if (input.store.deleted?.[info.id]) input.setStore("deleted", info.id, undefined)
       if (result.found) {
         input.setStore("session", result.index, reconcile(keepRealSessionTitle(input.store.session[result.index], info)))
         break
@@ -242,6 +245,7 @@ export function applyDirectoryEvent(input: {
     }
     case "session.deleted": {
       const info = (event.properties as { info: Session }).info
+      input.setStore("deleted", info.id, true)
       const result = Binary.search(input.store.session, info.id, (s) => s.id)
       if (result.found) {
         input.setStore(

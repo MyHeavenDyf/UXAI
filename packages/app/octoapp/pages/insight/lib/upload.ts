@@ -132,6 +132,13 @@ export function validateFileForExternal(file: File): UploadError | null {
   return null
 }
 
+// Insight 与 Design 的本地附件入口一致：允许任意格式，保留大小、空文件及文件名校验。
+// 独立入口避免改变仍使用 validateFile 的图片校验和 S3 上传行为。
+export function validateInsightFile(file: File): UploadError | null {
+  const error = validateFile(file)
+  return error?.code === "EXT_NOT_ALLOWED" ? null : error
+}
+
 // 业务错误码 → 客户端语义。spec §业务错误码
 function mapErrorCode(code: number, message: string | null): UploadError {
   const msg = message ?? ""

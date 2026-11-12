@@ -2,6 +2,7 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { PartID } from "@/session/schema"
+import { OctoProductAssets } from "./octo-product-assets"
 
 // Insight 多文档分治的服务端第二道守卫。前端在发送前已做同样的确定性判定；
 // 这里用 chat.message 覆盖队列外的客户端、API 直调和未来新入口。只注入模型可见的
@@ -48,6 +49,7 @@ type DispatchPart = {
   url?: string
   filename?: string
   mime?: string
+  metadata?: Record<string, unknown>
 }
 
 export type InsightDispatchDecision = {
@@ -171,6 +173,7 @@ export async function decideInsightDispatch(
       .then((value) => ({ size: value.size, isFile: value.isFile() }))
       .catch(() => undefined),
 ): Promise<InsightDispatchDecision> {
+  const assets = parts.flatMap(OctoProductAssets.fromPart)
   const manifestFiles = parts.flatMap((part) => {
     if (part.type !== "text" || typeof part.text !== "string") return []
     if (!MANIFEST_HEADERS.some((header) => part.text!.startsWith(header))) return []
@@ -178,7 +181,7 @@ export async function decideInsightDispatch(
   })
   const directGroups = parts.flatMap((part) => {
     if (part.type !== "text" || part.synthetic || typeof part.text !== "string") return []
-    return promptLocalFileCandidates(part.text)
+    return promptLocalFileCandidates(part.text).map(group => group.filter(file => !OctoProductAssets.contains(file.path, assets)))
   })
   // chat.message 位于 file:// 解析之后；上游会保留原 FilePart，因此 API/其他本地客户端
   // 即使没有 [附件] 清单，服务端也能从 file:// 找回真实路径并补做体量判定。

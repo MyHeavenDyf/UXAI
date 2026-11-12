@@ -8,73 +8,18 @@ import * as InstanceState from "@/effect/instance-state"
 import path from "path"
 import { injectArtifactBridges } from "./artifact-bridge"
 import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
+import {
+  collectArtifactFiles,
+  getKind,
+  getMime,
+  sanitizePath,
+  SESSION_BASE_DIR,
+  OUTPUTS_DIR,
+  UPLOADS_DIR,
+  type ArtifactFileInfo,
+} from "../../artifact-shared"
 
-const SESSION_BASE_DIR = ".octo"
-const OUTPUTS_DIR = "outputs"
-const UPLOADS_DIR = "uploads"
 const COMMENTS_DIR = "comments"
-
-function sanitizePath(rawPath: string): string {
-  const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
-  if (normalized.includes("..") || normalized.includes("~") || normalized.length === 0) {
-    return ""
-  }
-  return normalized
-}
-
-const KIND_BY_EXT: Record<string, string> = {
-  html: "html",
-  htm: "html",
-  svg: "svg",
-  png: "image",
-  jpg: "image",
-  jpeg: "image",
-  gif: "image",
-  webp: "image",
-  mp4: "video",
-  webm: "video",
-  mp3: "audio",
-  wav: "audio",
-  md: "markdown",
-  markdown: "markdown",
-  txt: "text",
-  js: "code",
-  ts: "code",
-  json: "code",
-  css: "code",
-  pdf: "pdf",
-}
-
-const MIME_MAP: Record<string, string> = {
-  html: "text/html",
-  svg: "image/svg+xml",
-  md: "text/markdown",
-  txt: "text/plain",
-  json: "application/json",
-  js: "application/javascript",
-  ts: "application/typescript",
-  css: "text/css",
-  pdf: "application/pdf",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  mp4: "video/mp4",
-  webm: "video/webm",
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-}
-
-function getKind(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  return KIND_BY_EXT[ext] ?? "binary"
-}
-
-function getMime(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  return MIME_MAP[ext] ?? "application/octet-stream"
-}
 
 function crc32(data: Uint8Array): number {
   const table = new Uint32Array(256)
@@ -271,18 +216,6 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
     const fs = yield* AppFileSystem.Service
     const fileSvc = yield* File.Service
 
-    type ArtifactFileInfo = {
-      name: string
-      path: string
-      relativePath: string
-      sessionId: string
-      kind: string
-      isFolder: boolean
-      size: number
-      mtime: number
-      mime: string
-    }
-
     // 项目级递归列表(代码工作区 @ 面板)的安全上限:大仓库(如 node_modules)递归可能产出
     // 数万条目,拖垮渲染端 popover。截断到上限即停止,不静默忽略任何目录。
     const MAX_PROJECT_RECURSIVE_FILES = 500
@@ -416,7 +349,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
 
           const isFolder = stat.type === "Directory"
           if (recursive && isFolder) {
-            yield* collectFilesRecursive(fullPath, relativePath, sessionId, files)
+            yield* collectArtifactFiles(fs, fullPath, relativePath, sessionId, files)
           } else {
             const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
             const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
@@ -447,7 +380,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
 
         if (recursive) {
           const baseRelativePath = subPath ? `uploads/${sanitizePath(subPath)}` : "uploads"
-          yield* collectFilesRecursive(targetDir, baseRelativePath, sessionId, files)
+          yield* collectArtifactFiles(fs, targetDir, baseRelativePath, sessionId, files)
         } else {
           const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
           for (const name of entries) {

@@ -16,11 +16,12 @@ export function ProjectProductSelect(props: ProjectProductSelectProps): JSX.Elem
   const [popoverOpen, setPopoverOpen] = createSignal(false)
 
   const selectedLabel = () => {
+    if (!props.product) return "选择产品"
     const parts = []
     if (props.domain && props.domain.name) parts.push(props.domain.name)
     if (props.productLine && props.productLine.name) parts.push(props.productLine.name)
-    if (props.product && props.product.name) parts.push(props.product.name)
-    return parts.length ? parts.join("/") : "选择产品"
+    if (props.product.name) parts.push(props.product.name)
+    return parts.join("/")
   }
 
   return (

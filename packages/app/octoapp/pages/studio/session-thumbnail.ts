@@ -1,5 +1,5 @@
 import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
-import { createSignal } from "solid-js"
+import { batch, createSignal } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { parseToolAttachments, parseToolImages, parseToolMedia, parseToolVideos } from "./turns"
@@ -107,13 +107,23 @@ export function createSessionThumbnailStore(input: {
   )
 
   const [loading, setLoading] = createSignal(false)
-  // Version counter — incremented on every setThumbnail so the sidebar can reactively re-render
-  const [version, setVersion] = createSignal(0)
+
+  // Serialize loads: a session-list update that arrives while a load is in
+  // flight is queued and processed once, instead of running concurrent fetches
+  // that fight over the `loading` signal and flicker the sidebar placeholder.
+  let loadingInFlight = false
+  let pendingSessions: Session[] | undefined
 
   // Track sessions whose thumbnail was recently set directly (via setThumbnail),
   // to prevent loadThumbnails from overwriting them with stale message data
   // before the server-side message persistence catches up.
   const recentlySet = new Set<string>()
+  const recentlySetTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  // Track sessions already probed with no thumbnail for a given `time.updated`,
+  // so unchanged sessions are not re-fetched (and `loading` not toggled) on
+  // every unrelated list update.
+  const probedMisses = new Map<string, number>()
 
   function normalizeThumbnail(url?: string, allowOriginal = false): string | undefined {
     if (!isStudioThumbnailUrl(url) && !allowOriginal) return undefined
@@ -135,10 +145,15 @@ export function createSessionThumbnailStore(input: {
     if (!url) return
     if (!shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], generationAt)) return
     recentlySet.add(sessionID)
-    // Auto-clear after 30s so future genuine updates aren't blocked
-    setTimeout(() => recentlySet.delete(sessionID), 30_000)
+    clearTimeout(recentlySetTimers.get(sessionID))
+    recentlySetTimers.set(
+      sessionID,
+      setTimeout(() => { recentlySet.delete(sessionID); recentlySetTimers.delete(sessionID) }, 30_000),
+    )
     const commit = () => {
       if (!shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], generationAt)) return
+      probedMisses.delete(sessionID)
+      if (persistedThumbnails[sessionID]?.url === url) return
       setPersistedThumbnails(sessionID, {
         url,
         updatedAt: Date.now(),
@@ -146,7 +161,6 @@ export function createSessionThumbnailStore(input: {
         kind,
         fallback,
       })
-      setVersion((v) => v + 1)
     }
     const current = persistedThumbnails[sessionID]
     if (!fallback && current?.fallback && typeof Image !== "undefined") {
@@ -160,6 +174,9 @@ export function createSessionThumbnailStore(input: {
 
   function removeThumbnail(sessionID: string) {
     recentlySet.delete(sessionID)
+    clearTimeout(recentlySetTimers.get(sessionID))
+    recentlySetTimers.delete(sessionID)
+    probedMisses.delete(sessionID)
     setPersistedThumbnails(
       produce((draft: ThumbnailMap) => {
         delete draft[sessionID]
@@ -168,6 +185,22 @@ export function createSessionThumbnailStore(input: {
   }
 
   async function loadThumbnails(sessions: Session[]) {
+    if (loadingInFlight) {
+      pendingSessions = sessions
+      return
+    }
+    loadingInFlight = true
+    try {
+      await loadThumbnailsOnce(sessions)
+    } finally {
+      loadingInFlight = false
+      const next = pendingSessions
+      pendingSessions = undefined
+      if (next) void loadThumbnails(next)
+    }
+  }
+
+  async function loadThumbnailsOnce(sessions: Session[]) {
     const dir = input.dir()
     if (!dir || sessions.length === 0) return
 
@@ -176,14 +209,17 @@ export function createSessionThumbnailStore(input: {
     const stale = sessions.filter((s) => {
       if (recentlySet.has(s.id)) return false
       const entry = persistedThumbnails[s.id]
-      if (!entry || !normalizeThumbnail(entry.url, entry.fallback === true)) return true
+      if (!entry || !normalizeThumbnail(entry.url, entry.fallback === true)) {
+        // Already probed this revision and found nothing — don't refetch on
+        // every unrelated list update (which would toggle `loading`).
+        return probedMisses.get(s.id) !== (s.time.updated ?? 0)
+      }
       if (entry.generationAt === undefined) return true
       return (s.time.updated ?? 0) > entry.updatedAt
     })
 
     if (stale.length === 0) return
 
-    console.log(`[Thumbnail] Loading thumbnails for ${stale.length} stale sessions (out of ${sessions.length} total)`)
     setLoading(true)
 
     // Use the default client (same as the rest of the app) to avoid any
@@ -196,37 +232,36 @@ export function createSessionThumbnailStore(input: {
     // Process in batches of 5 to avoid overwhelming the API
     const BATCH_SIZE = 5
     for (let i = 0; i < stale.length; i += BATCH_SIZE) {
-      const batch = stale.slice(i, i + BATCH_SIZE)
-      await Promise.allSettled(
-        batch.map(async (session) => {
+      const batchSessions = stale.slice(i, i + BATCH_SIZE)
+      const results = await Promise.allSettled(
+        batchSessions.map(async (session) => {
           try {
             const result = await client.session.messages({
               sessionID: session.id,
             })
             const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
-            console.log(`[Thumbnail] Session ${session.id} has ${items.length} messages`)
             const media = extractFirstMediaFromMessages(items)
             const fallback = Boolean(media && !isStudioThumbnailUrl(media.url))
             const url = normalizeThumbnail(media?.url, fallback)
             if (media && url && shouldReplaceSessionThumbnail(persistedThumbnails[session.id], media.generationAt)) {
-              console.log(`[Thumbnail] Found thumbnail for session ${session.id}: ${url.substring(0, 80)}...`)
-              setPersistedThumbnails(session.id, {
-                url,
-                updatedAt: session.time.updated ?? Date.now(),
-                generationAt: media.generationAt,
-                kind: media?.kind,
-                fallback,
-              })
-              setVersion((v) => v + 1)
+              return { sessionID: session.id, url, updatedAt: session.time.updated ?? Date.now(), generationAt: media.generationAt, kind: media?.kind, fallback } as const
             } else {
-              console.log(`[Thumbnail] No image found in session ${session.id}, scheduling retry`)
               retrySessionIDs.push(session.id)
+              probedMisses.set(session.id, session.time.updated ?? 0)
             }
           } catch (err) {
             console.error(`[Thumbnail] Failed to load thumbnail for session ${session.id}`, err)
           }
         }),
       )
+      batch(() => {
+        for (const result of results) {
+          if (result.status !== "fulfilled" || !result.value) continue
+          const { sessionID, url, updatedAt, generationAt, kind, fallback } = result.value
+          if (persistedThumbnails[sessionID]?.url === url) continue
+          setPersistedThumbnails(sessionID, { url, updatedAt, generationAt, kind, fallback })
+        }
+      })
     }
 
     setLoading(false)
@@ -235,28 +270,37 @@ export function createSessionThumbnailStore(input: {
     // This handles the race where session.updated fires before message storage commits.
     if (retrySessionIDs.length > 0) {
       setTimeout(async () => {
-        for (const sessionID of retrySessionIDs) {
-          try {
-            const result = await client.session.messages({ sessionID })
-            const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
-            const media = extractFirstMediaFromMessages(items)
-            const fallback = Boolean(media && !isStudioThumbnailUrl(media.url))
-            const url = normalizeThumbnail(media?.url, fallback)
-            if (media && url && shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], media.generationAt)) {
-              console.log(`[Thumbnail] Retry found thumbnail for session ${sessionID}`)
-              setPersistedThumbnails(sessionID, {
-                url,
-                updatedAt: Date.now(),
-                generationAt: media.generationAt,
-                kind: media?.kind,
-                fallback,
-              })
-              setVersion((v) => v + 1)
+        const retryResults = await Promise.allSettled(
+          retrySessionIDs.map(async (sessionID) => {
+            try {
+              const result = await client.session.messages({ sessionID })
+              const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
+              const media = extractFirstMediaFromMessages(items)
+              const fallback = Boolean(media && !isStudioThumbnailUrl(media.url))
+              const url = normalizeThumbnail(media?.url, fallback)
+              if (media && url && shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], media.generationAt)) {
+                return { sessionID, url, kind: media?.kind, fallback, generationAt: media.generationAt } as const
+              }
+            } catch (err) {
+              console.error(`[Thumbnail] Retry failed for session ${sessionID}`, err)
             }
-          } catch (err) {
-            console.error(`[Thumbnail] Retry failed for session ${sessionID}`, err)
+          }),
+        )
+        batch(() => {
+          for (const result of retryResults) {
+            if (result.status !== "fulfilled" || !result.value) continue
+            const { sessionID, url } = result.value
+            probedMisses.delete(sessionID)
+            if (persistedThumbnails[sessionID]?.url === url) continue
+            setPersistedThumbnails(sessionID, {
+              url,
+              updatedAt: Date.now(),
+              generationAt: result.value.generationAt,
+              kind: result.value.kind,
+              fallback: result.value.fallback,
+            })
           }
-        }
+        })
       }, 3000)
     }
   }
@@ -264,7 +308,6 @@ export function createSessionThumbnailStore(input: {
   return {
     thumbnails: persistedThumbnails,
     loading,
-    version,
     ready,
     setThumbnail,
     removeThumbnail,

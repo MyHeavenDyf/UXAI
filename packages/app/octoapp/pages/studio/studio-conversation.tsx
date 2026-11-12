@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX 
 import { Portal } from "solid-js/web"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { tracker } from "@/utils/tracker"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
 import { getDefaultDimensions, isStudioEditResult, isVideoMedia, getImageOrientation, STUDIO_VIDEO_RESOLUTION } from "./studio-shared"
@@ -20,12 +21,32 @@ import {
   type StudioTemplateVisibleUser,
 } from "./studio-template-creator"
 import { FloatingNotice } from "@/components/floating-notice"
+import { useLanguage } from "@/context/language"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 import { StudioMediaThumbnail } from "./studio-media-thumbnail"
 import { originalMediaSrc } from "./studio-media"
+import { StudioDownloadIcon } from "./studio-download-icon"
+import { StudioPromptExpansionReviewView } from "./studio-prompt-expansion-review-view"
+import { StudioPromptExpansionPreview } from "./studio-prompt-expansion-preview"
+import { studioTurnAnchorID } from "./studio-turn-anchor"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
+
+const RECOMMENDATION_SHORTCUTS = [
+  {
+    label: "未来科技，英雄战斗，电影质感",
+    prompt: "赛博朋克都市废墟中的近身激战：身穿流线型外骨骼装甲的英雄，装甲缝隙透出幽蓝能量光，手持高频粒子刃与巨型机械敌人对峙，火花四溅，碎片飞散；背景是高耸的全息广告牌与倾泻的霓虹雨幕，远处无人机群掠过；低角度仰拍，广角镜头，浅景深，强烈的冷暖光对比，青橙色调，体积光穿透烟雾，动态模糊，超精细细节，8K，电影级构图，史诗感战斗瞬间",
+  },
+  {
+    label: "中式建筑，水彩",
+    prompt: "烟雨江南的徽派古村落：白墙黛瓦马头墙错落层叠，飞檐翘角隐于薄雾之中，青石板巷蜿蜒入深，小桥流水倒映斑驳墙影；水彩晕染技法，湿画法营造朦胧雾气，颜料自然流淌形成柔和边缘，留白表现天光与水面反光，淡墨勾勒建筑轮廓，赭石与花青色调淡雅交融，纸纹质感清晰可见，光影通透，意境悠远，清新雅致，高级灰调，细节丰富，艺术感强",
+  },
+  {
+    label: "人物，油画质感的少女",
+    prompt: "古典写实风格：一位十七八岁的少女侧身而坐，微微回眸，眼神清澈含羞；长发松松挽起，几缕碎发垂落颈侧，身着素色棉麻长裙，衣褶自然垂坠；柔和侧光从左侧窗棂透入，照亮面部轮廓与发丝边缘，背景为深褐色调的暗部空间，虚实过渡自然；厚涂笔触塑造肌肤与布料的体积感，面部细腻罩染呈现温润光泽，颜料堆叠可见肌理，画布纹理清晰，伦勃朗式明暗对比，暖棕与米白主色调，古典油画质感，笔触生动，细节精致，氛围静谧温柔",
+  },
+]
 
 function StudioUserBubbleText(props: { text: string; mentionImages: Record<string, string> }) {
   const [refPreview, setRefPreview] = createSignal<{ src: string; name: string; left: number; top: number } | null>(null)
@@ -99,9 +120,18 @@ export function StudioConversation(props: {
   actionBusy: boolean
   cancellingGenerationIDs: ReadonlySet<string>
   rebootingGenerationIDs: ReadonlySet<string>
+  refreshingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
+  expansionText: (turn: StudioTurnData) => string
+  expansionEditable: (turn: StudioTurnData) => boolean
+  expansionCanGenerate: boolean
+  recommendationCanExpand: boolean
+  onRecommendationShortcut: (prompt: string) => void
+  onExpansionInput: (turn: StudioTurnData, text: string) => void
+  onExpansionChoose: (turn: StudioTurnData, choice: "confirmed" | "ignored") => void
   onEditGeneration: (result: StudioGenerationResult) => void
   onRebootGeneration: (generationID: string) => void
+  onRefreshGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
   onUseInputImage: (url: string) => void
@@ -117,8 +147,8 @@ export function StudioConversation(props: {
       <div class="studio-conversation">
         <For each={props.turns}>
           {(turn, index) => (
-            <div class="studio-conversation-turn" classList={{ separated: index() > 0 }}>
-              <Show when={turn.inputImages?.length}>
+            <div class="studio-conversation-turn" data-studio-turn-id={studioTurnAnchorID(turn)} classList={{ separated: index() > 0 }}>
+              <Show when={!turn.hideUserBubble && turn.inputImages?.length}>
                 <div class="studio-user-input-images">
                   <For each={turn.inputImages}>
                     {(image) => (
@@ -145,6 +175,7 @@ export function StudioConversation(props: {
                               setInputImagePreview(undefined)
                             }}
                             onClick={(event) => {
+                              tracker.interaction({ module: "studio", name: "use-input-image" })
                               props.onUseInputImage(src())
                               event.currentTarget.blur()
                             }}
@@ -165,12 +196,37 @@ export function StudioConversation(props: {
                   </For>
                 </div>
               </Show>
-              <div class="studio-user-bubble">
+              <Show when={!turn.hideUserBubble && turn.recommendation?.kind !== "guide"}><div class="studio-user-bubble">
                 <StudioUserBubbleText text={turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"} mentionImages={turn.mentionImages ?? props.mentionImages} />
-              </div>
+              </div></Show>
+              <Show when={turn.recommendation?.kind === "result"}>
+                <Show when={turn.recommendation?.status === "running" || turn.recommendation?.status === "cancelling"}>
+                  <Show when={turn.recommendation?.status === "running" && turn.previewParts?.some((part) => part.text.trim())} fallback={
+                    <div class="studio-prompt-expansion" role="status">
+                      {turn.recommendation?.status === "cancelling" ? "正在取消扩写…" : "正在丰富提示词…"}
+                    </div>
+                  }>
+                    <StudioPromptExpansionPreview parts={turn.previewParts} status={turn.recommendation?.status ?? ""} />
+                  </Show>
+                </Show>
+                <Show when={turn.recommendation?.status === "completed"}>
+                  <StudioPromptExpansionReviewView
+                    turn={turn}
+                    text={props.expansionText(turn)}
+                    editable={props.expansionEditable(turn)}
+                    busy={props.actionBusy}
+                    canGenerate={props.expansionCanGenerate}
+                    onInput={(text) => props.onExpansionInput(turn, text)}
+                    onChoose={(choice) => props.onExpansionChoose(turn, choice)}
+                  />
+                </Show>
+              </Show>
               <Show when={turn.editCapability} fallback={
-                <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
-                  {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+                <Show when={!(turn.recommendation?.kind === "result" &&
+                  ["running", "cancelling", "completed"].includes(turn.recommendation.status))}>
+                  <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
+                    {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+                  </Show>
                 </Show>
               }>
                 {(editCapability) => (
@@ -178,14 +234,36 @@ export function StudioConversation(props: {
                     type="button"
                     class="studio-assistant-editor-link"
                     disabled={props.busy}
-                    onClick={() => props.onOpenEditor(editCapability())}
+                    onClick={() => {
+                      tracker.interaction({ module: "studio", name: "open-editor", extend: JSON.stringify({ capability: editCapability() }) })
+                      props.onOpenEditor(editCapability())
+                    }}
                   >
                     点击前往编辑区
                     <img src="/studio/stutdio_arrow_right.png" alt="" class="studio-editor-link-arrow" />
                   </button>
                 )}
               </Show>
-              <Show when={!turn.editCapability}>
+              <Show when={turn.recommendation?.kind === "guide"}>
+                <div class="studio-recommendation-shortcuts">
+                  <For each={RECOMMENDATION_SHORTCUTS}>
+                    {(shortcut) => (
+                      <button
+                        type="button"
+                        class="studio-recommendation-shortcut"
+                        disabled={!props.recommendationCanExpand}
+                        onClick={() => props.onRecommendationShortcut(shortcut.prompt)}
+                      >
+                        <span>{shortcut.label}</span>
+                        <svg viewBox="0 0 6 11" width="14" height="14" aria-hidden="true">
+                          <path d="M0.5 0.5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1" />
+                        </svg>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <Show when={!turn.editCapability && !turn.recommendation}>
                 <StudioResultCard
                   turn={turn}
                   fallbackCapability={props.result?.capability}
@@ -193,9 +271,11 @@ export function StudioConversation(props: {
                   actionBusy={props.actionBusy}
                   cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
                   rebooting={Boolean(turn.result && props.rebootingGenerationIDs.has(turn.result.id))}
+                  refreshing={Boolean(turn.result && props.refreshingGenerationIDs.has(turn.result.id))}
                   onCancelGeneration={props.onCancelGeneration}
                   onEditGeneration={props.onEditGeneration}
                   onRebootGeneration={props.onRebootGeneration}
+                  onRefreshGeneration={props.onRefreshGeneration}
                   onSelectImage={props.onSelectImage}
                 />
               </Show>
@@ -299,12 +379,9 @@ export function StudioResultCanvas(props: {
   fileManagerDetailView?: boolean
   onFileManagerBack?: () => void
   onFileManagerSelectMedia?: (item: { id: string; turnID: string; width?: number; height?: number; aspectRatio?: string }) => void
-  studioCenterWidth?: number
-  showStudioCenter?: boolean
   hideFileManagerFilter?: boolean
   turns?: StudioTurnData[]
   canGenerateVideo?: boolean
-  sessionID?: string
   fileManagerGenPending?: boolean
   canvasView: StudioCanvasView
   templateCreatorTabOpen: boolean
@@ -321,6 +398,7 @@ export function StudioResultCanvas(props: {
   onTemplateCreatorClose: (key: string) => void
   children?: JSX.Element
 }): JSX.Element {
+  const language = useLanguage()
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
   const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
   // 文件管理详情页生成中时隐藏图片和 canvas stage，展示 loading fallback
@@ -329,13 +407,13 @@ export function StudioResultCanvas(props: {
   )
   const showImage = createMemo(() => {
     if (fileManagerLoading()) return undefined
-    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return undefined
+    if (props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting") return undefined
     return props.image
   })
   const shouldShowCanvas = createMemo(() => {
     if (props.canvasView === "template-creator") return true
     // 生成中时优先展示 loading fallback（"生成中..."），而非空 canvas 或文件管理
-    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return false
+    if (props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting") return false
     return !!showImage() || (props.showFileManager === true && !fileManagerLoading()) || props.templateCreatorTabOpen
   })
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
@@ -393,7 +471,7 @@ export function StudioResultCanvas(props: {
     <>
       <Show when={shouldShowCanvas()} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
-          <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
+          <Show when={props.status === "creating" || props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
             <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
               <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
                 <div class="text-[16px] font-semibold text-[#b42318]">
@@ -430,7 +508,10 @@ export function StudioResultCanvas(props: {
                 <span
                   class="studio-canvas-tab studio-canvas-tab-locked"
                   classList={{ active: props.canvasView === "file-manager" }}
-                  onClick={() => props.onFileManagerClick?.()}
+                  onClick={() => {
+                    tracker.interaction({ module: "studio", name: "canvas-file-manager-open" })
+                    props.onFileManagerClick?.()
+                  }}
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ "margin-right": "4px", "flex-shrink": "0" }} aria-hidden="true">
                     <path d="M13.6 4.80021C13.5022 4.19132 13.2245 3.68465 12.7667 3.28021C12.3089 2.87576 11.7645 2.67354 11.1333 2.67354L5.95334 2.67354C5.84667 2.48243 5.69112 2.3291 5.48667 2.21354C5.28667 2.10243 5.07334 2.04688 4.84667 2.04688L2.89334 2.04688C2.4889 2.04688 2.11556 2.1491 1.77334 2.35354C1.43556 2.55354 1.16667 2.82465 0.966673 3.16688C0.771118 3.5091 0.67334 3.88243 0.67334 4.28687L0.67334 11.7135C0.67334 12.118 0.771118 12.4935 0.966673 12.8402C1.16667 13.1869 1.43556 13.458 1.77334 13.6535C2.11556 13.8535 2.4889 13.9535 2.89334 13.9535L13.1067 13.9535C13.5111 13.9535 13.8844 13.8535 14.2267 13.6535C14.5645 13.458 14.8333 13.1869 15.0333 12.8402C15.2289 12.4935 15.3267 12.118 15.3267 11.7135L15.3267 6.97354C15.3267 6.45354 15.1645 5.99132 14.84 5.58688C14.5156 5.17799 14.1022 4.91576 13.6 4.80021ZM7.37334 4.75354C7.34223 4.75354 7.31112 4.74687 7.28001 4.73354C7.2489 4.72465 7.22001 4.7091 7.19334 4.68688C7.16667 4.66465 7.14223 4.63799 7.12001 4.60687L6.56001 3.68021L11.1333 3.68021C11.4756 3.68021 11.7778 3.77799 12.04 3.97354C12.3022 4.17354 12.4756 4.43354 12.56 4.75354L7.37334 4.75354ZM14.32 11.7135C14.32 12.0558 14.2 12.3491 13.96 12.5935C13.72 12.838 13.4289 12.9602 13.0867 12.9602L2.89334 12.9602C2.55556 12.9602 2.26667 12.838 2.02667 12.5935C1.78667 12.3491 1.66667 12.0558 1.66667 11.7135L1.66667 4.28687C1.66667 3.94465 1.78667 3.65354 2.02667 3.41354C2.26667 3.17354 2.55556 3.05354 2.89334 3.05354L4.84667 3.05354C4.90001 3.05354 4.95112 3.06687 5.00001 3.09354C5.0489 3.12021 5.08445 3.15576 5.10667 3.20021L6.27334 5.12021C6.38001 5.31132 6.53334 5.46243 6.73334 5.57354C6.93778 5.6891 7.15112 5.74688 7.37334 5.74688L13.1067 5.74688C13.4445 5.74688 13.7333 5.86688 13.9733 6.10688C14.2133 6.34688 14.3333 6.63576 14.3333 6.97354L14.32 11.7135Z" fill="currentColor" fill-rule="nonzero" />
@@ -450,7 +531,10 @@ export function StudioResultCanvas(props: {
                       classList={{
                         active: props.canvasView === "template-creator" && props.activeTemplateWorkspaceKey === workspace.key,
                       }}
-                      onClick={() => props.onTemplateCreatorClick(workspace.key)}
+                      onClick={() => {
+                        tracker.interaction({ module: "studio", name: "template-tab-switch", extend: JSON.stringify({ key: workspace.key, mode: workspace.mode }) })
+                        props.onTemplateCreatorClick(workspace.key)
+                      }}
                       title={label()}
                     >
                       <span class="studio-canvas-label-text">{label()}</span>
@@ -458,6 +542,7 @@ export function StudioResultCanvas(props: {
                         class="studio-canvas-tab-close"
                         onClick={(event) => {
                           event.stopPropagation()
+                          tracker.interaction({ module: "studio", name: "template-tab-close", extend: JSON.stringify({ key: workspace.key, mode: workspace.mode }) })
                           props.onTemplateCreatorClose(workspace.key)
                         }}
                         aria-label={`关闭${label()}`}
@@ -515,7 +600,10 @@ export function StudioResultCanvas(props: {
                         ? (props.result?.images.some((img) => img.id === tabImage.id) ?? false)
                         : tabImage.id === (props.selectedImageId ?? tabSource[0]?.id))
                       }}
-                      onClick={() => props.onSelectImage!(tabImage.id)}
+                      onClick={() => {
+                        tracker.interaction({ module: "studio", name: "canvas-tab-select", extend: JSON.stringify({ id: tabImage.id }) })
+                        props.onSelectImage!(tabImage.id)
+                      }}
                     >
                       <span
                         ref={(el) => { tabLabelRef = el; tabResizeObserver?.disconnect(); tabResizeObserver = new ResizeObserver(() => checkTabTruncation()); tabResizeObserver.observe(el); queueMicrotask(() => checkTabTruncation()) }}
@@ -524,7 +612,7 @@ export function StudioResultCanvas(props: {
                         onMouseLeave={leaveTabTrigger}
                       >{tabLabelFor(tabImage, index())}</span>
                       <Show when={(props.tabImages && props.tabImages.length > 0) ? Boolean(props.onCloseTab) : Boolean(props.onDeleteImage)}>
-                        <span class="studio-canvas-tab-close" onClick={(e) => { e.stopPropagation(); (props.tabImages && props.tabImages.length > 0 ? props.onCloseTab! : props.onDeleteImage!)(tabImage.id); }} />
+                        <span class="studio-canvas-tab-close" onClick={(e) => { e.stopPropagation(); tracker.interaction({ module: "studio", name: "canvas-tab-close", extend: JSON.stringify({ id: tabImage.id }) }); (props.tabImages && props.tabImages.length > 0 ? props.onCloseTab! : props.onDeleteImage!)(tabImage.id); }} />
                       </Show>
                       <Show when={showTabTooltip()}>
                         <Portal>
@@ -549,23 +637,23 @@ export function StudioResultCanvas(props: {
                 <>
               <div style={{ display: props.showFileManager && !props.fileManagerDetailView ? "contents" : "none" }}>
                 <StudioFileManager
-                  studioCenterWidth={props.studioCenterWidth}
-                  showStudioCenter={props.showStudioCenter}
                   hideFilter={props.hideFileManagerFilter}
                   turns={props.turns}
                   canGenerateVideo={props.canGenerateVideo}
                   onSelectMedia={props.onFileManagerSelectMedia}
-                  sessionID={props.sessionID}
                 />
               </div>
-              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
+              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
                 <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;container-type:inline-size;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
                   <div class="studio-file-manager-back-bar">
                     <button
                       type="button"
                       class="studio-file-manager-back-btn"
-                      onClick={() => props.onFileManagerBack?.()}
+                      onClick={() => {
+                        tracker.interaction({ module: "studio", name: "file-manager-back" })
+                        props.onFileManagerBack?.()
+                      }}
                     >
                       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ "flex-shrink": "0" }}>
                         <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -577,14 +665,14 @@ export function StudioResultCanvas(props: {
               <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
                 <div class="studio-canvas-image-wrapper">
                   <Show when={showImage()} fallback={
-                    <Show when={props.status === "running" || props.status === "queued" || props.status === "submitting"}>
+                    <Show when={props.status === "creating" || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
                       <StudioEmptyState />
                     </Show>
                   }>
                     {(img) => (
                       <Show
                         when={isVideoMedia(img())}
-                        fallback={<StudioOriginalMedia image={img()} class={`studio-canvas-image ${getImageOrientation(img())}`} onClick={() => setFullscreenImage(img())} />}
+                        fallback={<StudioOriginalMedia image={img()} class={`studio-canvas-image ${getImageOrientation(img())}`} onClick={() => { tracker.interaction({ module: "studio", name: "canvas-fullscreen-open" }); setFullscreenImage(img()) }} />}
                       >
                         <StudioVideoPlayer
                           src={img().remoteUrl ?? img().url}
@@ -626,19 +714,19 @@ export function StudioResultCanvas(props: {
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Portal>
                           <DropdownMenu.Content>
-                            <DropdownMenu.Item onSelect={props.onUpscale} disabled={props.actionDisabled}>
+                            <DropdownMenu.Item onSelect={() => { tracker.interaction({ module: "studio", name: "canvas-upscale-open" }); props.onUpscale() }} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
                               <DropdownMenu.ItemLabel>变清晰</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={props.onCutout} disabled={props.actionDisabled}>
+                            <DropdownMenu.Item onSelect={() => { tracker.interaction({ module: "studio", name: "canvas-cutout-open" }); props.onCutout() }} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
                               <DropdownMenu.ItemLabel>抠图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={props.onInpaint} disabled={props.actionDisabled}>
+                            <DropdownMenu.Item onSelect={() => { tracker.interaction({ module: "studio", name: "canvas-inpaint-open" }); props.onInpaint() }} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
                               <DropdownMenu.ItemLabel>智能重绘</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={props.onOutpaint} disabled={props.actionDisabled}>
+                            <DropdownMenu.Item onSelect={() => { tracker.interaction({ module: "studio", name: "canvas-outpaint-open" }); props.onOutpaint() }} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
                               <DropdownMenu.ItemLabel>扩图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
@@ -647,37 +735,33 @@ export function StudioResultCanvas(props: {
                       </DropdownMenu>
                     }>
                       <div class="studio-canvas-action-group">
-                        <button type="button" onClick={props.onUpscale} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
+                        <button type="button" onClick={() => { tracker.interaction({ module: "studio", name: "canvas-upscale-open" }); props.onUpscale() }} disabled={props.actionDisabled}
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.upscale")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
-                          <span>变清晰</span>
+                          <span>{language.t("studio.action.upscale")}</span>
                         </button>
-                        <button type="button" onClick={props.onCutout} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="抠图">
+                        <button type="button" onClick={() => { tracker.interaction({ module: "studio", name: "canvas-cutout-open" }); props.onCutout() }} disabled={props.actionDisabled}
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.cutout")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
-                          <span>抠图</span>
+                          <span>{language.t("studio.action.cutout")}</span>
                         </button>
-                        <button type="button" onClick={props.onInpaint} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="智能重绘">
+                        <button type="button" onClick={() => { tracker.interaction({ module: "studio", name: "canvas-inpaint-open" }); props.onInpaint() }} disabled={props.actionDisabled}
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.inpaint")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
-                          <span>智能重绘</span>
+                          <span>{language.t("studio.action.inpaint")}</span>
                         </button>
-                        <button type="button" onClick={props.onOutpaint} disabled={props.actionDisabled}
-                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="扩图">
+                        <button type="button" onClick={() => { tracker.interaction({ module: "studio", name: "canvas-outpaint-open" }); props.onOutpaint() }} disabled={props.actionDisabled}
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title={language.t("studio.action.outpaint")}>
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
-                          <span>扩图</span>
+                          <span>{language.t("studio.action.outpaint")}</span>
                         </button>
                       </div>
                     </Show>
                     <span class="studio-canvas-action-divider" />
                   </Show>
                   <button type="button" onClick={props.onDownload} class="studio-canvas-download-action">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                    <span>下载</span>
+                    <StudioDownloadIcon />
+                    <span>{language.t("studio.action.download")}</span>
                   </button>
                 </div>
               </div>
@@ -701,7 +785,7 @@ export function StudioResultCanvas(props: {
                           fallback={
                             <div class="studio-template-creator-state error">
                               <span>{workspace.mode === "edit" ? workspace.error : "模板加载失败"}</span>
-                              <button type="button" onClick={() => props.onTemplateCreatorClose(workspace.key)}>取消</button>
+                              <button type="button" onClick={() => { tracker.interaction({ module: "studio", name: "template-tab-close", extend: JSON.stringify({ key: workspace.key, mode: workspace.mode }) }); props.onTemplateCreatorClose(workspace.key) }}>取消</button>
                             </div>
                           }
                         >
@@ -728,8 +812,8 @@ export function StudioResultCanvas(props: {
       </Show>
       {fullscreenImage() && (
         <Portal mount={props.fullscreenMount?.() || document.body}>
-          <div class="studio-fullscreen-overlay" onClick={() => setFullscreenImage(null)}>
-            <button type="button" class="studio-fullscreen-close" onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); }} aria-label="关闭全屏">
+          <div class="studio-fullscreen-overlay" onClick={() => { tracker.interaction({ module: "studio", name: "canvas-fullscreen-close" }); setFullscreenImage(null) }}>
+            <button type="button" class="studio-fullscreen-close" onClick={(e) => { e.stopPropagation(); tracker.interaction({ module: "studio", name: "canvas-fullscreen-close" }); setFullscreenImage(null); }} aria-label="关闭全屏">
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
                 <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
@@ -800,7 +884,8 @@ function InfoRow(props: { label: string; value: string }): JSX.Element {
   )
 }
 
-export function StudioEmptyState(): JSX.Element {
+export function StudioEmptyState(props: { label?: string } = {}): JSX.Element {
+  const language = useLanguage()
   return (
     <>
       <div class="studio-empty-state-dots">
@@ -810,7 +895,7 @@ export function StudioEmptyState(): JSX.Element {
         <span class="studio-empty-dot" style={{ width: "12px", height: "12px", top: "116px", left: "80px", background: "#7f78f1", animation: "studio-float-4 2s ease-in-out infinite 1.05s" }} />
         <span class="studio-empty-dot" style={{ width: "20px", height: "20px", top: "80px", left: "116px", background: "#5c77f4", animation: "studio-float-5 2s ease-in-out infinite 1.4s" }} />
       </div>
-      <div class="text-[14px] font-bold pl-[20px]">生成中...</div>
+      <div class="text-[14px] font-bold pl-[20px]">{props.label ?? language.t("studio.generating")}</div>
     </>
   )
 }
@@ -822,6 +907,7 @@ export function StudioDetails(props: {
   imageLabel: string
   regenerateDisabled: boolean
   showVideoGeneration: boolean
+  hideCover?: boolean
   onSelectImage: (id: string) => void
   onRegenerate: () => void
   onGenerateVideo: () => void
@@ -863,27 +949,32 @@ export function StudioDetails(props: {
   })
   return (
     <ScrollView class="studio-detail-panel">
-      <div class="studio-detail-cover">
-        <For each={props.result.images}>
-          {(image, mediaIndex) => (
-            <button
-              type="button"
-              onClick={() => props.onSelectImage(image.id)}
-              class="studio-detail-preview-button"
-              classList={{ active: image.id === (props.selectedImageId ?? props.result.images[0]?.id) }}
-            >
-              <StudioMediaThumbnail
-                image={image}
-                class="studio-detail-preview-image"
-                duration={props.result.duration}
-                generationID={props.result.id}
-                mediaIndex={mediaIndex()}
-              />
-            </button>
-          )}
-        </For>
-      </div>
-      <section class="studio-detail-section">
+      <Show when={!props.hideCover}>
+        <div class="studio-detail-cover">
+          <For each={props.result.images}>
+            {(image, mediaIndex) => (
+              <button
+                type="button"
+                onClick={() => {
+                  tracker.interaction({ module: "studio", name: "canvas-detail-select", extend: JSON.stringify({ imageID: image.id }) })
+                  props.onSelectImage(image.id)
+                }}
+                class="studio-detail-preview-button"
+                classList={{ active: image.id === (props.selectedImageId ?? props.result.images[0]?.id) }}
+              >
+                <StudioMediaThumbnail
+                  image={image}
+                  class="studio-detail-preview-image"
+                  duration={props.result.duration}
+                  generationID={props.result.id}
+                  mediaIndex={mediaIndex()}
+                />
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+      <section class="studio-detail-section" classList={{ "studio-detail-section--no-divider": props.hideCover }}>
         <div class="studio-detail-title">{detailTitle()}</div>
         <p class="studio-detail-copy">
           {detailCopy()}
@@ -904,14 +995,14 @@ export function StudioDetails(props: {
         </Show>
         <InfoRow label="数量" value={`${props.result.images.length}`} />
         <Show when={isVideoResult()}>
-          <InfoRow label="分辨率" value={props.result.videoQualityMode ? STUDIO_VIDEO_RESOLUTION[props.result.videoQualityMode].toUpperCase() : "-"} />
+          <InfoRow label="分辨率" value={(props.result.videoQualityMode && STUDIO_VIDEO_RESOLUTION[props.result.videoQualityMode]?.toUpperCase()) || "-"} />
         </Show>
         <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />
       </section>
       <section class="studio-detail-section">
         <Show when={!isEditResult()}>
           <div class="studio-detail-section-title">提示词</div>
-          <p class="studio-detail-prompt">{props.result.detailPrompt?.trim().split("\n")[0] || "-"}</p>
+          <p class="studio-detail-prompt">{(props.result.detailPrompt ?? props.result.displayPrompt ?? props.result.prompt)?.trim().split("\n")[0] || "-"}</p>
         </Show>
       </section>
     </ScrollView>

@@ -11,6 +11,7 @@ import {
   injectInspectStyleBridge,
   injectPickerBridge,
   injectCommentBridge,
+  injectAssessmentBridge,
   injectResourceCollectorBridge,
   injectSnapshotBridge,
   injectCustomBridge,
@@ -453,6 +454,9 @@ export function registerLocalProtocol() {
           htmlStr = injectCommentBridge(htmlStr)
         }
 
+        // 评估 pins bridge:无数据时完全惰性(仅 message 监听),不经 subtype 配置门控
+        htmlStr = injectAssessmentBridge(htmlStr)
+
         if (bridgeConfig.injectSnapshot) {
           htmlStr = injectSnapshotBridge(htmlStr)
         }
@@ -582,7 +586,7 @@ function shouldInjectWebRequestAuth(resourceType: string) {
   return resourceType === "xhr" || resourceType === "other" || resourceType === "webSocket"
 }
 
-async function localStorageAuth(win: BrowserWindow) {
+export async function localStorageAuth(win: BrowserWindow) {
   const value = await win.webContents.executeJavaScript(
     `({
       uiplusToken: localStorage.getItem("uiplusToken"),

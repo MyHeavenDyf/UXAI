@@ -1,6 +1,6 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import type { ManualEditTarget } from "../edit-mode/source-patches"
-import type { ModelEditConfig } from "../components/model-edit-items/types"
+import type { ModelEditConfig, AssetConfirmArgs } from "../components/model-edit-items/types"
 import type { VersionFile } from "../utils/history-store"
 import type { JSX } from "solid-js"
 import type { UploadZipOptions, UsePixsoTransportResult } from "@/utils/useZipTransport"
@@ -82,11 +82,34 @@ export interface SubtypeHandler {
   handleDownload?: (ctx: SubtypeHandlerContext, option?: string) => Promise<boolean | void>
 
   /**
+   * 下载节流探测
+   * 在 handleDownload 之前调用；返回 true 表示该 tab 当前已有下载在进行中，
+   * 上层据此跳过 TaskStore.add 与 handleDownload 调用（不弹 toast、不在任务中心新增项）
+   */
+  isDownloadBusy?: (ctx: SubtypeHandlerContext, option?: string) => boolean
+
+  /**
    * 构建归档时要塞进 src/ 的代码包
    * 返回 { blob, fileName } 表示要写入 src/<fileName>；
    * 返回 null 表示该 subtype 不提供 src 内容（默认行为，src/ 留空）
    */
   buildArchiveSrc?: (ctx: SubtypeHandlerContext) => Promise<{ files: { path: string; content: string | Uint8Array }[] } | null>
+
+  /**
+   * 自定义归档上传（SPEC-DES-007 §7.2）
+   * 实现后，归档弹窗确认时调用 onConfirm，代替默认的「截图 + HTML zip」上传（handleArchiveConfirm）；
+   * 未实现的 subtype 行为不变。与 handleArchive 的区别：handleArchive 在点归档按钮、弹窗打开之前调用，
+   * 这里在弹窗选好目录、点确定之后调用。
+   */
+  archiveUpload?: {
+    /** 是否显示已有交付件并做同名覆盖判断（HTML 交付件才有覆盖语义，普通文件交付件为 false） */
+    showDeliverables: boolean
+    /** 返回成功弹窗要显示的路径与查看链接；返回 null 表示失败或取消（已自行提示） */
+    onConfirm: (
+      ctx: SubtypeHandlerContext,
+      data: import("@/components/dialog-archive").ArchiveConfirmData,
+    ) => Promise<{ path: string; viewUrl?: string } | null>
+  }
 
   /**
    * 下载下拉选项
@@ -114,6 +137,11 @@ export interface SubtypeHandler {
    * Model Edit 配置（组件感知属性面板）
    */
   modelEditConfig?: ModelEditConfig
+
+  /**
+   * 自定义资产库确认后发送的提示词（覆盖 default assetConfig.onConfirm）
+   */
+  onAssetConfirm?: (args: AssetConfirmArgs) => string | Promise<string>
 
   /**
    * UI 配置（配置方式）

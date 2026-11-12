@@ -23,6 +23,8 @@ import "./styles.css"
 export interface InsightEditorRef {
   insertMentions: (selections: MentionSelection[]) => void
   removeMention: (selection: MentionSelection) => void
+  /** 按原路径回写 chip 的引用路径(超限图片压缩后指向压缩产物;popover/addon 两条插入链的 id 口径不同,统一按 path 匹配) */
+  updateMentionPath: (path: string, newPath: string) => void
   getText: () => string
   getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>
   focus: () => void
@@ -30,11 +32,12 @@ export interface InsightEditorRef {
   /** 覆盖式回填「文本 + 引用」(排队项回填):按 @名 重建 mention 胶囊,selections 由 syncPlugin 自动派生 */
   setContent: (text: string, mentions: MentionAttrs[]) => void
   isAlive: () => boolean
-  replaceDoc: (json: ReturnType<PMNode["toJSON"]> | undefined) => void
+  replaceDoc: (json: ReturnType<PMNode["toJSON"]> | undefined, cursor?: "start" | "end") => void
 }
 
 
 interface Props {
+  autoInjectMentions?: MentionSelection[]
   platformSkills: MentionSkill[]
   customSkills: MentionSkill[]
   files: MentionFiles | null
@@ -110,7 +113,7 @@ export function ProseMirrorEditor(props: Props) {
     const selections: MentionSelection[] = mentions.map((m) =>
       m.type === "skill"
         ? { type: "skill", name: m.name, label: m.label }
-        : { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined },
+        : { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined, isFolder: m.isFolder },
     )
     props.setMentionSelections(selections)
     setIsEmpty(empty)
@@ -201,6 +204,17 @@ export function ProseMirrorEditor(props: Props) {
         const tr = removeAddonMention(v.state, selection)
         if (tr.docChanged) v.dispatch(tr)
       },
+      updateMentionPath: (path, newPath) => {
+        const v = view()
+        if (!connected(v) || path === newPath) return
+        const tr = v.state.tr
+        v.state.doc.descendants((node, pos) => {
+          if (node.type.name === "mention" && node.attrs.type === "file" && node.attrs.path === path) {
+            tr.setNodeMarkup(pos, undefined, { ...node.attrs, path: newPath })
+          }
+        })
+        if (tr.docChanged) v.dispatch(tr)
+      },
       getText: () => (connected(view()) ? getDocTextWithMentions(view()!.state.doc) : ""),
       getMentions: () => (connected(view()) ? extractMentionsFromDoc(view()!.state.doc) : []),
       focus: () => {
@@ -221,12 +235,12 @@ export function ProseMirrorEditor(props: Props) {
         v.dispatch(tr)
       },
       isAlive: () => connected(view()),
-      replaceDoc: (json) => {
+      replaceDoc: (json, cursor = "start") => {
         const v = view()
         if (!connected(v)) return
         const doc = restoreDoc(json)
         const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, doc.content)
-        tr.setSelection(TextSelection.atStart(tr.doc))
+        tr.setSelection(cursor === "end" ? TextSelection.atEnd(tr.doc) : TextSelection.atStart(tr.doc))
         v.dispatch(tr)
       },
     })
@@ -235,7 +249,7 @@ export function ProseMirrorEditor(props: Props) {
     props.setMentionSelections(initialMentions.map((mention) =>
       mention.type === "skill"
         ? { type: "skill", name: mention.name, label: mention.label }
-        : { type: "file", filename: mention.name, path: mention.path || "", id: mention.id ?? undefined },
+        : { type: "file", filename: mention.name, path: mention.path || "", id: mention.id ?? undefined, isFolder: mention.isFolder },
     ))
     const initialText = getDocTextWithMentions(initialDoc)
     setIsEmpty(initialText.trim().length === 0)
@@ -249,6 +263,29 @@ export function ProseMirrorEditor(props: Props) {
     }
 
     onCleanup(() => editorView.destroy())
+  })
+
+  // 与 Design 一致：每次挂载仅尝试一次，等待草稿回填后确认编辑器仍为空。
+  let autoInjected = false
+  createEffect(() => {
+    const injects = props.autoInjectMentions
+    if (!injects?.length) return
+    const v = view()
+    if (!v?.dom.isConnected || autoInjected) return
+    autoInjected = true
+    requestAnimationFrame(() => {
+      if (!v.dom.isConnected || !isEmpty()) return
+      for (const sel of injects) {
+        if (sel.type !== "skill") continue
+        const node = editorSchema.nodes.mention.create({
+          id: sel.name, name: sel.name, type: "skill", label: sel.label, path: "",
+        })
+        const from = v.state.selection.from
+        const tr = v.state.tr.replaceWith(from, v.state.selection.to, node)
+        tr.setSelection(TextSelection.create(tr.doc, from + node.nodeSize))
+        v.dispatch(tr)
+      }
+    })
   })
 
   // disabled 变化时同步 editable
@@ -297,7 +334,7 @@ export function ProseMirrorEditor(props: Props) {
     const attrs =
       selection.type === "skill"
         ? { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
-        : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+        : { id: selection.id ?? selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path, isFolder: selection.isFolder ?? false }
 
     const node = editorSchema.nodes.mention.create(attrs)
     // 文件走多选:在 @query 后(光标处)插入胶囊,保留 @query 与浮窗以继续选择下一项;

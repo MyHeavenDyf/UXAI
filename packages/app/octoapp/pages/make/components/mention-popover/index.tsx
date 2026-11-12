@@ -2,7 +2,6 @@ import { createSignal, createMemo, createEffect, createRenderEffect, For, Show, 
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
-import { lookupDisplayName } from "../skill-config-types"
 import { pathToLocalUrl, formatFileSize, type ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { ProductAssetIcon } from "../addon-menu/icons"
@@ -16,6 +15,7 @@ import {
   joinUrl,
   inferKindFromUrl,
   assetFileId,
+  getAssetDisplayName,
   getAssetThumb,
   getAssetThumbKind,
   isAssetThumbImage,
@@ -24,6 +24,7 @@ import {
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
+import { getDesktopApi } from "../../lib/electron-api"
 import "./styles.css"
 
 export type MentionTab = 'skills' | 'product-assets' | 'files'
@@ -51,6 +52,7 @@ interface MentionPopoverProps {
   productId?: number
   onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onFilesTabOpen?: () => void
 }
 
 export function MentionPopover(props: MentionPopoverProps): JSX.Element {
@@ -213,19 +215,13 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const filteredPlatformSkills = createMemo(() => {
     const q = props.query.toLowerCase()
     if (!q) return platformSkills()
-    return platformSkills().filter(s => {
-      const display = lookupDisplayName(props.skillConfig.skill, s.label) ?? s.label
-      return s.label.toLowerCase().includes(q) || display.toLowerCase().includes(q)
-    })
+    return platformSkills().filter(s => s.label.toLowerCase().includes(q))
   })
 
   const filteredCustomSkills = createMemo(() => {
     const q = props.query.toLowerCase()
     if (!q) return customSkills()
-    return customSkills().filter(s => {
-      const display = lookupDisplayName(props.skillConfig.skill, s.label) ?? s.label
-      return s.label.toLowerCase().includes(q) || display.toLowerCase().includes(q)
-    })
+    return customSkills().filter(s => s.label.toLowerCase().includes(q))
   })
 
   const filteredFiles = createMemo(() => {
@@ -403,7 +399,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: 'file',
-      filename: file.fileName,
+      filename: getAssetDisplayName(file),
       path: id,
       isFolder: isZip || undefined,
     }
@@ -580,9 +576,17 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     })
   }
 
+  // onboarding 版本选择支持「不选择」后 product 可为 undefined：
+  // 禁用产品资产库 Tab 并给 hover 提示（与附件面板/Insight 同一套）
+  const productAssetsDisabledReason = () =>
+    !props.productId
+      ? "请先选择关联产品的项目"
+      : !getDesktopApi()?.writeFileBuffer || !getDesktopApi()?.movePendingUploadToSession
+        ? "请在桌面端导入产品资产"
+        : undefined
+
   const handleSkillClick = (skill: PanelSkill) => {
-    const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
-    const selection: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
+    const selection: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
     if (isSelected(selection)) {
       props.onDeselect(selection)
     } else {
@@ -637,6 +641,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <button
           type="button"
           class={`mention-tab-btn ${activeTab() === 'product-assets' ? 'mention-tab-btn--active' : ''}`}
+          disabled={!!productAssetsDisabledReason()}
+          title={productAssetsDisabledReason() ?? ""}
           onClick={() => { setActiveTab('product-assets') }}
         >
           产品资产库
@@ -644,7 +650,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <button
           type="button"
           class={`mention-tab-btn ${activeTab() === 'files' ? 'mention-tab-btn--active' : ''}`}
-          onClick={() => { setActiveTab('files'); setSelectedCategory('platform') }}
+          onClick={() => { setActiveTab('files'); setSelectedCategory('platform'); props.onFilesTabOpen?.() }}
         >
           设计文件
         </button>
@@ -732,8 +738,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             </Show>
             <For each={filteredPlatformSkills()}>
               {(skill, i) => {
-                const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
-                const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
+                const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                 return (
                   <button
                     type="button"
@@ -743,7 +748,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                     <Show when={isSelected(sel)}>
                       <Icon name="check" size="small" style="color: #0A59F7" />
                     </Show>
-                    <span class="mention-secondary-item-text">{displayName}</span>
+                    <span class="mention-secondary-item-text">{skill.label}</span>
                   </button>
                 )
               }}
@@ -763,8 +768,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             </Show>
             <For each={filteredCustomSkills()}>
               {(skill, i) => {
-                const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
-                const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
+                const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                 return (
                   <button
                     type="button"
@@ -774,7 +778,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                     <Show when={isSelected(sel)}>
                       <Icon name="check" size="small" style="color: #0A59F7" />
                     </Show>
-                    <span class="mention-secondary-item-text">{displayName}</span>
+                    <span class="mention-secondary-item-text">{skill.label}</span>
                   </button>
                 )
               }}
@@ -1074,7 +1078,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="mention-design-preview-stage">
             <Show when={designPreviewKind(designFilePreview()!) === "image"}>
               <img
-                src={pathToLocalUrl(designFilePreview()!.path)}
+                src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                 alt=""
                 class="mention-design-preview-img"
                 draggable={false}
@@ -1083,7 +1087,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             <Show when={designPreviewKind(designFilePreview()!) === "html"}>
               <div class="mention-design-preview-html">
                 <iframe
-                  src={pathToLocalUrl(designFilePreview()!.path)}
+                  src={`${pathToLocalUrl(designFilePreview()!.path)}?v=${designFilePreview()!.mtime}`}
                   sandbox="allow-scripts"
                 />
               </div>
