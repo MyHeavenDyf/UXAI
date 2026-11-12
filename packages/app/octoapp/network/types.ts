@@ -39,8 +39,8 @@ export type Product = {
 }
 
 export type VersionMember = {
-  nickName: string
-  account: string
+  nickName?: string | null
+  account?: string | null
 }
 
 export type Version = {

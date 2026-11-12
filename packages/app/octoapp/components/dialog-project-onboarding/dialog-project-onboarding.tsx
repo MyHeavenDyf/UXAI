@@ -91,7 +91,8 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         repoUrl: repoUrl() || undefined,
       }),
     })
-    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domain/productLine/product/version 取各对象 name; designOwner←version.ownerList、designDl←version.uxDlList, 多人取 nickName 以逗号拼接; fire-and-forget, 失败 silent 不阻断)
+    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domain/productLine/product/version 取各对象 name; designOwner←version.ownerList、designDl←version.uxDlList, 多人取 nickName 以逗号拼接, 元素 nickName 可能为 null 用 ?? 兜底防止同步 throw 中断主流程; fire-and-forget, 失败 silent 不阻断)
+    // 登录态缺失或 nickName/account 为空时跳过上报(打点不受影响), console.warn 留痕便于排查"有打点无统计"问题
     const user = getUser()
     const userName = user?.nickName?.trim()
     const userId = user?.account?.trim()
@@ -103,8 +104,14 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         productLine: productLine?.name,
         product: product?.name,
         version: version?.name,
-        designOwner: version?.ownerList?.map((m) => m.nickName.trim()).filter(Boolean).join(",") || undefined,
-        designDl: version?.uxDlList?.map((m) => m.nickName.trim()).filter(Boolean).join(",") || undefined,
+        designOwner: version?.ownerList?.map((m) => (m.nickName ?? "").trim()).filter(Boolean).join(",") || undefined,
+        designDl: version?.uxDlList?.map((m) => (m.nickName ?? "").trim()).filter(Boolean).join(",") || undefined,
+      })
+    } else {
+      console.warn("[onboarding] 数据看板上报跳过: 登录态缺失或 nickName/account 为空", {
+        hasUser: !!user,
+        hasNickName: !!userName,
+        hasAccount: !!userId,
       })
     }
     layout.projects.open(dir)

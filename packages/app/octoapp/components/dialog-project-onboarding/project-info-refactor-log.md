@@ -1467,4 +1467,16 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 - `dialog-project-onboarding.tsx` — 上报代码无需改动：`version?.ownerList?.map(...)` 可选链在字段为 null 时整条链短路为 `undefined`，`|| undefined` 后字段不上报（与空数组行为一致，TS 对 `| null` 类型也允许 `?.`）
 - mock（`app/mock/handlers/pipeline/data.ts` + `desktop/src/main/mock.ts`）— PYPTO v2501 的 `ownerList`/`uxDlList` 从 `[]` 改为 `null`，覆盖接口返回 null 的场景（其余空数组场景保留）
 
+### 166. "有打点无统计接口"问题修复（守卫跳过留痕 + 元素 nickName 为 null 的同步 throw 防御）
+
+- **问题现象**：有时点击确定 tracker 打点正常，但 `addUserProject` 统计接口未被调用
+- **根因 1（登录态守卫静默跳过）**：`handleConfirm` 中打点无条件执行，而统计上报被 `if (userName && userId)` 守卫拦截——`getUser()` 读 localStorage `userInfo`，登录未完成/`VITE_OCTO_LOGIN_REQUIRED !== "true"` 环境未写入/登录响应缺 `nickName` 或 `account` 字段/token 过期 `clearAuth()` 清除等场景下守卫失败，且跳过时无任何日志，表现为"偶发丢统计"
+- **根因 2（元素字段为 null 的同步 throw）**：`designOwner`/`designDl` 参数在 `addUserProject(...)` 调用前求值，`m.nickName.trim()` 在后端返回 `[{nickName: null, ...}]` 时抛 TypeError——打点已发出、统计接口未调用、且**中断后续 `layout.projects.open` / `props.onSelect`，弹窗卡死不关闭**
+- **修复**：
+  - `dialog-project-onboarding.tsx` — 守卫增加 `else console.warn("[onboarding] 数据看板上报跳过: 登录态缺失或 nickName/account 为空", { hasUser, hasNickName, hasAccount })`，跳过原因留痕可排查
+  - `dialog-project-onboarding.tsx` — `m.nickName.trim()` 改为 `(m.nickName ?? "").trim()`，元素字段为 null 时按空串处理（被 `.filter(Boolean)` 过滤，不出现在拼接结果中），杜绝同步 throw 中断主流程
+  - `types.ts` — `VersionMember.nickName` / `account` 从 `string` 放宽为 `string | null | undefined`（与后端实际返回对齐，`??` 兜底有类型依据）
+- 根因 3（跨域 CORS preflight 失败导致请求未发出）属环境/网络问题，`apiFetch` 已有 `console.error` 留痕，无需代码改动
+
+
 
