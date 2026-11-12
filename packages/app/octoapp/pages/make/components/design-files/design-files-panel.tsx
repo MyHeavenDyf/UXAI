@@ -510,7 +510,8 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         showOctoToast({ title: "提交失败", description: commitResult.stderr.trim() || `exit ${commitResult.code}`, variant: "error" })
         return
       }
-      const pushResult = await runGit(["push"])
+      // push.default=upstream
+      const pushResult = await runGit(["-c", "push.default=upstream", "push"])
       if (!pushResult?.ok) {
         showOctoToast({ title: "推送失败", description: pushResult ? pushResult.stderr.trim() || `exit ${pushResult.code}` : "当前环境不支持此操作", variant: "error" })
         return

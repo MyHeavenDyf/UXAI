@@ -813,8 +813,17 @@ export function registerIpcHandlers(deps: Deps) {
       args: string[],
     ): Promise<{ ok: boolean; code: number; stdout: string; stderr: string }> => {
       const allowed = new Set(["remote", "pull", "add", "commit", "push"])
+      // 允许前导 -c 配置对
+      const allowedCfg = new Set(["push.default=upstream"])
       if (typeof cwd !== "string" || !isAbsolute(cwd)) throw new Error(`GIT_CWD_REJECTED: ${cwd}`)
-      if (!Array.isArray(args) || typeof args[0] !== "string" || !allowed.has(args[0])) {
+      const rest = Array.isArray(args) ? [...args] : []
+      while (rest.length >= 2 && rest[0] === "-c") {
+        if (typeof rest[1] !== "string" || !allowedCfg.has(rest[1])) {
+          throw new Error(`GIT_ARGS_REJECTED: ${JSON.stringify(args)}`)
+        }
+        rest.splice(0, 2)
+      }
+      if (typeof rest[0] !== "string" || !allowed.has(rest[0])) {
         throw new Error(`GIT_ARGS_REJECTED: ${JSON.stringify(args)}`)
       }
       return await new Promise((resolve, reject) => {
