@@ -91,7 +91,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         repoUrl: repoUrl() || undefined,
       }),
     })
-    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domain/productLine/product/version 取各对象 name; fire-and-forget, 失败 silent 不阻断)
+    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domain/productLine/product/version 取各对象 name; designOwner←version.ownerList、designDl←version.uxDlList, 多人取 nickName 以逗号拼接; fire-and-forget, 失败 silent 不阻断)
     const user = getUser()
     const userName = user?.nickName?.trim()
     const userId = user?.account?.trim()
@@ -103,6 +103,8 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         productLine: productLine?.name,
         product: product?.name,
         version: version?.name,
+        designOwner: version?.ownerList?.map((m) => m.nickName.trim()).filter(Boolean).join(",") || undefined,
+        designDl: version?.uxDlList?.map((m) => m.nickName.trim()).filter(Boolean).join(",") || undefined,
       })
     }
     layout.projects.open(dir)

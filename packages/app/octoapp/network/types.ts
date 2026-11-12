@@ -38,6 +38,11 @@ export type Product = {
   enableProductCommon: boolean
 }
 
+export type VersionMember = {
+  nickName: string
+  account: string
+}
+
 export type Version = {
   id: number
   name: string
@@ -54,6 +59,8 @@ export type Version = {
   spaceId: number
   userTeamType: number | null
   workflowRoleList: number[]
+  ownerList?: VersionMember[] | null
+  uxDlList?: VersionMember[] | null
 }
 
 export type SearchResult = {
