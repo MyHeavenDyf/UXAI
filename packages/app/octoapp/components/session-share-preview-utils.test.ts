@@ -39,8 +39,40 @@ describe("share preview rendering budget", () => {
       text: '下面是视觉分析。\n\n<artifact identifier="sync-status-bar" type="html" title="同步状态按钮原型">\n<!DOCTYPE html><html><style>body{color:red}</style><script>PRIVATE_SCRIPT()</script><body>PRIVATE_HTML_SOURCE</body></html>\n</artifact>\n\n文件已生成。',
     })
     expect(content.text).toBe("下面是视觉分析。\n\n\n\n文件已生成。")
+    expect(content.reasoning).toBe("")
     expect(content.files).toEqual([{ name: "同步状态按钮原型.html", mime: "text/html" }])
     expect(JSON.stringify(content)).not.toContain("PRIVATE_")
+  })
+
+  test("uses the HTML document title when an artifact has no declared name", () => {
+    expect(previewMessageContent({
+      id: "msg_unnamed_artifact",
+      role: "assistant",
+      files: [],
+      truncated: false,
+      text: "<artifact type=\"html\"><html><head><title>登录页面</title></head><body></body></html></artifact>",
+    }).files).toEqual([{ name: "登录页面.html", mime: "text/html" }])
+  })
+
+  test("uses the linked file name shown by the conversation artifact card", () => {
+    expect(previewMessageContent({
+      id: "msg_link_artifact",
+      role: "assistant",
+      files: [],
+      truncated: false,
+      text: '已创建页面。\n<artifact type="text/link">/Users/jiangke/Downloads/test333333/index.html</artifact>',
+    }).files).toEqual([{ name: "index.html", mime: "application/octet-stream" }])
+  })
+
+  test("keeps assistant reasoning separate for the labeled reasoning section", () => {
+    expect(previewMessageContent({
+      id: "msg_reasoning",
+      role: "assistant",
+      text: "最终回复",
+      reasoning: "先查看原始页面的代码结构。",
+      files: [],
+      truncated: false,
+    })).toEqual({ text: "最终回复", reasoning: "先查看原始页面的代码结构。", files: [] })
   })
 
   test("hides a clipped artifact body and keeps normal code examples unchanged", () => {

@@ -260,7 +260,9 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
               style={{ opacity: shareBlockReason() ? 0.5 : 1, cursor: shareBlockReason() ? "not-allowed" : undefined }}
               onClick={() => void portable.exportSession()}
               >
-                <Icon name="download" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
+                <span class="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+                  <Icon name="download" size="small" style={{ width: "14px", height: "14px" }} />
+                </span>
                 <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
                   {language.t("session.portable.export") || "导出"}
                 </span>
@@ -271,7 +273,9 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
                 disabled={!!portable.action()}
                 onClick={() => void portable.importSession()}
               >
-                <Icon name="upload" size="small" style={{ width: "14px", height: "14px", "flex-shrink": "0" }} />
+                <span class="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+                  <Icon name="upload" size="small" style={{ width: "14px", height: "14px" }} />
+                </span>
                 <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
                   {language.t("session.portable.import") || "导入"}
                 </span>

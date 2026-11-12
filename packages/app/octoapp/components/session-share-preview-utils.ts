@@ -1,17 +1,32 @@
 import { Marked, Renderer } from "marked"
 import type { SessionSharePreviewResponses } from "@opencode-ai/sdk/v2/client"
+import { extractLinkTitle } from "@/pages/make/utils/artifact-cards"
 import { createArtifactParser } from "@/pages/make/utils/artifact-parser"
 
 export type SharePreviewMessage = SessionSharePreviewResponses[200]["messages"][number]
 
 export const SHARE_PREVIEW_LIMIT = 100
 
+function previewLinkName(value: string) {
+  const content = value.trim()
+  if (!content) return ""
+  if (/^https?:\/\//i.test(content)) {
+    try {
+      return decodeURIComponent(new URL(content).pathname.split("/").filter(Boolean).at(-1) ?? "") || extractLinkTitle(content)
+    } catch {
+      return extractLinkTitle(content)
+    }
+  }
+  return content.split(/[\\/]/).filter(Boolean).at(-1) ?? extractLinkTitle(content)
+}
+
 /** Reuse only the pure parser, never artifact auto-save or interactive previews. */
 export function previewMessageContent(message: SharePreviewMessage) {
-  if (message.role === "user") return { text: message.text, files: message.files }
+  if (message.role === "user") return { text: message.text, reasoning: "", files: message.files }
   const artifacts = createArtifactParser()
   const text: string[] = []
   const files = [...message.files]
+  let artifact: { identifier: string; artifactType: string; title: string } | undefined
   const types: Record<string, { extension: string; mime: string }> = {
     html: { extension: ".html", mime: "text/html" },
     "text/html": { extension: ".html", mime: "text/html" },
@@ -21,16 +36,29 @@ export function previewMessageContent(message: SharePreviewMessage) {
   }
   for (const event of [...artifacts.feed(message.text), ...artifacts.flush()]) {
     if (event.type === "text") text.push(event.delta)
-    if (event.type !== "artifact:start") continue
-    const type = types[event.artifactType.toLowerCase()]
-    const name = (event.title || event.identifier || "产物").split(/[\\/]/).at(-1)?.slice(0, 240) || "产物"
+    if (event.type === "artifact:start") artifact = event
+    if (event.type !== "artifact:end" || !artifact) continue
+    const type = types[artifact.artifactType.toLowerCase()]
+    const linkTitle = artifact.artifactType.toLowerCase() === "text/link"
+      ? previewLinkName(event.fullContent)
+      : undefined
+    const documentTitle = type?.mime === "text/html"
+      ? event.fullContent.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim()
+      : undefined
+    const fallback = `未命名${type?.extension ?? ""}`
+    const name = (linkTitle || artifact.title || artifact.identifier || documentTitle || fallback)
+      .split(/[\\/]/)
+      .at(-1)
+      ?.slice(0, 240) || fallback
     files.push({
       name: type && !name.toLowerCase().endsWith(type.extension) ? name + type.extension : name,
       mime: type?.mime ?? "application/octet-stream",
     })
+    artifact = undefined
   }
   return {
     text: text.join("").trim(),
+    reasoning: message.reasoning?.trim() ?? "",
     files: [...new Map(files.map((file) => [file.name, file])).values()].slice(0, 16),
   }
 }
