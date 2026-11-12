@@ -18,6 +18,7 @@ import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSch
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { CompactionDebug } from "./compaction-debug"
+import { MessageDebug } from "./message-debug"
 import { Bus } from "../bus"
 import { ProviderTransform } from "@/provider/transform"
 import { SystemPrompt } from "./system"
@@ -851,7 +852,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           phase: input.phase,
           outcome: input.outcome,
           model: modelLabel,
-          system: request.system,
+          system: [...(agent.prompt ? [agent.prompt] : SystemPrompt.provider(input.model)), ...request.system],
           modelMsgs: request.modelMsgs,
           activeTools: request.activeTools,
         })
@@ -1999,6 +2000,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               onStructuredOutput(output) {
                 structured = output
               },
+            })
+            yield* MessageDebug.dumpTurn({
+              sessionID,
+              userID: lastUser.id,
+              agent: agent.name,
+              model: `${model.providerID}/${model.id}`,
+              system: [
+                ...(agent.prompt ? [agent.prompt] : SystemPrompt.provider(model)),
+                ...request.system,
+                ...(lastUser.system ? [lastUser.system] : []),
+              ],
+              modelMsgs: request.modelMsgs,
+              activeTools: request.activeTools,
             })
             if (estimateAfterAutoCompaction) {
               const tokens = Token.estimateValue([request.system, request.modelMsgs, request.activeTools])

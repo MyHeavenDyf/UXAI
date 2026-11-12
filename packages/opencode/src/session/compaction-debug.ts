@@ -25,6 +25,21 @@ const binaryReplacer = (_key: string, value: unknown) =>
       ? `<ArrayBuffer ${value.byteLength} bytes>`
       : value
 
+const stringifyTools = (tools: Record<string, unknown>) => {
+  try {
+    return JSON.stringify(tools, binaryReplacer, 2)
+  } catch {
+    return JSON.stringify(
+      Object.entries(tools).map(([name, tool]) => ({
+        name,
+        description: (tool as { description?: unknown }).description ?? undefined,
+      })),
+      null,
+      2,
+    )
+  }
+}
+
 type DumpInput = {
   sessionID: SessionID
   phase: "before" | "after"
@@ -68,6 +83,9 @@ const write = Effect.fn("SessionCompactionDebug.write")(function* (input: DumpIn
     "",
     "===== SYSTEM PROMPT =====",
     input.system.join("\n\n"),
+    "",
+    "===== TOOLS =====",
+    stringifyTools(input.activeTools),
     "",
     "===== MESSAGES PREPARED FOR THE AI =====",
     JSON.stringify(input.modelMsgs, binaryReplacer, 2),
