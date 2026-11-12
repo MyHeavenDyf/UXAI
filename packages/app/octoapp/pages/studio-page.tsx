@@ -11,9 +11,7 @@ import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { showToast, toaster } from "@opencode-ai/ui/toast"
@@ -29,6 +27,14 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { setStudioSessionGenerating } from "@/hooks/use-session-share-busy"
+import { getMappingStore } from "@/hooks/use-session-groups"
+import { consumePendingGroup, clearPendingGroup } from "@/context/pending-group"
+import { MakeGroupsProvider, useMakeGroupsContext } from "@/context/make-groups"
+import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAnchor, reinsertRecent } from "@/hooks/use-session-pin"
+import { SessionContextMenu } from "@/components/session-context-menu"
+import { useSharedSessionImportDirectory } from "@/components/shared-session-import-context"
+import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { authTokenFromCredentials } from "@/utils/server"
 import { directoryHeader } from "@/utils/headers"
@@ -38,6 +44,7 @@ import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
   capabilityLabel,
+  isSeedreamStyleModel,
   referenceImageLimit,
   styleModelId,
   styleModelLabel,
@@ -63,8 +70,9 @@ import {
   parseToolMedia,
   type StudioTurnData,
 } from "./studio/turns"
-import { StudioHistory } from "./studio/studio-history"
+import { StudioSidebar } from "./studio/sidebar"
 import { StudioHistoryGallery } from "./studio/studio-history-gallery"
+import { StudioTurnAnchorNav } from "./studio/studio-turn-anchor-nav"
 import { StudioComposer, StudioIntro, type StudioComposerInputApi, type StudioComposerMenu } from "./studio/studio-composer"
 import { StudioConversation, StudioDetails, StudioEmptyState, StudioResultCanvas, StudioWorkspaceUpload } from "./studio/studio-conversation"
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
@@ -99,6 +107,7 @@ import {
   hasVideoFrameAssets,
   isVideoMedia,
   isStudioGenerationFailure,
+  isStudioCustomSizeValid,
   isStudioGenerationStatusRegression,
   isPromptExpansionGeneration,
   studioRegenerationExtra,
@@ -129,8 +138,9 @@ import {
 import { promptMetadata } from "./studio/studio-prompt-state"
 import { createRecommendationSettings, type RecommendationImageSettings } from "./studio/studio-recommendation-settings"
 import { createRecommendationMode } from "./studio/studio-recommendation-mode"
+import { createStudioDraftCapture, restoreStudioDraft } from "./studio/studio-draft-restore"
 import { createPromptRecommendation } from "./studio/studio-prompt-recommendation"
-import { createExpansionReview, expansionGenerationInput, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
+import { createExpansionReview, generateExpansion, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
 import { createStudioSessionData } from "./studio/studio-session-data"
 import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./studio/session-thumbnail"
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
@@ -294,9 +304,22 @@ type StudioGenerationOverrides = {
   videoDuration?: StudioVideoDuration
   videoQualityMode?: StudioVideoQualityMode
   useRestoredInputs?: boolean
+  inputPolicy?: "consume" | "preserve"
 }
 
+/** 外层：挂 "studio" namespace 的共享分组上下文（侧栏 + 会话区头部菜单共享
+ *  groups/mapping/expandedGroups）。studio 的分组与会话都落在 config sessions
+ *  目录（~/.config/octo/sessions），故用 dir 覆盖默认的项目目录解析。 */
 export default function StudioPage() {
+  const projectDir = useProjectDir({ mode: "config" })
+  return (
+    <MakeGroupsProvider namespace="studio" dir={() => projectDir() || undefined}>
+      <StudioPageContent />
+    </MakeGroupsProvider>
+  )
+}
+
+function StudioPageContent() {
   const params = useParams<{ id?: string; dir?: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -333,6 +356,7 @@ export default function StudioPage() {
   const studioPermissionStatus = () => studioPermissionState.status === "idle" ? "loading" : studioPermissionState.status
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
+  useSharedSessionImportDirectory("studio", projectDir, () => syncStore.status === "complete")
   if (syncStore.limit < 100) setSyncStore("limit", 100)
   onMount(() => {
     const timer = setTimeout(() => setStudioColdStartReleased(true), STUDIO_PERMISSION_PRIORITY_WINDOW_MS)
@@ -347,30 +371,10 @@ export default function StudioPage() {
     if (!directory || !studioColdStartReleased()) return
     globalSync.child(directory, { bootstrap: true })
   })
-  const studioSessions = createMemo(() =>
-    syncStore.session
-      .filter((session) => session.agent === "octo_studio" && !session.parentID && !session.time.archived)
-      .slice()
-      .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0)),
-  )
-  const studioSessionsLoading = createMemo(() => syncStore.status !== "complete" && studioSessions().length === 0)
-  const updateStudioHistorySession = (session: Session) => {
-    setSyncStore(
-      produce((draft) => {
-        const index = draft.session.findIndex((item) => item.id === session.id)
-        if (index !== -1) draft.session[index] = session
-      }),
-    )
-  }
-  const removeStudioHistorySession = (sessionID: string) => {
-    setSyncStore("deleted", sessionID, true)
-    setSyncStore(
-      produce((draft) => {
-        const index = draft.session.findIndex((item) => item.id === sessionID)
-        if (index !== -1) draft.session.splice(index, 1)
-      }),
-    )
-  }
+  // 与左侧 StudioSidebar 共享同一 "studio" namespace 分组单例 store（经
+  // MakeGroupsProvider）：分组右键「新建对话」写入的 pendingGroup 在
+  // createStudioSession 中消费，头部三点菜单的移动/移出分组也走这里。
+  const groupsCtx = useMakeGroupsContext()
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false
@@ -458,6 +462,7 @@ export default function StudioPage() {
     createStore<{ entries: Record<string, StudioCapability>; settings: Record<string, RecommendationImageSettings>; enabled?: Record<string, boolean> }>({ entries: {}, settings: {}, enabled: {} }),
   )
   const recommendationEnabled = () => recommendationModes.enabled?.[recommendationKey()] === true
+  const recommendationActive = () => recommendationMode.active()
   const capability = () => recommendationMode.capability()
   const setCapability = (v: StudioCapability) => recommendationMode.select(v)
   const aspectRatio = () => recommendationSettings.current().aspectRatio
@@ -509,6 +514,9 @@ export default function StudioPage() {
   const setVideoQualityMode = (v: StudioVideoQualityMode) => setVideoSettingStore("videoQualityMode", v)
   const videoMode = () => videoSettingStore.videoMode
   const setVideoMode = (v: StudioVideoMode) => setVideoSettingStore("videoMode", v)
+  createEffect(() => {
+    if (capability() === "video.generate" && videoQualityMode() === "4k" && count() !== 1) setCount(1)
+  })
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [mentionImagesMap, setMentionImagesMap] = createSignal<Record<string, string>>({})
@@ -687,6 +695,9 @@ export default function StudioPage() {
     reload: loadSessionMessages,
     navigate: (id, preserveDraft) => {
       if (params.id === id) return
+      // 空白页（分组右键「新建对话」入口）点击 AI 推荐时服务端会新建会话：
+      // 同样消费 pendingGroup，让会话落入对应分组而不是「最近」。
+      if (!params.id) assignSessionToPendingGroup(id)
       if (preserveDraft) pendingRecommendationSessionID = id
       navigate(`/${routeSlug()}/studio/${id}`)
     },
@@ -700,8 +711,8 @@ export default function StudioPage() {
   const recommendationMode = createRecommendationMode({
     key: recommendationKey,
     enabled: recommendationEnabled,
-    active: () => recommendation.armed() || recommendation.busy() || recommendation.exiting() || Boolean(recommendation.state()?.unknown),
-    ready: recommendation.ready,
+    busy: () => isActionBusy(),
+    ready: () => recommendation.ready() && !recommendation.exiting() && !recommendation.state()?.unknown,
     entries: () => recommendationModes.entries,
     save: (key, value) => {
       if (params.id) setRecommendationModes("entries", key, value)
@@ -712,7 +723,7 @@ export default function StudioPage() {
   const recommendationSettings = createRecommendationSettings({
     key: recommendationKey,
     enabled: () => Boolean(params.id && capability() === "image.generate" &&
-      (recommendationModes.entries[recommendationKey()] || recommendationMode.locked())),
+      (recommendationModes.entries[recommendationKey()] || recommendationEnabled())),
     entries: () => recommendationModes.settings,
     ready: imageSettingsReady,
     imageActive: () => capability() === "image.generate",
@@ -725,12 +736,26 @@ export default function StudioPage() {
       : { ...imageSessionStore },
     save: (key, value) => setRecommendationModes("settings", key, value),
   })
+  const [draftAction, setDraftAction] = createStore({ revision: 0 })
+  const captureDraft = createStudioDraftCapture(() => ({
+    key: recommendationKey(),
+    revision: draftAction.revision,
+    prompt: prompt(),
+    assets: assets(),
+    capability: capability(),
+    model: styleModel(),
+    recipe: [recipeMainPrompt(), recipeExtraPrompt()],
+    settings: [aspectRatio(), count(), customWidth(), customHeight(), isCustomStore(), videoDuration(), videoQualityMode()],
+  }), () => videoFrames)
+  const assetVisit = createMemo(() => ({ key: recommendationKey(), capability: capability(), active: recommendationActive() }))
+  function captureAssetInput() {
+    const visit = assetVisit()
+    return () => assetVisit() === visit
+  }
   createEffect(() => {
-    if (!recommendationMode.locked()) return
-    setOpenMenu(null)
+    if (!recommendationActive()) return
+    if (openMenu() === "style-template") setOpenMenu(null)
     setStyleTemplateEditorOpen(false)
-    setStyleTemplateOwner(undefined)
-    cancelVideoRiskDialog()
   })
   createEffect(() => {
     const directory = projectDir()
@@ -835,11 +860,29 @@ export default function StudioPage() {
   const [conversationViewportVersion, setConversationViewportVersion] = createSignal(0)
   // 用户是否贴近底部：贴近时新内容自动跟随滚动，向上查看历史时不再强制回到底部
   const [stickToBottom, setStickToBottom] = createSignal(true)
+  const [conversationNavigation, setConversationNavigation] = createStore({ browsing: false, navigating: false })
+  createEffect(on(() => params.id, () => setConversationNavigation({ browsing: false, navigating: false })))
+  const resumeConversationScroll = () => setConversationNavigation("navigating", false)
+  const handleConversationWheel = (event: WheelEvent) => {
+    resumeConversationScroll()
+    if (event.deltaY >= 0 || event.ctrlKey) return
+    if (!conversationScrollRef || conversationScrollRef.scrollHeight <= conversationScrollRef.clientHeight) return
+    const target = event.target instanceof Element ? event.target : undefined
+    if (target?.closest("[data-scrollable], textarea")) return
+    cancelAnimationFrame(scrollFrame)
+    setPendingScrollRequest(undefined)
+    setConversationNavigation("browsing", true)
+    setStickToBottom(false)
+  }
   const STUDIO_SCROLL_BOTTOM_THRESHOLD = 200
   const handleConversationScroll = () => {
     const el = conversationScrollRef
-    if (!el) return
-    setStickToBottom(el.scrollTop + el.clientHeight >= el.scrollHeight - STUDIO_SCROLL_BOTTOM_THRESHOLD)
+    if (!el || conversationNavigation.navigating) return
+    // 手动浏览后必须回到实际底部才恢复跟随，不能被贴底阈值重新拉回。
+    const threshold = conversationNavigation.browsing ? 2 : STUDIO_SCROLL_BOTTOM_THRESHOLD
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - threshold
+    setStickToBottom(atBottom)
+    if (atBottom) setConversationNavigation("browsing", false)
   }
   // 内容尺寸变化（新消息渲染、输入图解码完成等）时贴近底部则跟随置底。
   // 弥补单次 rAF 无法覆盖异步内容增高（displayTurnStore 延迟同步、图片布局延迟）的时序缺口。
@@ -851,6 +894,7 @@ export default function StudioPage() {
       if (!conversationScrollRef || !stickToBottom()) return
       cancelAnimationFrame(scrollFrame)
       scrollFrame = requestAnimationFrame(() => {
+        if (!stickToBottom() || conversationNavigation.browsing) return
         conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
       })
     })
@@ -1190,6 +1234,19 @@ export default function StudioPage() {
     pendingResult()?.status === "queued" ||
     pendingResult()?.status === "running"
   )
+  let sharedBusySessionID: string | undefined
+  createEffect(() => {
+    const sessionID = pendingResult()?.sessionID ?? params.id
+    const busy = isBusy()
+    if (sharedBusySessionID && (!busy || sharedBusySessionID !== sessionID)) {
+      setStudioSessionGenerating(sharedBusySessionID, false)
+    }
+    if (sessionID && busy) setStudioSessionGenerating(sessionID, true)
+    sharedBusySessionID = busy ? sessionID : undefined
+  })
+  onCleanup(() => {
+    if (sharedBusySessionID) setStudioSessionGenerating(sharedBusySessionID, false)
+  })
   const isActionBusy = createMemo(() =>
     recommendation.busy() || isBusy() || rebootingGenerationIDs().size > 0 || refreshingGenerationIDs().size > 0
   )
@@ -1793,6 +1850,9 @@ export default function StudioPage() {
     on(
       () => params.id,
       (id) => {
+        // 从分组「新建对话」的空白页直接点开已有会话 = 放弃归组意图；发送消息 /
+        // AI 推荐等创建流程在导航到新会话前已消费 pendingGroup，此清理不会误伤。
+        if (id) clearPendingGroup(groupsCtx?.namespace ?? "studio")
         setOpenMenu(null)
         setTemplateWorkspaces([])
         setActiveTemplateWorkspaceKey(undefined)
@@ -1884,12 +1944,12 @@ export default function StudioPage() {
     return Boolean(item?.capability === "image.generate" && styleModelRequiresSeedreamPermission(item.styleModel ?? item.model))
   }
   function resultRegenerateDisabled(item?: StudioGenerationResult) {
-    return isActionBusy() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
+    return recommendationMode.taskBlocked() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
   }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const effectiveMaxReferenceImages = createMemo(() => {
-    if (recommendationEnabled()) return 3
+    if (recommendationActive()) return 3
     const template = selectedStyleTemplate()
     if (!template || capability() !== "image.generate") return maxReferenceImages()
     if (template.reference_image_setting === "not_supported") return 0
@@ -1925,7 +1985,7 @@ export default function StudioPage() {
       [field]: (template.style_description as Record<string, string | undefined>)[field] ?? "",
     }))
   }
-  const canSubmit = createMemo(() => recommendation.ready() && !recommendation.exiting() && !isActionBusy() && (recommendationEnabled()
+  const canSubmit = createMemo(() => recommendation.ready() && !recommendation.exiting() && !isActionBusy() && (recommendationActive()
     ? !recommendation.busy() && prompt().trim().length > 0 && [...prompt().trim()].length <= 2000 && assets().length <= 3
     : !recommendation.state()?.unknown && SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
@@ -1952,7 +2012,6 @@ export default function StudioPage() {
     draft: "",
     editing: false,
     menuOpen: false,
-    pendingRename: false,
     saving: false,
   })
   let headerTitleRef: HTMLInputElement | undefined
@@ -2088,6 +2147,129 @@ export default function StudioPage() {
     return true
   }
 
+  // ── 会话区顶部三点菜单（与 design 页/左侧栏 session 右键菜单一致）──
+  const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
+  const [menuTriggerEl, setMenuTriggerEl] = createSignal<HTMLElement | undefined>(undefined)
+  const menuSession = () => activeStudioSession()
+  const menuHasMessages = () => {
+    const s = menuSession()
+    return !!s && s.time.updated > s.time.created
+  }
+
+  function closeMenu() {
+    setHeaderTitle("menuOpen", false)
+    setMenuTriggerEl(undefined)
+  }
+
+  // 切换会话（如分享链接打开新对话）时关闭三点菜单：原触发按钮随头部重建/移除，
+  // menuOpen 若保持 true，菜单会按已脱离 DOM 的旧按钮定位而落到屏幕左上角。
+  createEffect(on(() => params.id, () => closeMenu()))
+
+  const { togglePin: togglePinSession } = useSessionPin()
+
+  /** 置顶/取消置顶当前会话，逻辑与 design 页 togglePinCurrent 一致（update + reorder） */
+  async function togglePinCurrent(session: Session) {
+    const newPinned = !session.pinned
+    const isGrouped = (id: string) => !!groupsCtx?.mapping[id]
+    const recentIds = () => orderRecentIds(syncStore.session.filter((s) => s.agent === "octo_studio"), isGrouped)
+    // Remember where it sits in "最近" so unpin can drop it back: sort_order
+    // alone can't pin the slot because sessions sharing sort_order 0 are then
+    // ordered by the activity time that pin/unpin itself bumps.
+    const anchor = recentAnchor(recentIds(), session.id)
+    const remembered = peekRecentPositionBeforePin(session.id)
+    const restore = remembered?.order ?? 0
+    setSyncStore(produce((draft) => {
+      const index = draft.session.findIndex((item) => item.id === session.id)
+      if (index !== -1) {
+        draft.session[index].pinned = newPinned
+        draft.session[index].sort_order = newPinned ? -1 : restore
+      }
+    }))
+    try {
+      await togglePinSession(
+        session.id,
+        newPinned,
+        projectDir(),
+        newPinned
+          ? { rememberRecentOrder: Number(session.sort_order), rememberNextId: anchor.nextId, rememberAtEnd: anchor.atEnd }
+          : { restoreRecentOrder: restore },
+      )
+    } catch (err) {
+      setSyncStore(produce((draft) => {
+        const index = draft.session.findIndex((item) => item.id === session.id)
+        if (index !== -1) {
+          draft.session[index].pinned = session.pinned
+          draft.session[index].sort_order = session.sort_order
+        }
+      }))
+      throw err
+    }
+    // Cosmetic follow-up: a failure here must not revert an unpin that already
+    // succeeded server-side.
+    if (!newPinned) {
+      try {
+        const ids = reinsertRecent(recentIds(), session.id, remembered ?? { atEnd: false })
+        if (ids) await globalSDK.createClient({ directory: projectDir() }).session.reorder({ ids, directory: projectDir() })
+      } catch (err) {
+        console.error("[studio] restore unpinned session position failed", { id: session.id, error: String(err) })
+      }
+    }
+  }
+
+  function handleMenuRename() {
+    closeMenu()
+    tracker.interaction({ module: "studio", name: "header-rename-trigger" })
+    openHeaderTitleEditor()
+  }
+
+  function handleMenuTogglePin(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "studio", name: session.pinned ? "unpin-session" : "pin-session" })
+    void togglePinCurrent(session)
+  }
+
+  function handleMenuDelete(session: Session) {
+    closeMenu()
+    dialog.show(() => (
+      <DialogDeleteSession
+        name={sessionTitle(session.title) ?? language.t("command.session.new")}
+        onDelete={() => deleteHeaderSession(session)}
+      />
+    ))
+  }
+
+  function handleMenuMoveToGroup(session: Session, groupId: string) {
+    closeMenu()
+    tracker.interaction({ module: "studio", name: "move-session-to-group" })
+    if (session.pinned) void togglePinCurrent(session)
+    void groupsCtx?.moveSessionToGroup(session.id, groupId)
+    groupsCtx?.expandGroup(groupId)
+  }
+
+  function handleMenuRemoveFromGroup(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "studio", name: "remove-session-from-group" })
+    void groupsCtx?.removeSessionFromGroup(session.id)
+  }
+
+  function handleMenuCreateGroupForSession(session: Session) {
+    closeMenu()
+    if (session.pinned) void togglePinCurrent(session)
+    dialog.show(() => (
+      <DialogCreateGroup
+        existingNames={groupsCtx?.groups.map((g) => g.name) ?? []}
+        onCreate={async (name) => {
+          tracker.interaction({ module: "studio", name: "create-group-for-session" })
+          const id = await groupsCtx?.addGroup(name)
+          if (id) {
+            await groupsCtx?.moveSessionToGroup(session.id, id)
+            groupsCtx?.expandGroup(id)
+          }
+        }}
+      />
+    ))
+  }
+
   const currentImageLabel = createMemo(() => {
     const image = selectedImage()
     if (!image) return "studio-image.png"
@@ -2134,6 +2316,7 @@ export default function StudioPage() {
         if (!sessionChanged && !stickToBottom()) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
+          if (!sessionChanged && (!stickToBottom() || conversationNavigation.browsing)) return
           conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
         })
       },
@@ -2143,15 +2326,17 @@ export default function StudioPage() {
 
   // 生成完成（busy→idle）：滚动到底部展示新结果。
   // 独立监听 isBusy 以覆盖内容变更先于 session 状态置 idle 到达的时序。
-  // 成功后默认置底（无论用户生成中是否上滑查看历史）。
+  // 锚点浏览历史时保留定位；其他场景沿用生成完成后置底的行为。
   createEffect(
     on(
       isBusy,
       (busy, prev) => {
         if (!params.id || !conversationScrollRef) return
         if (!(prev && !busy)) return
+        if (conversationNavigation.browsing) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
+          if (conversationNavigation.browsing) return
           conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
         })
       },
@@ -2319,34 +2504,35 @@ export default function StudioPage() {
   }
 
   function selectStyleModel(value: string, options?: { preserveStyleTemplate?: boolean }) {
-    if (recommendationMode.taskLocked()) return
+    if (isActionBusy()) return
     const currentTemplate = selectedStyleTemplate()
     const nextStyleModelID = styleModelId(value)
     const shouldClearStyleTemplate = Boolean(
       currentTemplate &&
         !options?.preserveStyleTemplate &&
         value !== styleModel() &&
-        nextStyleModelID !== "seedream-5-lite" &&
+        !isSeedreamStyleModel(value) &&
         nextStyleModelID !== "qwen",
     )
-    // 切换 Seedream 与其他模型时清空自定义尺寸（校验规则不同）
+    // 规则变化时清空不兼容尺寸，Lite/Pro 间保留仍然有效的自定义尺寸。
     const prevIsSeedream = styleModelRequiresSeedreamPermission(styleModel())
     const nextIsSeedream = styleModelRequiresSeedreamPermission(value)
-    if (prevIsSeedream !== nextIsSeedream) {
+    const resetCustomSize = prevIsSeedream !== nextIsSeedream || (
+      isCustomStore() &&
+      isSeedreamStyleModel(styleModel()) &&
+      isSeedreamStyleModel(value) &&
+      !isStudioCustomSizeValid(value, customWidth(), customHeight())
+    )
+    if (resetCustomSize) {
       setIsCustomStore(false)
       setCustomWidth(0)
       setCustomHeight(0)
-    } else if (isCustomStore()) {
-      // 非 Seedream 模型间切换时，根据新模型的临界值钳位自定义尺寸
-      const prevIsQwen = styleModel() === "qwen"
-      const nextIsQwen = value === "qwen"
-      if (!prevIsQwen && nextIsQwen) {
-        // 从其他模型切到千问：钳位到千问上限 1664
-        setCustomWidth(Math.min(customWidth(), 1664))
-        setCustomHeight(Math.min(customHeight(), 1664))
-      }
     }
-    if (recommendationEnabled()) {
+    if (!resetCustomSize && isCustomStore() && styleModelId(styleModel()) !== "qwen" && nextStyleModelID === "qwen") {
+      setCustomWidth(Math.min(customWidth(), 1664))
+      setCustomHeight(Math.min(customHeight(), 1664))
+    }
+    if (recommendationActive()) {
       setStyleModel(value)
       return
     }
@@ -2381,7 +2567,7 @@ export default function StudioPage() {
   }
 
   function applyStyleTemplate(template: StudioStyleTemplateListItem) {
-    if (recommendationMode.locked()) return
+    if (recommendationActive() || recommendationMode.taskBlocked()) return
     expansionReview.dismiss()
     const targetModel = styleTemplateTargetModel(canUseSeedream(), styleModel())
     seedreamAtSnapshot = undefined
@@ -2425,6 +2611,11 @@ export default function StudioPage() {
   }
 
   async function addReferenceAsset(asset: StudioAsset) {
+    if (recommendationActive()) {
+      appendRecommendationAssets([asset])
+      return
+    }
+    const canRestore = captureAssetInput()
     if (templateReferenceUploadDisabled()) {
       showUnsupportedTemplateReferenceNotice()
       return
@@ -2448,6 +2639,7 @@ export default function StudioPage() {
       return
     }
     const dimensions = await readStudioAssetDimensions(asset)
+    if (!canRestore()) return
     if (dimensions.width > 7500 || dimensions.height > 7500) {
       showFloatingNotice("info", "上传失败：图片最大尺寸不能超过 7500px。")
       return
@@ -2463,20 +2655,53 @@ export default function StudioPage() {
   }
 
   async function addVideoFrameAsset(asset: StudioAsset, slot: StudioVideoFrameSlot = nextVideoFrameSlot()) {
+    const canRestore = captureAssetInput()
     await validateVideoFrameAsset(asset)
+    if (!canRestore()) return
     setVideoFrames(slot, asset)
   }
 
   function useConversationInputImage(url: string) {
     if (capability() !== "image.generate" && capability() !== "video.generate") return
+    const canRestore = captureAssetInput()
     inputImageAssetFromUrl(url)
-      .then((asset) => capability() === "video.generate" ? addVideoFrameAsset(asset) : addReferenceAsset(asset))
+      .then((asset) => {
+        if (!canRestore()) return
+        return capability() === "video.generate" ? addVideoFrameAsset(asset) : addReferenceAsset(asset)
+      })
       .catch((error) => {
         showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
       })
   }
 
+  function appendRecommendationAssets(items: StudioAsset[]) {
+    const images = [...assets(), ...items]
+    const error = images.length > 3 ? "最多上传 3 张参考图。"
+      : images.some((asset) => !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(asset.dataUrl)) ? "参考图需要是本地 PNG、JPEG 或 WebP 图片。"
+      : images.some((asset) => dataUrlByteSize(asset.dataUrl) > 10 * 1024 * 1024) ? "单张参考图不能超过 10MiB。"
+      : images.reduce((size, asset) => size + dataUrlByteSize(asset.dataUrl), 0) > 20 * 1024 * 1024 ? "参考图总大小不能超过 20MiB。"
+      : undefined
+    if (error) {
+      showFloatingNotice("info", error)
+      return
+    }
+    setAssets(images)
+  }
+
   function addAssets(files: File[]) {
+    const canRestore = captureAssetInput()
+    if (recommendationActive()) {
+      const images = files.filter((file) => file.type.startsWith("image/"))
+      if (!images.length) return
+      if (images.length + assets().length > 3 || images.some((file) => file.size > 10 * 1024 * 1024)) {
+        showFloatingNotice("info", "最多上传 3 张参考图，单张不能超过 10MiB。")
+        return
+      }
+      void Promise.all(images.map(readStudioAsset)).then((items) => {
+        if (canRestore()) appendRecommendationAssets(items)
+      }).catch(() => showFloatingNotice("info", "参考图读取失败，请重新上传。"))
+      return
+    }
     if (templateReferenceUploadDisabled()) {
       showUnsupportedTemplateReferenceNotice()
       return
@@ -2505,6 +2730,7 @@ export default function StudioPage() {
     tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: selectedFiles.length }) })
     Promise.all(selectedFiles.map((file) => readStudioAsset(file).then((asset) => readStudioAssetDimensions(asset).then((dimensions) => ({ asset, dimensions })))))
       .then((items) => {
+        if (!canRestore()) return
         if (items.some((item) => item.dimensions.width > 7500 || item.dimensions.height > 7500)) {
           showFloatingNotice("info", "上传失败：图片最大尺寸不能超过 7500px。")
           return
@@ -2517,10 +2743,11 @@ export default function StudioPage() {
   }
 
   function addVideoFrame(slot: StudioVideoFrameSlot, files: File[]) {
+    const canRestore = captureAssetInput()
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
     validateVideoFrame(file)
-      .then((asset) => setVideoFrames(slot, asset))
+      .then((asset) => { if (canRestore()) setVideoFrames(slot, asset) })
       .catch((error) => {
         showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
       })
@@ -2556,8 +2783,12 @@ export default function StudioPage() {
 
   function handleDropImageUrl(url: string, slot?: StudioVideoFrameSlot) {
     if (capability() !== "image.generate" && capability() !== "video.generate") return
+    const canRestore = captureAssetInput()
     inputImageAssetFromUrl(url)
-      .then((asset) => capability() === "video.generate" ? addVideoFrameAsset(asset, slot) : addReferenceAsset(asset))
+      .then((asset) => {
+        if (!canRestore()) return
+        return capability() === "video.generate" ? addVideoFrameAsset(asset, slot) : addReferenceAsset(asset)
+      })
       .catch((error) => {
         showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
       })
@@ -2636,7 +2867,7 @@ export default function StudioPage() {
   }
 
   function openEditorEntry(value: StudioCapability) {
-    if (recommendationMode.locked()) return
+    if (recommendationMode.taskBlocked()) return
     const nextMode = workspaceModeForCapability(value)
     if (!nextMode) return
     expansionReview.dismiss()
@@ -2680,7 +2911,7 @@ export default function StudioPage() {
   }
 
   function createEditorEntry(value: StudioCapability) {
-    if (recommendationMode.locked()) return
+    if (recommendationMode.taskBlocked()) return
     const nextMode = workspaceModeForCapability(value)
     if (!nextMode) return
     expansionReview.dismiss()
@@ -2724,7 +2955,7 @@ export default function StudioPage() {
   }
 
   function applyStudioCapability(value: StudioCapability) {
-    if (recommendationMode.locked()) return
+    if (recommendationMode.taskBlocked()) return
     const imageSettings = { ...recommendationSettings.image() }
     return batch(() => {
       const prevCapability = capability()
@@ -2765,7 +2996,7 @@ export default function StudioPage() {
         createEditorEntry(value)
         return
       }
-      if (nextSeedreamImage && seedreamAtSnapshot && prevCapability !== "image.generate") {
+      if (nextSeedreamImage && !recommendationActive() && seedreamAtSnapshot && prevCapability !== "image.generate") {
         const snap = seedreamAtSnapshot
         seedreamAtSnapshot = undefined
         setAssets(snap.assets.slice(0, referenceImageLimit(styleModel())))
@@ -2780,9 +3011,8 @@ export default function StudioPage() {
   }
 
   function selectStudioCapability(value: StudioCapability) {
-    if (recommendationMode.locked()) { showFloatingNotice("info", "请先完成本次提示词扩写。"); return }
+    if (recommendationMode.taskBlocked()) return
     if (value !== "video.generate") {
-      if (value !== capability()) expansionReview.dismiss()
       pendingVideoFirstFrame = undefined
       applyStudioCapability(value)
       return
@@ -2790,7 +3020,6 @@ export default function StudioPage() {
     if (!canGenerateVideo()) return
     pendingVideoFirstFrame = undefined
     if (params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed()) {
-      if (value !== capability()) expansionReview.dismiss()
       applyStudioCapability(value)
       return
     }
@@ -2803,8 +3032,7 @@ export default function StudioPage() {
   }
 
   function confirmVideoRiskDialog() {
-    if (recommendationMode.locked() || !videoRiskDialogOpen()) return
-    expansionReview.dismiss()
+    if (recommendationMode.taskBlocked() || !videoRiskDialogOpen()) return
     if (params.id) setVideoRiskConfirmedSessionID(params.id)
     if (!params.id) setDraftVideoRiskConfirmed(true)
     setVideoRiskDialogOpen(false)
@@ -2815,9 +3043,10 @@ export default function StudioPage() {
 
   function generateVideoFromSelectedImage() {
     const image = selectedImage()
-    if (!image || isVideoMedia(image) || !canGenerateVideo() || recommendationMode.locked()) return
+    if (!image || isVideoMedia(image) || !canGenerateVideo() || recommendationMode.taskBlocked()) return
     const canRestore = recommendationMode.capture()
     const canRestoreReview = expansionReview.capture()
+    const canRestoreInput = captureDraft()
     tracker.interaction({
       module: "studio",
       name: "video-generate",
@@ -2830,7 +3059,7 @@ export default function StudioPage() {
     })
     void resolveImageDataUrl(image)
       .then((dataUrl) => {
-        if (!canRestore() || !canRestoreReview()) return
+        if (!canRestore() || !canRestoreReview() || !canRestoreInput()) return
         pendingVideoFirstFrame = {
           id: crypto.randomUUID(),
           name: currentImageLabel(),
@@ -2841,7 +3070,6 @@ export default function StudioPage() {
           setVideoRiskDialogOpen(true)
           return
         }
-        expansionReview.dismiss()
         applyStudioCapability("video.generate")
         setVideoFrames("first", pendingVideoFirstFrame)
         pendingVideoFirstFrame = undefined
@@ -2853,9 +3081,9 @@ export default function StudioPage() {
       })
   }
 
-  function startNewStudioConversation() {
+  /** 新建对话（顶部按钮 / 分组右键菜单 / hint 空白页进入）共用的生成态与草稿复位。 */
+  function resetStudioConversationState() {
     expansionReview.dismiss()
-    tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
     seedreamAtSnapshot = undefined
     pendingEditorSessionID = undefined
@@ -2880,7 +3108,29 @@ export default function StudioPage() {
     setPrompt("")
     setAssets([])
     clearVideoFrames()
+  }
+
+  function startNewStudioConversation() {
+    tracker.interaction({ module: "studio", name: "new-session" })
+    resetStudioConversationState()
     navigate(`/${routeSlug()}/studio?hint=${Date.now()}`)
+  }
+
+  /** 分组右键「新建对话」：把之后创建的新会话自动归入对应分组（与 design 页
+   * 行为一致）。发送消息（createStudioSession）与空白页点击 AI 推荐（推荐
+   * 初始化新建的会话）都经过这里；非分组入口的新会话没有 pendingGroup，
+   * 正常留在「最近」列表。 */
+  function assignSessionToPendingGroup(sessionID: string) {
+    const dir = projectDir()
+    if (!dir) return
+    const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "studio", dir, groupsCtx?.groups ?? [])
+    if (!pendingGroupId) return
+    const ns = groupsCtx?.namespace ?? "studio"
+    const { setMapping } = getMappingStore(ns)
+    setMapping(produce((draft) => { draft[sessionID] = { groupId: pendingGroupId, position: 0 } }))
+    const groupClient = globalSDK.createClient({ directory: dir })
+    void groupClient.sessionGroup.mapSession({ sessionId: sessionID, groupId: pendingGroupId })
+    groupsCtx?.expandGroup(pendingGroupId)
   }
 
   async function createStudioSession(title?: string) {
@@ -2893,6 +3143,7 @@ export default function StudioPage() {
     })
     const session = result.data as Session | undefined
     if (!session) return
+    assignSessionToPendingGroup(session.id)
     return session.id
   }
 
@@ -3220,15 +3471,16 @@ export default function StudioPage() {
     draft: ReturnType<typeof restoreGenerationEditDraft>,
     templateID: string,
   ) {
-    if (recommendationMode.locked()) return
+    if (recommendationMode.taskBlocked()) return
     const canRestore = recommendationMode.capture()
+    const canRestoreDraft = captureDraft()
     const canRestoreReview = expansionReview.capture()
     const template = await getStudioStyleTemplate(templateID).catch((error) => {
       console.warn("[StudioPage] restore template generation draft failed", error)
       showFloatingNotice("info", "模板不存在或已不可用，无法重新编辑该模板任务。")
       return undefined
     })
-    if (!template || !canRestore() || !canRestoreReview()) return
+    if (!template || !canRestore() || !canRestoreReview() || !canRestoreDraft()) return
 
     const targetModel = styleTemplateTargetModel(canUseSeedream(), draft.styleModel ?? styleModel())
     const templatePrompt = templateUsagePromptRecord(result)
@@ -3238,7 +3490,7 @@ export default function StudioPage() {
       restorableReferences.names,
       templateReferenceRestoreLimit(template, targetModel),
     )
-    if (!canRestore() || !canRestoreReview()) return
+    if (!canRestore() || !canRestoreReview() || !canRestoreDraft()) return
 
     expansionReview.dismiss()
     const canRestoreMentions = expansionReview.capture()
@@ -3272,9 +3524,10 @@ export default function StudioPage() {
         setRecipeExtraPrompt("")
       }
     })
+    const canRestoreInput = captureDraft()
     if (template.prompt_setting !== "not_supported" && Object.keys(draft.mentionImages).length) {
       queueMicrotask(() => {
-        if (!canRestore() || !canRestoreMentions()) return
+        if (!canRestore() || !canRestoreMentions() || !canRestoreInput()) return
         if (template.template_type === "preset_recipe") {
           seedreamInputApi.restore(
             buildMentionHtml(stringValue(templatePrompt, "mainPrompt") ?? "", draft.mentionImages),
@@ -3307,11 +3560,20 @@ export default function StudioPage() {
   }
 
   async function editGenerationDraft(result: StudioGenerationResult) {
-    if (isActionBusy() || recommendationMode.locked()) return
+    if (recommendationMode.taskBlocked()) return
     const canRestore = recommendationMode.capture()
     if (result.capability !== "image.generate" && result.capability !== "video.generate") return
     const draft = restoreGenerationEditDraft(result)
     if (!canEditGenerationDraft(draft)) return
+    setDraftAction("revision", (value) => value + 1)
+    const canExitAndRestore = captureDraft()
+    if (draft.capability === "image.generate") {
+      const exited = await recommendation.exitForDraftRestore().then(() => true, (error: unknown) => {
+        showFloatingNotice("info", error instanceof Error ? error.message : "退出推荐尚未确认，请重试。")
+        return false
+      })
+      if (!exited || !canRestore() || !canExitAndRestore()) return
+    }
     const templateID = result.capability === "image.generate" ? templateUsageID(result) : undefined
     if (templateID) {
       await editTemplateGenerationDraft(result, draft, templateID)
@@ -3319,18 +3581,48 @@ export default function StudioPage() {
     }
     expansionReview.dismiss()
     const canRestoreReview = expansionReview.capture()
-    batch(() => {
-      setOpenMenu(null)
-      setMode("preview")
-      setStudioWorkspaceOverlayOpen(false)
-      setCapability(draft.capability)
-      setPrompt(draft.prompt)
-      setAspectRatio(draft.aspectRatio)
-      if (draft.count) setCount(draft.count)
-      if (draft.width) setCustomWidth(draft.width)
-      if (draft.height) setCustomHeight(draft.height)
-      setIsCustomStore(Boolean(draft.width && draft.height))
+    const canRestoreInput = captureDraft()
+    const restored = await restoreStudioDraft({
+      prepare: async () => {
+        if (draft.capability === "image.generate") return {
+          capability: "image.generate" as const,
+          assets: await restoredImageAssets(draft.referenceImages, draft.referenceImageNames, referenceImageLimit(draft.styleModel ?? styleModel())),
+        }
+        return {
+          capability: "video.generate" as const,
+          frames: await restoredVideoFrameAssets(draft.videoFrames),
+        }
+      },
+      valid: () => canRestore() && canRestoreReview() && canRestoreInput(),
+      apply: (prepared) => {
+        setOpenMenu(null)
+        setMode("preview")
+        setStudioWorkspaceOverlayOpen(false)
+        clearStyleTemplate()
+        setCapability(prepared.capability)
+        setPrompt(draft.prompt)
+        setAspectRatio(draft.aspectRatio)
+        if (draft.count) setCount(draft.count)
+        setCustomWidth(draft.width ?? 0)
+        setCustomHeight(draft.height ?? 0)
+        setIsCustomStore(Boolean(draft.width && draft.height))
+        if (prepared.capability === "image.generate") {
+          if (draft.styleModel) setStyleModel(draft.styleModel)
+          clearVideoFrames()
+          setAssets(prepared.assets)
+          return
+        }
+        setAssets([])
+        if (draft.videoDuration) setVideoDuration(draft.videoDuration)
+        if (draft.videoQualityMode) setVideoQualityMode(draft.videoQualityMode)
+        replaceVideoFrames(prepared.frames)
+      },
+      afterApply: () => {
+        if (draft.capability === "image.generate" && Object.keys(draft.mentionImages).length)
+          seedreamInputApi.restore(buildMentionHtml(draft.prompt, draft.mentionImages))
+      },
     })
+    if (!restored) return
     tracker.interaction({
       module: "studio",
       name: "edit-generation-draft",
@@ -3341,22 +3633,6 @@ export default function StudioPage() {
         hasReferenceImage: draft.referenceImages.length > 0 || Boolean(draft.videoFrames.first || draft.videoFrames.last),
       }),
     })
-    if (draft.capability === "image.generate") {
-      if (draft.styleModel) setStyleModel(draft.styleModel)
-      clearVideoFrames()
-      const restoredAssets = await restoredImageAssets(draft.referenceImages, draft.referenceImageNames, referenceImageLimit(draft.styleModel ?? styleModel()))
-      if (!canRestore() || !canRestoreReview()) return
-      setAssets(restoredAssets)
-      if (Object.keys(draft.mentionImages).length) seedreamInputApi.restore(buildMentionHtml(draft.prompt, draft.mentionImages))
-      showEditDraftSyncedToast()
-      return
-    }
-    setAssets([])
-    if (draft.videoDuration) setVideoDuration(draft.videoDuration)
-    if (draft.videoQualityMode) setVideoQualityMode(draft.videoQualityMode)
-    const restoredFrames = await restoredVideoFrameAssets(draft.videoFrames)
-    if (!canRestore() || !canRestoreReview()) return
-    replaceVideoFrames(restoredFrames)
     showEditDraftSyncedToast()
   }
 
@@ -3915,7 +4191,7 @@ export default function StudioPage() {
   }
 
   async function rebootStudioGeneration(id: string) {
-    if (rebootingGenerationIDs().has(id) || isActionBusy()) return
+    if (rebootingGenerationIDs().has(id) || recommendationMode.taskBlocked()) return
     const current = server.current
     if (!current) {
       showFloatingNotice("error", "重新生成失败：No active server.")
@@ -3995,7 +4271,7 @@ export default function StudioPage() {
   }
 
   async function refreshStudioGeneration(id: string) {
-    if (refreshingGenerationIDs().has(id) || isActionBusy()) return
+    if (refreshingGenerationIDs().has(id) || recommendationMode.taskBlocked()) return
     const current = server.current
     if (!current) {
       showFloatingNotice("error", "任务状态查询失败，请稍后重试")
@@ -4043,15 +4319,20 @@ export default function StudioPage() {
   }
 
   async function runGeneration(overrides?: StudioGenerationOverrides) {
+    const consumesInput = overrides?.inputPolicy ? overrides.inputPolicy === "consume" : !overrides?.useRestoredInputs
     const nextCapability = overrides?.capability ?? capability()
     const nextStyleModel = overrides?.styleModel ?? styleModel()
     const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
     const nextWidth = overrides?.width ?? customWidth()
     const nextHeight = overrides?.height ?? customHeight()
     const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
-    const nextCount = overrides?.count ?? count()
+    if (nextCapability === "image.generate" && nextIsCustom && !isStudioCustomSizeValid(nextStyleModel, nextWidth, nextHeight)) {
+      showFloatingNotice("info", "当前自定义尺寸不符合所选模型要求，请调整后重试。")
+      return
+    }
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
+    const nextCount = nextCapability === "video.generate" && nextVideoQualityMode === "4k" ? 1 : overrides?.count ?? count()
     const restoredVideoFrames = overrides?.videoFrames
     const nextVideoFrames = restoredVideoFrames
       ? restoredVideoFrames
@@ -4079,7 +4360,7 @@ export default function StudioPage() {
               ? "根据首尾帧生成自然连贯的视频"
             : ""
     )
-    if (!text || isActionBusy() || nextHasInvalidVideoFrames) return
+    if (!text || recommendationMode.taskBlocked() || nextHasInvalidVideoFrames) return
     expansionReview.dismiss()
     const detailPrompt = overrides?.detailPrompt ?? (
       nextCapability === "image.generate" || nextCapability === "video.generate"
@@ -4192,8 +4473,9 @@ export default function StudioPage() {
       generationToken: currentToken,
       sessionID: existingSession ? params.id : undefined,
     })
+    setConversationNavigation({ browsing: false, navigating: false })
     setStickToBottom(true)
-    if (!overrides?.useRestoredInputs) {
+    if (consumesInput) {
       seedreamAtSnapshot = undefined
       setPrompt("")
       setAssets([])
@@ -4255,7 +4537,7 @@ export default function StudioPage() {
         },
       }, controller.signal)
       if (currentToken !== generationToken) return
-      if (!overrides?.useRestoredInputs && nextCapability === "video.generate" && videoFramesStillMatchSubmission()) clearVideoFrames()
+      if (consumesInput && nextCapability === "video.generate" && videoFramesStillMatchSubmission()) clearVideoFrames()
       setPendingResult((current) => ({
         ...generation,
         // Preserve sessionID from current — generation response may not include it
@@ -4288,7 +4570,7 @@ export default function StudioPage() {
     } catch (error) {
       if (currentToken !== generationToken) return
       console.error("[StudioPage] studio prompt failed", error)
-      if (!overrides?.useRestoredInputs) {
+      if (consumesInput) {
         setPrompt(previousPrompt)
         setAssets(previousAssets)
       }
@@ -4509,10 +4791,24 @@ export default function StudioPage() {
     setSending(false)
   }
 
+  const canExpandRecommendationShortcut = () => recommendation.ready() && !recommendation.exiting() && !isActionBusy()
+
+  function handleRecommendationShortcut(prompt: string) {
+    if (!canExpandRecommendationShortcut()) return
+    expansionReview.dismiss()
+    setOpenMenu(null)
+    void recommendation.expandShortcut({
+      prompt,
+      images: [],
+      availableModels: models.list().filter((model) => models.visible({ providerID: model.provider.id, modelID: model.id })).slice(0, 100)
+        .map((model) => ({ providerID: model.provider.id, modelID: model.id })),
+    })
+  }
+
   function handleSubmit() {
-    if (recommendation.state()?.unknown && !recommendationEnabled()) { void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。")); return }
+    if (recommendation.state()?.unknown && !recommendationActive()) { void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。")); return }
     if (!canSubmit()) return
-    if (recommendationEnabled()) {
+    if (recommendationActive()) {
       const submittedPrompt = prompt()
       const submittedAssets = [...assets()]
       const submittedSession = params.id
@@ -4578,8 +4874,7 @@ export default function StudioPage() {
 
   function openOutpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage())) return
-    if (recommendationMode.locked()) return
-    expansionReview.dismiss()
+    if (recommendationMode.taskBlocked()) return
     batch(() => {
       setCapability("image.outpaint")
       setWorkspaceImage(undefined)
@@ -4590,8 +4885,7 @@ export default function StudioPage() {
 
   function openHD() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
-    if (recommendationMode.locked()) return
-    expansionReview.dismiss()
+    if (recommendationMode.taskBlocked()) return
     batch(() => {
       setCapability("image.upscale")
       setWorkspaceImage(undefined)
@@ -4602,8 +4896,7 @@ export default function StudioPage() {
 
   function openCutout() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
-    if (recommendationMode.locked()) return
-    expansionReview.dismiss()
+    if (recommendationMode.taskBlocked()) return
     batch(() => {
       setCapability("image.cutout")
       setWorkspaceImage(undefined)
@@ -4614,8 +4907,7 @@ export default function StudioPage() {
 
   function openInpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
-    if (recommendationMode.locked()) return
-    expansionReview.dismiss()
+    if (recommendationMode.taskBlocked()) return
     batch(() => {
       setCapability("image.inpaint")
       setWorkspaceImage(undefined)
@@ -4626,7 +4918,9 @@ export default function StudioPage() {
 
   async function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
     const image = workspaceEditImage()
-    if (!image) return
+    if (!image || recommendationMode.taskBlocked()) return
+    const canRestore = recommendationMode.capture()
+    const canRestoreInput = captureDraft()
     let sourceUrl = image.remoteUrl ?? image.url
 
     // Auto-adjust original image (not local upload) if exceeds limits
@@ -4634,6 +4928,7 @@ export default function StudioPage() {
       sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 300 })
     }
 
+    if (!canRestore() || !canRestoreInput()) return
     tracker.interaction({
       module: "studio",
       name: "outpaint",
@@ -4656,6 +4951,7 @@ export default function StudioPage() {
         ? (ratioRaw as StudioAspectRatio)
         : undefined
     void runGeneration({
+      inputPolicy: "preserve",
       capability: "image.outpaint",
       sourceImage: sourceUrl,
       aspectRatio: targetAspectRatio,
@@ -4672,7 +4968,9 @@ export default function StudioPage() {
     compositeImage: string
     hasDrawing: boolean
   }) {
-    if (isActionBusy()) return
+    if (recommendationMode.taskBlocked()) return
+    const canRestore = recommendationMode.capture()
+    const canRestoreInput = captureDraft()
 
     async function doSubmit() {
       let sourceUrl = input.sourceImage
@@ -4701,7 +4999,9 @@ export default function StudioPage() {
       })
       // 智能重绘保留源图比例，探测实际宽高以避免结果被默认为 3:4
       const sourceAspectRatio = await probeImageAspectRatio(sourceUrl)
+      if (!canRestore() || !canRestoreInput()) return
       void runGeneration({
+        inputPolicy: "preserve",
         capability: "image.inpaint",
         sourceImage: sourceUrl,
         aspectRatio: sourceAspectRatio,
@@ -4797,7 +5097,9 @@ export default function StudioPage() {
 
   async function submitHD(input: { mode: StudioHDMode }) {
     const image = workspaceEditImage()
-    if (!image || isActionBusy()) return
+    if (!image || recommendationMode.taskBlocked()) return
+    const canRestore = recommendationMode.capture()
+    const canRestoreInput = captureDraft()
     let sourceUrl = image.remoteUrl ?? image.url
 
     // Auto-adjust original image (not local upload) if exceeds limits
@@ -4808,7 +5110,9 @@ export default function StudioPage() {
     tracker.interaction({ module: "studio", name: "upscale", extend: JSON.stringify({ mode: input.mode, hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     // 变清晰保留源图比例，探测实际宽高以避免结果被默认为 3:4
     const sourceAspectRatio = await probeImageAspectRatio(sourceUrl)
+    if (!canRestore() || !canRestoreInput()) return
     void runGeneration({
+      inputPolicy: "preserve",
       capability: "image.upscale",
       sourceImage: sourceUrl,
       aspectRatio: sourceAspectRatio,
@@ -4821,7 +5125,9 @@ export default function StudioPage() {
 
   async function submitCutout() {
     const image = workspaceEditImage()
-    if (!image || isActionBusy()) return
+    if (!image || recommendationMode.taskBlocked()) return
+    const canRestore = recommendationMode.capture()
+    const canRestoreInput = captureDraft()
     let sourceUrl = image.remoteUrl ?? image.url
 
     // Auto-adjust original image (not local upload) if exceeds limits
@@ -4832,7 +5138,9 @@ export default function StudioPage() {
     tracker.interaction({ module: "studio", name: "cutout", extend: JSON.stringify({ hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     // 抠图保留源图比例，探测实际宽高以避免结果被默认为 3:4
     const sourceAspectRatio = await probeImageAspectRatio(sourceUrl)
+    if (!canRestore() || !canRestoreInput()) return
     void runGeneration({
+      inputPolicy: "preserve",
       capability: "image.cutout",
       sourceImage: sourceUrl,
       aspectRatio: sourceAspectRatio,
@@ -4881,24 +5189,24 @@ export default function StudioPage() {
   })
   const canGenerateExpansion = () =>
     recommendation.ready() && !recommendation.state()?.unknown &&
-    !recommendationMode.taskLocked() && !isActionBusy() && imageSettingsReady() &&
+    !recommendationMode.taskBlocked() && imageSettingsReady() &&
     (studioPermissionStatus() !== "loading" || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel()))
 
-  async function generateFromExpansion(turn: StudioTurnData, choice: "confirmed" | "ignored") {
-    if (!canGenerateExpansion() || !expansionReview.editable(turn)) return
-    const text = (choice === "confirmed" ? expansionReview.text(turn) : turn.userText).trim()
-    if (!text) return
-    if ((turn.inputImages?.length ?? 0) > referenceImageLimit(styleModel())) {
-      showFloatingNotice("info", "参考图数量超过当前模型上限，请调整模型后重试。")
-      return
-    }
-    if (!expansionReview.choose(turn, choice)) return
-    await runGeneration({
-      ...expansionGenerationInput(turn, text, recommendationSettings.image()),
-      styleModel: styleModel(),
-      detailTitle: buildStudioDisplayPrompt(text),
-    })
+  const generateFromExpansion = (turn: StudioTurnData, choice: "confirmed" | "ignored") => generateExpansion({
+    turn,
+    choice,
+    ready: canGenerateExpansion(),
+    review: expansionReview,
+    styleModel: styleModel(),
+    settings: recommendationSettings.image(),
+    notify: (message) => showFloatingNotice("info", message),
+    generate: (request) => runGeneration({ ...request, detailTitle: buildStudioDisplayPrompt(request.prompt) }),
+  })
+
+  function exitRecommendation() {
+    setDraftAction("revision", (value) => value + 1)
+    void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))
   }
 
   function initializeRecommendation() {
@@ -4908,6 +5216,7 @@ export default function StudioPage() {
       return
     }
     if (recommendationEnabled()) return
+    setDraftAction("revision", (value) => value + 1)
     expansionReview.dismiss()
     void recommendation.initialize()
   }
@@ -4936,6 +5245,20 @@ export default function StudioPage() {
     onCleanup(() => clearTimeout(timer))
   })
 
+  // 分组右键「新建对话」经 GroupedSidebar.handleNewSessionInGroup 直接 navigate
+  // 到 `?hint=` 空白页，不经过 startNewStudioConversation 的复位：上个会话处于
+  // 创建/生成中时，残留的 pendingResult/sending 会把空白页继续渲染成旧会话
+  // （表现为没有跳转到新建对话页）。这里对进入 hint 空白页统一补一次复位。
+  createEffect(
+    on(
+      () => [params.id, new URLSearchParams(location.search).has("hint")] as const,
+      ([id, hinted]) => {
+        if (id || !hinted) return
+        resetStudioConversationState()
+      },
+    ),
+  )
+
   return (
     <div
       ref={studioPageRef!}
@@ -4951,6 +5274,7 @@ export default function StudioPage() {
           width: studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
           "flex-basis": studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
           "min-width": studioLeftCollapsed() ? "68px" : undefined,
+          "--sidebar-width": `${studioLeftWidth()}px`,
           transition: resizingLeft() ? "none" : "width 200ms ease, flex-basis 200ms ease",
         }}
       >
@@ -5030,16 +5354,11 @@ export default function StudioPage() {
             </div>
           }
         >
-          <StudioHistory
+          <StudioSidebar
             directory={projectDir()}
             routeSlug={routeSlug()}
-            activeSessionID={params.id}
             historyActive={historyOpen()}
             onOpenHistory={openStudioHistory}
-            sessions={studioSessions()}
-            loading={studioSessionsLoading()}
-            onSessionUpdated={updateStudioHistorySession}
-            onSessionRemoved={removeStudioHistorySession}
             onNewConversation={startNewStudioConversation}
             toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
             thumbnails={studioThumbnails.thumbnails}
@@ -5086,12 +5405,11 @@ export default function StudioPage() {
                   status={effectiveStatus()}
                   busy={isBusy() || recommendation.busy()}
                   onRecommend={initializeRecommendation}
-                  recommendationEnabled={recommendationEnabled()}
+                  recommendationEnabled={recommendationActive()}
                   recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
-                  onExitRecommendation={() => void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))}
+                  onExitRecommendation={exitRecommendation}
                   onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
-                  recommendationTaskLocked={recommendationMode.taskLocked()}
-                  recommendationLocked={recommendationMode.locked()}
+                  actionsBlocked={recommendationMode.taskBlocked()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
                   selectedStyleTemplate={selectedStyleTemplate()}
@@ -5221,58 +5539,39 @@ export default function StudioPage() {
             </div>
             <div class="flex items-center gap-1 relative" style={{ "z-index": "60" }}>
               <Show when={params.id && (showStudioWorkspace() || !studioWorkspaceOverlayOpen())}>
-                <DropdownMenu
-                  gutter={4}
-                  placement="bottom-end"
-                  open={headerTitle.menuOpen}
-                  onOpenChange={(open) => {
-                    if (open) tracker.interaction({ module: "studio", name: "header-more-menu-open" })
-                    setHeaderTitle("menuOpen", open)
+                <button
+                  type="button"
+                  class="studio-center-action size-7 rounded-md flex items-center justify-center transition-colors hover:bg-surface-base-active"
+                  classList={{ "bg-surface-base-active": headerTitle.menuOpen }}
+                  aria-label={language.t("common.moreOptions")}
+                  aria-expanded={headerTitle.menuOpen}
+                  onClick={(e) => {
+                    if (!headerTitle.menuOpen) tracker.interaction({ module: "studio", name: "header-more-menu-open" })
+                    setMenuTriggerEl(e.currentTarget as HTMLElement)
+                    setMenuPos({ x: e.clientX, y: e.clientY })
+                    setHeaderTitle("menuOpen", !headerTitle.menuOpen)
                   }}
                 >
-                  <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="ellipsis"
-                    variant="ghost"
-                    class="studio-center-action size-7 rounded-md data-[expanded]:bg-surface-base-active" style={{"z-index": "150", position: "relative"}}
-                    aria-label={language.t("common.moreOptions")}
-                    aria-expanded={headerTitle.menuOpen}
-                  />
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content
-                      style={{ "min-width": "104px", "z-index": "1000" }}
-                      onCloseAutoFocus={(event) => {
-if (!headerTitle.pendingRename) return
-                        event.preventDefault()
-                        setHeaderTitle("pendingRename", false)
-                        openHeaderTitleEditor()
-                      }}
-                    >
-                      <DropdownMenu.Item
-                        onSelect={() => {
-                          tracker.interaction({ module: "studio", name: "header-rename-trigger" })
-                          setHeaderTitle({ pendingRename: true, menuOpen: false })
-                        }}
-                      >
-                        <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Separator />
-                      <DropdownMenu.Item
-                        onSelect={() => {
-                          const session = activeStudioSession() ?? { id: params.id!, title: currentTitle(), agent: "octo_studio" } as Session
-                          dialog.show(() => (
-                            <DialogDeleteSession
-                              name={sessionTitle(session.title) ?? language.t("command.session.new")}
-                              onDelete={() => deleteHeaderSession(session)}
-                            />
-                          ))
-                        }}
-                      >
-                        <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu>
+                  <Icon name="ellipsis" class="size-4" />
+                </button>
+                <SessionContextMenu
+                  show={headerTitle.menuOpen && !!menuSession()}
+                  x={menuPos().x}
+                  y={menuPos().y}
+                  triggerEl={menuTriggerEl}
+                  session={menuSession() ?? null}
+                  hasMessages={menuHasMessages()}
+                  groups={groupsCtx?.groups}
+                  sessionGroupMapping={groupsCtx?.mapping}
+                  trackerModule="studio"
+                  onClose={closeMenu}
+                  onRename={handleMenuRename}
+                  onTogglePin={handleMenuTogglePin}
+                  onDelete={handleMenuDelete}
+                  onMoveToGroup={handleMenuMoveToGroup}
+                  onRemoveFromGroup={handleMenuRemoveFromGroup}
+                  onCreateGroupForSession={handleMenuCreateGroupForSession}
+                />
             </Show>
             <Show when={!showStudioWorkspace()}>
               <button
@@ -5290,6 +5589,7 @@ if (!headerTitle.pendingRename) return
             </div>
           </div>
 
+          <div class="studio-conversation-scroll-region">
           <ScrollView
             viewportRef={(el) => {
               conversationScrollRef = el
@@ -5299,6 +5599,10 @@ if (!headerTitle.pendingRename) return
               })
             }}
             onScroll={handleConversationScroll}
+            onWheel={handleConversationWheel}
+            onPointerDown={resumeConversationScroll}
+            onKeyDown={resumeConversationScroll}
+            onTouchStart={resumeConversationScroll}
             class="studio-center-scroll"
           >
             <div ref={setConversationContentEl}>
@@ -5313,9 +5617,11 @@ if (!headerTitle.pendingRename) return
                 expansionText={expansionReview.text}
                 expansionEditable={expansionReview.editable}
                 expansionCanGenerate={canGenerateExpansion()}
+                recommendationCanExpand={canExpandRecommendationShortcut()}
+                onRecommendationShortcut={handleRecommendationShortcut}
                 onExpansionInput={expansionReview.update}
                 onExpansionChoose={(turn, choice) => void generateFromExpansion(turn, choice)}
-                actionBusy={isActionBusy()}
+                actionBusy={recommendationMode.taskBlocked()}
                 cancellingGenerationIDs={cancellingGenerationIDs()}
                 rebootingGenerationIDs={rebootingGenerationIDs()}
                 refreshingGenerationIDs={refreshingGenerationIDs()}
@@ -5330,6 +5636,23 @@ if (!headerTitle.pendingRename) return
             </Show>
             </div>
           </ScrollView>
+          <StudioTurnAnchorNav
+            turns={stableDisplayTurns()}
+            sessionID={params.id}
+            following={!conversationNavigation.browsing}
+            viewport={() => {
+              conversationViewportVersion()
+              return conversationScrollRef
+            }}
+            content={() => conversationContentEl() ?? undefined}
+            onNavigate={() => {
+              cancelAnimationFrame(scrollFrame)
+              setPendingScrollRequest(undefined)
+              setConversationNavigation({ browsing: true, navigating: true })
+              setStickToBottom(false)
+            }}
+          />
+          </div>
 
           <StudioComposer
             prompt={prompt()}
@@ -5354,12 +5677,11 @@ if (!headerTitle.pendingRename) return
             status={effectiveStatus()}
             busy={isBusy() || recommendation.busy()}
             onRecommend={initializeRecommendation}
-            recommendationEnabled={recommendationEnabled()}
+            recommendationEnabled={recommendationActive()}
             recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
-            onExitRecommendation={() => void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))}
+            onExitRecommendation={exitRecommendation}
             onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
-            recommendationTaskLocked={recommendationMode.taskLocked()}
-            recommendationLocked={recommendationMode.locked()}
+            actionsBlocked={recommendationMode.taskBlocked()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}
             selectedStyleTemplate={selectedStyleTemplate()}
@@ -5484,9 +5806,9 @@ if (!headerTitle.pendingRename) return
               onOutpaint={openOutpaint}
               onRegenerate={regenerateCurrentResult}
               onGenerateVideo={generateVideoFromSelectedImage}
-              showVideoGeneration={canGenerateVideo() && !recommendationMode.locked()}
+              showVideoGeneration={canGenerateVideo()}
               regenerateDisabled={resultRegenerateDisabled(result())}
-              actionDisabled={isActionBusy()}
+              actionDisabled={recommendationMode.taskBlocked()}
               showFileManagerTab={true}
               onFileManagerClick={() => {
                 if (fileManagerDetailView()) {
@@ -5553,7 +5875,7 @@ if (!headerTitle.pendingRename) return
                         selectedImageId={selectedImageId()}
                         imageLabel={currentImageLabel()}
                         regenerateDisabled={resultRegenerateDisabled(result())}
-                        showVideoGeneration={canGenerateVideo() && !recommendationMode.locked()}
+                        showVideoGeneration={canGenerateVideo()}
                         onSelectImage={(id) => {
                           const r = result()
                           batch(() => {
@@ -5694,6 +6016,7 @@ if (!headerTitle.pendingRename) return
             left: "0",
             bottom: "0",
             width: "296px",
+            "--sidebar-width": "296px",
             "z-index": "101",
             background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
             "border-right": "1px solid var(--border-weak-base)",
@@ -5701,19 +6024,14 @@ if (!headerTitle.pendingRename) return
             overflow: "hidden",
           }}
         >
-          <StudioHistory
+          <StudioSidebar
             directory={projectDir()}
             routeSlug={routeSlug()}
-            activeSessionID={params.id}
             historyActive={historyOpen()}
             onOpenHistory={() => {
               setStudioLeftOverlayOpen(false)
               openStudioHistory()
             }}
-            sessions={studioSessions()}
-            loading={studioSessionsLoading()}
-            onSessionUpdated={updateStudioHistorySession}
-            onSessionRemoved={removeStudioHistorySession}
             onNewConversation={() => {
               setStudioLeftOverlayOpen(false)
               startNewStudioConversation()

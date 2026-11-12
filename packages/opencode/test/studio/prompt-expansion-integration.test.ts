@@ -13,6 +13,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
 import { Bus } from "@/bus"
 import { MessageV2 } from "@/session/message-v2"
+import { Session } from "@/session/session"
 import {
   initializeRecommendation,
   submitExpansion,
@@ -59,6 +60,16 @@ const output = JSON.stringify({
   expandedPrompt: "雨后城市的霓虹街景。",
   tags: ["场景：城市", "天气：雨后", "光线：霓虹"],
 })
+
+function sessionActivity(sessionID: string) {
+  const updates: number[] = []
+  return {
+    updates,
+    [Symbol.dispose]: Bus.subscribe(Session.Event.Updated, (event) => {
+      if (event.properties.info.id === sessionID) updates.push(event.properties.info.time.updated)
+    }),
+  }
+}
 
 it.live("expansion handles missing remote text declarations without changing the shared model catalog", () =>
   provideTmpdirServer(({ llm }) =>
@@ -310,6 +321,8 @@ it.live("previews text without reasoning and persists it on cancellation", () =>
     const instance = yield* InstanceState.context
     yield* Effect.promise(() => Instance.restore(instance, async () => {
       const initialized = await initializeRecommendation({ requestID: crypto.randomUUID() })
+      await Bun.sleep(0)
+      using activity = sessionActivity(initialized.sessionID)
       const streamed = Promise.withResolvers<void>()
       const unsubscribe = Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
         if (event.properties.sessionID === initialized.sessionID && event.properties.delta === '{"expandedPrompt":"正在生成城市')
@@ -329,6 +342,10 @@ it.live("previews text without reasoning and persists it on cancellation", () =>
         while (Date.now() < deadline && (await getRecommendationState(initialized.sessionID)).recommendation?.status !== "cancelled")
           await Bun.sleep(10)
         expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("cancelled")
+        await Bun.sleep(0)
+        expect(activity.updates).toHaveLength(2)
+        expect(activity.updates.at(-1)).toBe(Database.use((db) => db.select().from(SessionTable)
+          .where(eq(SessionTable.id, SessionID.make(initialized.sessionID))).get())!.time_updated)
         const parts = Database.use((db) => db.select().from(PartTable)
           .where(eq(PartTable.session_id, SessionID.make(initialized.sessionID))).all())
         expect(parts.filter((row) => row.data.type === "text" && (row.data as MessageV2.TextPart).metadata?.studioPromptExpansionPreview).map((row) => row.data)).toEqual([
@@ -363,6 +380,7 @@ it.live(
                 images: [await uploadImage(initialized.sessionID, "reference.png", image.toString("base64"))],
                 availableModels: [{ providerID: "test", modelID: "test-model" }],
               }
+              using activity = sessionActivity(initialized.sessionID)
               const accepted = await submitExpansion(request)
               expect((await submitExpansion(request)).assistantMessageID).toBe(accepted.assistantMessageID)
               const deadline = Date.now() + 10_000
@@ -373,6 +391,10 @@ it.live(
               }
               const state = await getRecommendationState(initialized.sessionID)
               expect(state.recommendation?.status).toBe("completed")
+              await Bun.sleep(0)
+              expect(activity.updates).toHaveLength(2)
+              expect(activity.updates.at(-1)).toBe(Database.use((db) => db.select().from(SessionTable)
+                .where(eq(SessionTable.id, SessionID.make(initialized.sessionID))).get())!.time_updated)
               expect(
                 Database.use((db) =>
                   db

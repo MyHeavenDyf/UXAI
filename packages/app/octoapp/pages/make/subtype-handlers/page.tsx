@@ -88,6 +88,7 @@ const pageIconConfig: IconConfig = {
     // 形状选项：label 展示文案，value 写入 data-icon-style
     styles: [
       { key: '线性', label: '线性', value: 'outline' },
+      { key: '面性', label: '面性', value: 'filled' },
       { key: '线性双色', label: '线性双色', value: 'two-tone' },
       { key: '方底托', label: '方底托', value: 'square' },
       { key: '圆底托', label: '圆底托', value: 'circle' },
@@ -277,11 +278,18 @@ const pageHandler = {
   name: 'page',
   modelEditConfig: pageModelEditConfig,
 
+  /** 下载下拉：两条转换路线都先走 umd-to-antd-vite，
+   *  之后分别接 antd-to-eview-react / antd-to-eview-ui（骨架换血路线） */
+  downloadOptions: [
+    { value: 'eview-react', label: 'Eview-React' },
+    { value: 'eview-ui', label: 'Eview UI' },
+  ],
+
   isDownloadBusy(ctx) {
     return downloadingTabs.has(ctx.tab.id)
   },
 
-  async handleDownload(ctx) {
+  async handleDownload(ctx, option?) {
     if (downloadingTabs.has(ctx.tab.id)) return true
 
     const { tab, sdk, modelKey, sync, sessionId } = ctx
@@ -299,6 +307,8 @@ const pageHandler = {
 
     const srcDirectory = filePath.replace(/[/\\][^/\\]+$/, '')
     const outputDir = `${srcDirectory}-vite`
+    // 下拉选中项决定后续 skill 路线；未声明 option 的调用（如 buildArchiveSrc 触发）走默认 eview-react
+    const target = option === 'eview-ui' ? 'eview-ui' : 'eview-react'
     let childSessionId: string | undefined
 
     // const loadingId = showOctoToast({ title: '正在运行编排 agent...', persistent: true })
@@ -311,9 +321,10 @@ const pageHandler = {
         modelKey: modelKey!,
         rootSession: sessionId!,
         srcDirectory,
+        target,
         onSessionCreated: (id: string) => {
           childSessionId = id
-          // setAgentExecution(prev => ({ ...prev, [ctx.tab.id]: { childSessionId: id, title: 'antd→eview 编排 Agent', visible: true } }))
+          setAgentExecution(prev => ({ ...prev, [ctx.tab.id]: { childSessionId: id, title: `antd→${target} 编排 Agent`, visible: true } }))
         },
       })
 
@@ -401,7 +412,6 @@ const pageHandler = {
       const tokensStr = totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : `${totalTokens}`
       const costStr = totalCost > 0 ? ` · $${totalCost.toFixed(2)}` : ''
 
-      setAgentExecution(prev => { const next = { ...prev }; delete next[ctx.tab.id]; return next })
       // dismissOctoToast(loadingId)
       ctx.showOctoToast({
         title: '编排完成',
@@ -409,7 +419,6 @@ const pageHandler = {
       })
       return true
     } catch (e) {
-      setAgentExecution(prev => { const next = { ...prev }; delete next[ctx.tab.id]; return next })
       // dismissOctoToast(loadingId)
       if (e instanceof DownloadCancelledError) throw e
       throw e

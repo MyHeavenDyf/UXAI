@@ -3,6 +3,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useServer } from "@/context/server"
 import { ProjectInfoDialogContent } from "./project-info-dialog-content"
 import { WorkspaceSwitcher } from "@/components/workspace-switcher"
+import { DialogRepoAssociate } from "./dialog-repo-associate"
 import { createStore } from "solid-js/store"
 import { createEffect, createMemo, createSignal, Show } from "solid-js"
 import { Portal } from "solid-js/web"
@@ -10,6 +11,8 @@ import { isValidUserPath } from "@/utils/path-valid"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
+import { addUserProject } from "@/network/pipelineRequest"
+import { getUser } from "@/context/auth"
 import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
 interface DialogProjectOnboardingProps {
@@ -48,12 +51,21 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
 
   const [directory, setDirectory] = createSignal<string>("")
   const [triedSubmit, setTriedSubmit] = createSignal(false)
+  // 关联代码仓弹窗开关 & 已关联的远程仓库地址(暂存,随项目确认时一并上报)
+  const [repoDialogOpen, setRepoDialogOpen] = createSignal(false)
+  const [repoUrl, setRepoUrl] = createSignal("")
 
   createEffect(() => {
     const init = initialDirectory()
     if (init && !directory()) {
       setDirectory(init)
     }
+  })
+
+  // 切换目录时清除已关联的代码仓地址,避免上报脏数据
+  createEffect(() => {
+    const dir = directory()
+    if (dir) setRepoUrl("")
   })
 
   function handleConfirm() {
@@ -75,9 +87,24 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         productLine,
         product,
         productVersion: version,
-        dir
+        dir,
+        repoUrl: repoUrl() || undefined,
       }),
     })
+    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domain/productLine/product/version 取各对象 name; fire-and-forget, 失败 silent 不阻断)
+    const user = getUser()
+    const userName = user?.nickName?.trim()
+    const userId = user?.account?.trim()
+    if (userName && userId) {
+      void addUserProject({
+        userName,
+        userId,
+        domain: domain?.name,
+        productLine: productLine?.name,
+        product: product?.name,
+        version: version?.name,
+      })
+    }
     layout.projects.open(dir)
     server.projects.touch(dir)
     void globalSDK.createClient({ directory: dir }).session.list().catch(() => {})
@@ -134,9 +161,29 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
             }}
           />
         </div>
-        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "16px", width: "100%", color: "#191919" }}>
-          <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-hidden="true">*</span>
-          <span>关联本地文件夹</span>
+        {/* 关联本地文件夹标签行:左侧必填标题,右侧"关联代码仓"入口按钮 */}
+        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "16px", width: "100%", color: "var(--octo-text-base, #191919)", display: "flex", "align-items": "center", "justify-content": "space-between" }}>
+          <div style={{ display: "flex", "align-items": "center" }}>
+            <span style={{ color: "var(--octo-danger, #ef4444)", "font-size": "12px", "margin-right": "2px" }} aria-hidden="true">*</span>
+            <span>关联本地文件夹</span>
+          </div>
+          {/* 点击后弹出关联代码仓弹窗,检测/关联当前所选目录的远程仓库 */}
+          <button
+            type="button"
+            onClick={() => setRepoDialogOpen(true)}
+            style={{
+              "font-size": "14px",
+              "line-height": "20px",
+              "font-weight": 400,
+              color: "var(--octo-brand, #0a59f7)",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: "0",
+            }}
+          >
+            关联代码仓
+          </button>
         </div>
 
         <div style={{ width: "100%", "margin-top": "4px" }}>
@@ -171,6 +218,17 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         >
           确定
         </button>
+        {/* 关联代码仓弹窗:传入当前所选目录,确认后暂存 repoUrl 并关闭 */}
+        <Show when={repoDialogOpen()}>
+          <DialogRepoAssociate
+            directory={directory()}
+            onClose={() => setRepoDialogOpen(false)}
+            onConfirm={(url) => {
+              setRepoUrl(url)
+              setRepoDialogOpen(false)
+            }}
+          />
+        </Show>
       </div>
     </div>
     </Portal>

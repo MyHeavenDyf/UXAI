@@ -1,10 +1,10 @@
-import { batch, createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX, type Resource } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import emptyPng from "../insight/icons/empty.png"
 import { usePlatform } from "@/context/platform"
 import { tracker } from "@/utils/tracker"
-import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelId, styleModelLabel } from "./data"
-import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
+import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, isSeedreamStyleModel, styleModelLabel } from "./data"
+import { getDefaultDimensions, getStudioImageAreaLimits, getStudioImageDimensionRange, isStudioCustomSizeValid, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
 import { StudioStyleTemplateMenu, type StudioStyleTemplateListInput, type StudioStyleTemplateListItem, type StudioStyleTemplateListResult } from "./studio-style-template-menu"
 import {
@@ -104,10 +104,9 @@ export function StudioComposer(props: {
   onUnsupportedReferenceUpload?: () => void
   onReversePrompt?: () => void
   onRecommend?: () => void
-  recommendationLocked?: boolean
   recommendationEnabled?: boolean
   recommendationExiting?: boolean
-  recommendationTaskLocked?: boolean
+  actionsBlocked?: boolean
   onExitRecommendation?: () => void
   onRecoverRecommendation?: () => void
   onCancel?: () => void
@@ -146,7 +145,7 @@ export function StudioComposer(props: {
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isTemplateReferenceDisabled = createMemo(() => isImageGeneration() && props.selectedStyleTemplate?.reference_image_setting === "not_supported")
   const canAddReferenceAsset = createMemo(() => !isTemplateReferenceDisabled() && props.maxReferenceImages > 0 && referenceAssets().length < props.maxReferenceImages)
-  const isSeedreamModel = createMemo(() => styleModelId(props.styleModel) === "seedream-5-lite")
+  const isSeedreamModel = createMemo(() => isSeedreamStyleModel(props.styleModel))
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isRecipeTemplate = createMemo(() => isImageGeneration() && props.selectedStyleTemplate?.template_type === "preset_recipe")
   const selectedExtractStyleTemplate = createMemo(() => props.selectedStyleTemplate?.template_type === "extract_style" ? props.selectedStyleTemplate : undefined)
@@ -375,7 +374,7 @@ export function StudioComposer(props: {
     props.onKeyDown(event)
   }
   const [lastValidCustomLabel, setLastValidCustomLabel] = createSignal("")
-  const isJimengModel = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
+  createEffect(on(() => props.styleModel, () => setLastValidCustomLabel("")))
   // 弹框打开时锁定 toolbar 自定义尺寸显示值，比例和张数实时同步
   const [committedCustomW, setCommittedCustomW] = createSignal(props.customWidth)
   const [committedCustomH, setCommittedCustomH] = createSignal(props.customHeight)
@@ -399,21 +398,9 @@ export function StudioComposer(props: {
     let ratio: string
     if (isCustom) {
       const label = `${customW}×${customH}`
-      if (isJimengModel()) {
-        const area = customW * customH
-        const areaMin = 2560 * 1440
-        const areaMax = Math.round(3072 * 3072 * 1.1025)
-        const areaOk = area >= areaMin && area <= areaMax
-        const ratioVal = customW / customH
-        const ratioOk = ratioVal >= 1 / 16 && ratioVal <= 16
-        if (areaOk && ratioOk) {
-          setLastValidCustomLabel(label)
-        }
-        ratio = (areaOk && ratioOk) ? label : (lastValidCustomLabel() || aspectRatio)
-      } else {
-        setLastValidCustomLabel(label)
-        ratio = label
-      }
+      const valid = isStudioCustomSizeValid(props.styleModel, customW, customH)
+      if (valid) setLastValidCustomLabel(label)
+      ratio = valid ? label : (lastValidCustomLabel() || aspectRatio)
     } else {
       ratio = aspectRatio
     }
@@ -1158,7 +1145,7 @@ export function StudioComposer(props: {
                     <Show when={!props.recommendationEnabled && !isVideoGeneration() && !props.prompt}>
                       <div class="studio-composer-input-placeholder">
                         <Show when={!isEditingCapability() && props.capability === "image.generate" && !props.selectedStyleTemplate} fallback={isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}>
-                          上传参考图、输入文字或@主体，描述你想生成的图片。
+                          上传参考图、输入文字或@主体，描述你想生成的图片，或使用<button type="button" class="studio-prompt-recommendation-button" disabled={props.busy} onClick={(event) => { event.stopPropagation(); props.onRecommend?.() }}>AI推荐</button>描述内容。
                         </Show>
                       </div>
                     </Show>
@@ -1252,7 +1239,7 @@ export function StudioComposer(props: {
               <ToolButton
                 label={capabilityLabel(props.capability)}
                 active={props.openMenu === "capability"}
-                disabled={isBusy() || props.recommendationLocked}
+                disabled={isBusy()}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-capability-open" }); props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability") }}
               />
@@ -1262,7 +1249,7 @@ export function StudioComposer(props: {
                 <ToolButton
                   label={styleModelLabel(props.styleModel)}
                   active={props.openMenu === "style"}
-                  disabled={isBusy() || props.recommendationTaskLocked}
+                  disabled={isBusy()}
                   onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                   onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-style-open" }); props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style") }}
                 />
@@ -1304,7 +1291,7 @@ export function StudioComposer(props: {
                       <ToolButton
                         label="风格模板"
                         active={props.openMenu === "style-template"}
-                        disabled={isBusy() || props.recommendationLocked}
+                        disabled={isBusy() || props.recommendationEnabled}
                         onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                         onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-style-template-open" }); props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template") }}
                       />
@@ -1313,7 +1300,7 @@ export function StudioComposer(props: {
                     <SelectedTemplateButton
                       title={props.selectedStyleTemplate?.title ?? ""}
                       active={props.openMenu === "style-template"}
-                      disabled={isBusy() || props.recommendationLocked}
+                      disabled={isBusy() || props.recommendationEnabled}
                       editable={Boolean(selectedExtractStyleTemplate())}
                       editorOpen={props.styleTemplateEditorOpen}
                       onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
@@ -1432,7 +1419,7 @@ export function StudioComposer(props: {
                         <button
                           type="button"
                           class="studio-composer-toolbar-more-item"
-                          disabled={isBusy() || props.recommendationLocked}
+                          disabled={isBusy() || props.recommendationEnabled}
                           classList={{ active: props.openMenu === "style-template" }}
                           onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-style-template-open" }); props.onOpenMenu("style-template") }}
                         >
@@ -1446,7 +1433,7 @@ export function StudioComposer(props: {
                         <SelectedTemplateButton
                           title={props.selectedStyleTemplate?.title ?? ""}
                           active={props.openMenu === "style-template"}
-                          disabled={isBusy() || props.recommendationLocked}
+                          disabled={isBusy() || props.recommendationEnabled}
                           editable={Boolean(selectedExtractStyleTemplate())}
                           editorOpen={props.styleTemplateEditorOpen}
                           toolbarMore
@@ -1486,7 +1473,7 @@ export function StudioComposer(props: {
                 </Show>
               </div>
           </Show>
-          <Show when={!props.recommendationLocked && props.openMenu === "capability"}>
+          <Show when={props.openMenu === "capability"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("capability", el)}>
               <CapabilityMenu
                 value={props.capability}
@@ -1495,7 +1482,7 @@ export function StudioComposer(props: {
               />
             </div>
           </Show>
-          <Show when={!props.recommendationTaskLocked && isImageGeneration() && props.openMenu === "style"}>
+          <Show when={isImageGeneration() && props.openMenu === "style"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style", el)}>
               <StyleMenu
                 value={props.styleModel}
@@ -1523,7 +1510,7 @@ export function StudioComposer(props: {
               />
             </div>
           </Show>
-          <Show when={!props.recommendationLocked && isImageGeneration() && props.openMenu === "style-template"}>
+          <Show when={!props.recommendationEnabled && isImageGeneration() && props.openMenu === "style-template"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style-template", el)}>
               <StudioStyleTemplateMenu
                 canCreateTemplate={props.canCreateStyleTemplate}
@@ -1605,9 +1592,10 @@ export function StudioComposer(props: {
             <button
               type="button"
               onClick={props.onSubmit}
-              disabled={!props.canSubmit}
+              disabled={!props.canSubmit || props.actionsBlocked}
               class="studio-composer-send"
-              title={props.recommendationEnabled ? "扩写" : "生成"}
+              title={props.recommendationEnabled ? "图片提示词扩写" : "生成"}
+              aria-label={props.recommendationEnabled ? "图片提示词扩写" : "生成"}
             />
           </Show>
           <Show when={isBusy() && props.onCancel}>
@@ -2089,20 +2077,9 @@ function ImageSettings(props: {
     if (!isCustom()) return
     const w = width(), h = height()
     if (w <= 0 || h <= 0) return
-    if (isJimeng()) {
-      const rW = jimengDimRange(w)
-      const wValid = rW.min <= rW.max
-      const rH = jimengDimRange(h)
-      const hValid = rH.min <= rH.max
-      if (!wValid || !hValid) { props.onIsCustom(false); return }
-      const area = w * h
-      const areaOk = area >= JIMENG_AREA_MIN && area <= JIMENG_AREA_MAX
-      const ratioVal = w / h
-      const ratioOk = ratioVal >= 1 / 16 && ratioVal <= 16
-      if (!areaOk || !ratioOk) { props.onIsCustom(false); return }
-    } else {
-      const { min, max } = props.styleModel === "qwen" ? { min: 250, max: 1664 } : { min: 250, max: 2500 }
-      if (w < min || w > max || h < min || h > max) { props.onIsCustom(false); return }
+    if (!isStudioCustomSizeValid(props.styleModel, w, h)) {
+      props.onIsCustom(false)
+      return
     }
     props.onCustomWidth(w)
     props.onCustomHeight(h)
@@ -2129,35 +2106,26 @@ function ImageSettings(props: {
     props.onIsCustom(true)
   }
 
-  const isJimeng = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
-  const JIMENG_AREA_MIN = 2560 * 1440
-  const JIMENG_AREA_MAX = Math.round(3072 * 3072 * 1.1025)
+  const areaLimits = () => getStudioImageAreaLimits(props.styleModel)
+  const isJimeng = () => areaLimits() !== undefined
+  const jimengDimRange = (dim: number) => getStudioImageDimensionRange(props.styleModel, dim) ?? { min: 1, max: 0 }
 
   function computeJimengDimMin(): number {
-    for (let w = Math.ceil(Math.sqrt(JIMENG_AREA_MIN / 16)); ; w++) {
-      if (Math.ceil(JIMENG_AREA_MIN / w) <= Math.floor(w * 16)) return w
+    for (let w = Math.ceil(Math.sqrt(areaLimits()!.min / 16)); ; w++) {
+      const range = jimengDimRange(w)
+      if (range.min <= range.max) return w
     }
   }
 
   function computeJimengDimMax(): number {
-    for (let w = Math.floor(Math.sqrt(JIMENG_AREA_MAX * 16)); ; w--) {
-      if (Math.ceil(w / 16) <= Math.floor(JIMENG_AREA_MAX / w)) return w
+    for (let w = Math.floor(Math.sqrt(areaLimits()!.max * 16)); ; w--) {
+      const range = jimengDimRange(w)
+      if (range.min <= range.max) return w
     }
   }
 
-  const JIMENG_DIM_MIN = computeJimengDimMin()
-  const JIMENG_DIM_MAX = computeJimengDimMax()
-
-  function jimengDimRange(dim: number): { min: number; max: number } {
-    const minByArea = Math.ceil(JIMENG_AREA_MIN / dim)
-    const maxByArea = Math.floor(JIMENG_AREA_MAX / dim)
-    const minByRatio = Math.ceil(dim / 16)
-    const maxByRatio = Math.floor(dim * 16)
-    return {
-      min: Math.max(minByArea, minByRatio),
-      max: Math.min(maxByArea, maxByRatio),
-    }
-  }
+  const jimengDimMin = createMemo(() => isJimeng() ? computeJimengDimMin() : 0)
+  const jimengDimMax = createMemo(() => isJimeng() ? computeJimengDimMax() : 0)
 
   const sizeWarnText = () => {
     if (props.styleModel === "qwen") return "请输入有效数值250px ~ 1664px"
@@ -2165,26 +2133,21 @@ function ImageSettings(props: {
       const w = debouncedW(), h = debouncedH()
       // 只输入一个：仅超出绝对范围时提示
       if (w > 0 && h === 0) {
-        if (w < JIMENG_DIM_MIN || w > JIMENG_DIM_MAX) {
-          return `请输入有效数值${JIMENG_DIM_MIN}px ~ ${JIMENG_DIM_MAX}px`
+        if (w < jimengDimMin() || w > jimengDimMax()) {
+          return `请输入有效数值${jimengDimMin()}px ~ ${jimengDimMax()}px`
         }
         return ""
       }
       if (h > 0 && w === 0) {
-        if (h < JIMENG_DIM_MIN || h > JIMENG_DIM_MAX) {
-          return `请输入有效数值${JIMENG_DIM_MIN}px ~ ${JIMENG_DIM_MAX}px`
+        if (h < jimengDimMin() || h > jimengDimMax()) {
+          return `请输入有效数值${jimengDimMin()}px ~ ${jimengDimMax()}px`
         }
         return ""
       }
       // 都输入了，检查是否不匹配
       if (w > 0 && h > 0) {
-        const r = jimengDimRange(w)
-        if (h < r.min || h > r.max) {
-          return "支持宽高乘积在 [2560×1440, 3072×3072×1.1025]，宽高比 1:16 ~ 16:1"
-        }
-        const r2 = jimengDimRange(h)
-        if (w < r2.min || w > r2.max) {
-          return "支持宽高乘积在 [2560×1440, 3072×3072×1.1025]，宽高比 1:16 ~ 16:1"
+        if (!isStudioCustomSizeValid(props.styleModel, w, h)) {
+          return `支持宽高乘积在 [${areaLimits()!.label}]，宽高比 1:16 ~ 16:1`
         }
         return ""
       }
@@ -2219,14 +2182,10 @@ function ImageSettings(props: {
     const h = debouncedH()
     if (isJimeng()) {
       // 只输入一个：仅当超出绝对范围时提示
-      if (w > 0 && h === 0) return w < JIMENG_DIM_MIN || w > JIMENG_DIM_MAX
-      if (h > 0 && w === 0) return h < JIMENG_DIM_MIN || h > JIMENG_DIM_MAX
+      if (w > 0 && h === 0) return w < jimengDimMin() || w > jimengDimMax()
+      if (h > 0 && w === 0) return h < jimengDimMin() || h > jimengDimMax()
       if (w === 0 && h === 0) return false
-      const area = w * h
-      if (area < JIMENG_AREA_MIN || area > JIMENG_AREA_MAX) return true
-      const ratio = w / h
-      if (ratio < 1 / 16 || ratio > 16) return true
-      return false
+      return !isStudioCustomSizeValid(props.styleModel, w, h)
     }
     // 非即梦模型：第一框不合法就提示，第二框空了也提示
     if (w === 0 && h === 0) return false
@@ -2311,12 +2270,12 @@ function ImageSettings(props: {
     if (!w || !h) return
     // Clamp area
     const area = w * h
-    if (area < JIMENG_AREA_MIN) {
-      const scale = Math.sqrt(JIMENG_AREA_MIN / area)
+    if (area < areaLimits()!.min) {
+      const scale = Math.sqrt(areaLimits()!.min / area)
       w = Math.round(w * scale)
       h = Math.round(h * scale)
-    } else if (area > JIMENG_AREA_MAX) {
-      const scale = Math.sqrt(JIMENG_AREA_MAX / area)
+    } else if (area > areaLimits()!.max) {
+      const scale = Math.sqrt(areaLimits()!.max / area)
       w = Math.round(w * scale)
       h = Math.round(h * scale)
     }
@@ -2560,6 +2519,7 @@ function VideoSettings(props: {
             <button
               type="button"
               onClick={() => { tracker.interaction({ module: "studio", name: "video-count", extend: JSON.stringify({ count: item }) }); props.onCount(item) }}
+              disabled={props.qualityMode === "4k" && item !== 1}
               class="studio-image-settings-count"
               classList={{ active: item === props.count }}
               aria-pressed={item === props.count}

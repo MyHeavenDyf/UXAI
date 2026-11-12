@@ -178,7 +178,8 @@ export const dict = {
   "provider.connect.opencodeZen.visit.prefix": "Visit ",
   "provider.connect.opencodeZen.visit.link": "opencode.ai/zen",
   "provider.connect.opencodeZen.visit.suffix": " to collect your API key.",
-  "provider.connect.octoAi.description": "Octo AI provides self-hosted high-performance AI model services. Enter your API key to get started.",
+  "provider.connect.octoAi.description":
+    "Octo AI provides self-hosted high-performance AI model services. Enter your API key to get started.",
   "category.dev": "Development",
   "category.design": "Design",
   "category.prototype": "Prototype",
@@ -645,6 +646,18 @@ export const dict = {
   "session.header.open.ariaLabel": "Open in {{app}}",
   "session.header.open.menu": "Open options",
   "session.header.open.copyPath": "Copy path",
+  "session.portable.menu": "Session import and export",
+  "session.portable.export": "Export",
+  "session.portable.import": "Import",
+  "session.portable.export.picker": "Export session",
+  "session.portable.import.picker": "Import session",
+  "session.portable.export.success": "Export complete",
+  "session.portable.export.success.description": "Exported {{sessions}} sessions and {{files}} files to {{path}}.",
+  "session.portable.import.success": "Import complete",
+  "session.portable.import.success.description":
+    "Imported {{sessions}} sessions and {{files}} files and opened the imported session.",
+  "session.portable.failed": "Session transfer failed",
+  "session.portable.summary": "{{sessions}} sessions and {{files}} files",
   "session.header.open.finder": "Finder",
   "session.header.open.fileExplorer": "File Explorer",
   "session.header.open.fileManager": "File Manager",
@@ -790,14 +803,15 @@ export const dict = {
   "settings.workspaceUpgrade.buttonBusy": "Upgrading...",
   "settings.workspaceUpgrade.confirm.title": "Upgrade to code workspace",
   "settings.workspaceUpgrade.confirm.description":
-    "Upgrade \"{{name}}\" to a code workspace: {{files}} artifact files from {{sessions}} sessions will be copied into per-session subdirectories under the output/ directory, preserving the original directory structure, and references in chat history will be updated. The database is backed up before upgrading, and the original .octo artifact folders are kept. This cannot be undone.",
+    'Upgrade "{{name}}" to a code workspace: {{files}} artifact files from {{sessions}} sessions will be copied into per-session subdirectories under the output/ directory, preserving the original directory structure, and references in chat history will be updated. The database is backed up before upgrading, and the original .octo artifact folders are kept. This cannot be undone.',
   "settings.workspaceUpgrade.confirm.unknown":
-    "Upgrade \"{{name}}\" to a code workspace. Artifact statistics for this workspace could not be loaded; the actual scan at upgrade time will be used.",
+    'Upgrade "{{name}}" to a code workspace. Artifact statistics for this workspace could not be loaded; the actual scan at upgrade time will be used.',
   "settings.workspaceUpgrade.success.title": "Workspace upgraded",
   "settings.workspaceUpgrade.success.description":
     "Migrated {{files}} files from {{sessions}} sessions; the database was backed up to {{backup}} and can be deleted once verified",
   "settings.workspaceUpgrade.failed": "Upgrade failed",
-  "settings.workspaceUpgrade.unsupported": "This feature is not available in the current version, please update and try again",
+  "settings.workspaceUpgrade.unsupported":
+    "This feature is not available in the current version, please update and try again",
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL integration",
   "settings.desktop.wsl.description": "Run the OctoAI server inside WSL on Windows.",
@@ -975,7 +989,8 @@ export const dict = {
   "settings.defaultModel.select": "Select",
   "settings.defaultModel.clear": "Clear",
   "settings.defaultModel.notSet": "Not configured — will use the first available model",
-  "settings.defaultModel.hint": "When not set, each page will automatically select an available model. You can still manually switch models in the Chat page.",
+  "settings.defaultModel.hint":
+    "When not set, each page will automatically select an available model. You can still manually switch models in the Chat page.",
   "settings.defaultModel.cleared": "Default model cleared",
   "settings.defaultModel.select.title": "Select Default Model",
   "settings.models.description": "Model settings will be configurable here.",
@@ -1001,7 +1016,7 @@ export const dict = {
   "settings.mcp.type.http": "http",
   "settings.mcp.type.sse": "sse",
   "settings.mcp.delete.title": "Delete MCP",
-  "settings.mcp.delete.confirm": "Delete \"{{name}}\"? This removes the MCP entry from the config file.",
+  "settings.mcp.delete.confirm": 'Delete "{{name}}"? This removes the MCP entry from the config file.',
   "settings.mcp.toast.saved.title": "MCP saved, reconnecting",
   "settings.mcp.toast.deleted.title": "MCP deleted",
   "settings.mcp.toast.failed.title": "MCP config operation failed",
@@ -1043,6 +1058,9 @@ export const dict = {
   "settings.mcp.form.err.json.url": "A valid url field is required (http/https)",
   "settings.mcp.form.err.homepage": "Homepage must be a valid http/https URL",
   "settings.mcp.form.err.docs": "Docs must be a valid http/https URL",
+
+  // jk-j60099994-replace-with-dyf-bridge-i18n-en-start
+  // jk-j60099994-replace-with-dyf-bridge-i18n-en-end
 
   "settings.permissions.title": "Permissions",
   "settings.permissions.description": "Control what tools the server can use by default.",
@@ -1141,7 +1159,7 @@ export const dict = {
   "designFiles.kindDocument": "Document",
   "designFiles.kindBinary": "Binary",
   "designFiles.kindFolder": "Folder",
-  
+
   "designFiles.group": "Group:",
   "designFiles.groupKind": "Kind",
   "designFiles.groupModified": "Modified Time",
@@ -1154,10 +1172,12 @@ export const dict = {
   "designFiles.uploadFolder": "Upload Folder",
   "designFiles.uploadFileAction": "Upload File",
   "designFiles.emptyHint": "No content, click to upload and add files",
-  
+
   "designFiles.download": "Download",
   "designFiles.batchDelete": "Delete",
-  
+  "designFiles.pullCode": "Pull",
+  "designFiles.pushCode": "Commit",
+
   "designFiles.timeToday": "Today",
   "designFiles.timeYesterday": "Yesterday",
   "designFiles.timePrevious7Days": "Previous 7 Days",
