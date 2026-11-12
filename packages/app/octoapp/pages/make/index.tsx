@@ -1939,6 +1939,26 @@ const sessionMessagesLoaded = createMemo(() => {
     return preset && designSystemOptions().includes(preset) ? preset : null
   })
 
+  // 存量对话页展示：创建会话时选中的设计系统 —— 主 session 首条可见用户消息的 skill part
+  // （state.input.name）匹配设计系统列表（注入时 chip 前置 → 首个匹配即创建时选择；
+  // 消息推导跨设备可用，旧会话/创建时未选 → 无匹配 → null → displayOnly 仅图标）
+  const sessionDesignSystem = createMemo(() => {
+    const sid = params.id
+    if (!sid) return null
+    const firstUser = sortMessages(
+      ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => isVisibleUserMessage(m, sync.data.part[m.id])),
+    )[0]
+    if (!firstUser) return null
+    const parts = (sync.data.part?.[firstUser.id] ?? []) as Array<Record<string, unknown>>
+    const opts = designSystemOptions()
+    return (
+      parts
+        .filter((p) => p.type === "tool" && (p.tool as string | undefined) === "skill")
+        .map((p) => (p.state as { input?: { name?: string } } | undefined)?.input?.name)
+        .find((name) => name && opts.includes(name)) ?? null
+    )
+  })
+
   // ── Slash Command List ──
   interface SlashCommand {
     trigger: string
@@ -3710,7 +3730,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string, attachmentSnapshot?: Attachment[]) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -3797,7 +3817,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // Clear mention selections after processing
       setMentionSelections([])
       
-      const done = attachments().filter(a => a.status === "done")
+      const done = (attachmentSnapshot ?? attachments()).filter(a => a.status === "done")
 
       // 附件从 tmps 搬进 session/uploads（原子 rename IPC，与 insight 一致）
       const movedPaths = new Map<string, string>()
@@ -4192,6 +4212,7 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     try {
       let sid = submitSessionId
+      let attachmentSnapshot: Attachment[] | undefined
       if (!sid) {
         const dir = sdk.directory
         if (!dir) {
@@ -4316,6 +4337,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
 
         await movePendingUploadsToSession(session.id)
+        attachmentSnapshot = attachments()
 
       // 如果用户没有手动选择 spec，检查是否有存量配置
       if (SPEC_SELECTOR_VISIBLE && !selectedSpecDisplay()) {
@@ -4396,7 +4418,7 @@ const sessionMessagesLoaded = createMemo(() => {
           }
         }
       } else {
-        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem)
+        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem, attachmentSnapshot)
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
@@ -6876,9 +6898,14 @@ onPreview={(url) => {
                             }
                           }}
                        >
-                        <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
-                      </ModelSelectorPopover>
-                    </div>
+                         <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
+                       </ModelSelectorPopover>
+                      <DesignSystemSelector
+                        options={designSystemOptions()}
+                        selected={sessionDesignSystem()}
+                        displayOnly
+                      />
+                     </div>
 <IconButton
                        data-action="prompt-submit"
                        type="submit"
