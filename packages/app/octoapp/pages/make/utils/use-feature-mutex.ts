@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store"
 export type FeatureState = {
   editing: boolean
   modelEditing: boolean
+  scene3dEditing: boolean
   drawing: boolean
   commenting: boolean
   archiving: boolean
@@ -13,6 +14,7 @@ export function useFeatureMutex(initialState?: Partial<FeatureState>) {
   const [state, setState] = createStore<FeatureState>({
     editing: false,
     modelEditing: false,
+    scene3dEditing: false,
     drawing: false,
     commenting: false,
     archiving: false,
@@ -24,6 +26,7 @@ export function useFeatureMutex(initialState?: Partial<FeatureState>) {
     setState({
       editing: feature === 'editing',
       modelEditing: feature === 'modelEditing',
+      scene3dEditing: feature === 'scene3dEditing',
       drawing: feature === 'drawing',
       commenting: feature === 'commenting',
       archiving: feature === 'archiving',
@@ -43,6 +46,7 @@ export function useFeatureMutex(initialState?: Partial<FeatureState>) {
     setState({
       editing: false,
       modelEditing: false,
+      scene3dEditing: false,
       drawing: false,
       commenting: false,
       archiving: false,

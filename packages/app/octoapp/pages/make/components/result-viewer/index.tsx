@@ -185,7 +185,7 @@ export function ResultViewer(props: {
   // ActionBar 切换到其它功能(局部修改/框选编辑/标注/归档等):暂停待修改评估。
   createEffect(() => {
     const s = featureMutex.state
-    if (s.editing || s.modelEditing || s.drawing || s.commenting || s.archiving || s.inspecting) {
+    if (s.editing || s.modelEditing || s.scene3dEditing || s.drawing || s.commenting || s.archiving || s.inspecting) {
       untrack(() => pauseAssessment())
     }
   })
@@ -376,6 +376,32 @@ export function ResultViewer(props: {
     if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
     tracker.interaction({ module: "design", name: "delete-model-edit-element", extend: JSON.stringify({ type: tab.type }) })
     return prompt ? undefined : true
+  }
+
+  const handleScene3dEditToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (!handler?.scene3dEditConfig) return
+    const nextScene3dEditing = !featureMutex.state.scene3dEditing
+    // 切态:进入时 HtmlRenderer 的 iframeSrc 给 iframe URL 加 ?edit=1,entry.ts 分流到
+    // edit-main.ts 挂载内置 3D 编辑面板;退出时去掉参数回到 main.ts 预览态。
+    // 保存不在 toggle 里处理——iframe 内置编辑器点保存时通过 postMessage(od:scene3d-save)
+    // 回传 payload,由 handleScene3dSave 接收并发给 AI。
+    featureMutex.toggleFeature('scene3dEditing')
+    tracker.interaction({ module: "design", name: "toggle-scene3d-edit-mode", extend: JSON.stringify({ action: nextScene3dEditing ? "open" : "close" }) })
+  }
+
+  // iframe 内置 3D 编辑器保存时回传 scene3d-changes 文本 → 包装 prompt 发 AI → 退出编辑态回预览
+  const handleScene3dSave = async (payload: string) => {
+    const tab = activeTab()
+    if (!tab) return
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.scene3dEditConfig) return
+    const prompt = handler.scene3dEditConfig.buildPrompt({ filePath: tab.filePath ?? '', payload })
+    await sendTextToAgent(prompt, { source: 'scene3d-edit' })
+    tracker.interaction({ module: "design", name: "save-scene3d-edit-changes", extend: JSON.stringify({ type: tab.type }) })
+    featureMutex.toggleFeature('scene3dEditing')
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -712,6 +738,8 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
                     modelEditing={featureMutex.state.modelEditing}
                     onModelEditToggle={htmlMode() === "edit" ? undefined : handleModelEditToggle}
+                    scene3dEditing={featureMutex.state.scene3dEditing}
+                    onScene3dEditToggle={htmlMode() === "edit" ? undefined : handleScene3dEditToggle}
                     drawing={featureMutex.state.drawing}
                     onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
                     commenting={featureMutex.state.commenting}
@@ -775,6 +803,8 @@ archiving={featureMutex.state.archiving}
                             modelEditConfig={getSubtypeHandler(tab.subtype)?.modelEditConfig}
                             onModelEditSave={handleModelEditSave}
                             onModelEditDelete={handleModelEditDelete}
+                            scene3dEditing={isActive() && featureMutex.state.scene3dEditing}
+                            onScene3dSave={handleScene3dSave}
                             drawing={isActive() && featureMutex.state.drawing}
                             commenting={isActive() && featureMutex.state.commenting}
                             archiving={isActive() && featureMutex.state.archiving}

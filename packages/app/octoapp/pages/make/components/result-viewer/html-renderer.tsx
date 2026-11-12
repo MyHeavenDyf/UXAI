@@ -174,6 +174,9 @@ export function HtmlRenderer(props: {
   editing?: boolean
   modelEditing?: boolean
   modelEditConfig?: ModelEditConfig
+  scene3dEditing?: boolean
+  /** iframe 内置 3D 编辑器保存时触发(payload 为 scene3d-changes 文本);host 包装 prompt 发 AI */
+  onScene3dSave?: (payload: string) => void
   onModelEditSave?: (element: ModelEditElement, prev: Record<string, any>, current: Record<string, any>, ctx: ModelEditContext) => Promise<boolean | void>
   onModelEditDelete?: (element: ModelEditElement, ctx: ModelEditContext) => Promise<boolean | void>
   drawing?: boolean
@@ -1322,6 +1325,103 @@ createEffect(() => {
     return getArtifactServeUrl(props.sdkUrl!, props.sdkDirectory, props.sessionId!, artifactInfo.relativePath)
   })
 
+  // 3D 场景编辑态:?edit=1 让 index.3d.html 的 entry.ts 分流到 edit-main.ts,挂载内置编辑面板。
+  // 仅对走真实 URL 的产物生效(localUrl/externalUrl/serveUrl);srcdoc 不支持。
+  const iframeSrc = createMemo(() => {
+    const base = shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))
+    if (!base) return undefined
+    if (!props.scene3dEditing) return base
+    try {
+      const u = new URL(base)
+      u.searchParams.set('edit', '1')
+      return u.toString()
+    } catch (e) {
+      console.warn('[scene3d] iframeSrc URL parse failed:', e, base)
+      return base
+    }
+  })
+
+  // 3D 场景强制刷新:Chromium 对 local:// 协议做持久化缓存,即使 ?v=N 变化 + about:blank 中转
+  // 也返回旧 HTML。唯一可靠方案:host fetch 主文档 HTML,把内部相对路径改成绝对 local:// 路径,
+  // 创建 blob URL 让 iframe 加载。blob URL 是全新内存对象,绝不被缓存。
+  // 仅对 3D subtype + localUrl 生效。
+  const isScene3d = () => props.subtype === '3d'
+  const [blobUrl, setBlobUrl] = createSignal<string | undefined>(undefined)
+  let prevBlobUrl: string | undefined
+  createEffect(() => {
+    const key = props.refreshKey ?? 0
+    const base = localUrl()
+    if (!isScene3d() || !shouldUseLocalUrl() || !base) { setBlobUrl(undefined); return }
+    void (async () => {
+      try {
+        const resp = await fetch(base, { cache: 'no-cache' })
+        let html = await resp.text()
+        const baseDir = props.filePath!.replace(/[\\/][^\\/]+$/, '').replace(/\\/g, '/')
+
+        // 内联所有 ./preview/ 子资源为 data: URI,完全绕过 Chromium 对 local:// 的缓存。
+        // 用 base64 编码避免 </script> 截断问题(scene.js 2.7MB 含 </script> 字符串)。
+        // 执行顺序:HTML 里 <script> 按出现顺序执行,scene-data.js 在 scene.js 前(原顺序保留)。
+        const scriptRe = /<script\s+src=["'](\.\/?preview\/[^"']+)["']\s*><\/script>/gi
+        const linkRe = /<link\s+[^>]*href=["'](\.\/?preview\/[^"']+)["'][^>]*>/gi
+        const refs = new Set<string>()
+        for (const m of html.matchAll(scriptRe)) refs.add(m[1])
+        for (const m of html.matchAll(linkRe)) refs.add(m[1])
+        const inlineMap = new Map<string, string>()
+        await Promise.all([...refs].map(async (ref) => {
+          const cleanRef = ref.replace(/^\.\//, '')
+          // 子资源 fetch 必须带 refreshKey cache-buster + cache:no-cache。
+          // 否则 Chromium 对 local:// 的持久化缓存会返回旧 scene-data.js,
+          // 导致 blob 内联了过期内容,预览不更新。
+          const sep = cleanRef.includes('?') ? '&' : '?'
+          const localUrl = `local:///${baseDir}/${cleanRef}${sep}_octo_v=${key}`
+          const r = await fetch(localUrl, { cache: 'no-cache' })
+          const content = await r.text()
+          // base64 编码成 data: URI,避免 </script> 截断
+          const b64 = btoa(unescape(encodeURIComponent(content)))
+          // 判断 MIME 必须先去掉 query string（如 factory-scene.css?v=hash），
+          // 否则 .endsWith('.css') 为 false,CSS 被误判为 text/javascript,
+          // 浏览器拒绝加载 <link> 样式表,导致编辑器 UI 失去布局。
+          const pathWithoutQuery = cleanRef.split('?')[0]
+          const mime = pathWithoutQuery.endsWith('.css') ? 'text/css' : 'text/javascript'
+          inlineMap.set(ref, `data:${mime};base64,${b64}`)
+        }))
+
+        // 替换 <script src="./preview/xxx"> 为 <script src="data:...">
+        html = html.replace(scriptRe, (_m, ref) => {
+          const data = inlineMap.get(ref)
+          return data ? `<script src="${data}"></script>` : _m
+        })
+        // 替换 <link href="./preview/xxx"> 为 <link href="data:...">
+        html = html.replace(linkRe, (_m, ref) => {
+          const data = inlineMap.get(ref)
+          return data ? `<link rel="stylesheet" href="${data}">` : _m
+        })
+
+        const blob = new Blob([html], { type: 'text/html' })
+        const url = URL.createObjectURL(blob)
+        if (prevBlobUrl) URL.revokeObjectURL(prevBlobUrl)
+        prevBlobUrl = url
+        setBlobUrl(url)
+      } catch (e) {
+        console.warn('[scene3d] blobRefresh: fetch failed', e)
+        setBlobUrl(undefined)
+      }
+    })()
+  })
+
+  // 实际渲染的 iframe src:
+  // - 编辑态(scene3dEditing):用 local:// URL + ?edit=1(编辑器需要 entry.ts 分流,srcdoc/blob 的 location.search 不可靠)
+  // - 预览态(非编辑):用 blob URL 绕过 Chromium 对 local:// 的持久化缓存
+  // - 非 3D:用 iframeSrc(原逻辑)
+  const effectiveIframeSrc = createMemo(() => {
+    if (!isScene3d()) return iframeSrc()
+    // 编辑态优先用 local:// URL(保证 ?edit=1 生效)
+    if (props.scene3dEditing) return iframeSrc()
+    // 预览态用 blob URL 绕缓存
+    if (blobUrl()) return blobUrl()
+    return iframeSrc()
+  })
+
   const [serveKey, setServeKey] = createSignal(0)
 
   createEffect(on(() => props.mode, async (mode) => {
@@ -1495,7 +1595,23 @@ createEffect(() => {
   onCleanup(() => window.removeEventListener("message", handleMessage))
 })
 
-// Listen to model-edit messages from iframe
+// Listen to 3D editor save messages from iframe (scene3d edit mode)
+createEffect(() => {
+  const iframe = iframeRef
+  if (!iframe || !props.scene3dEditing || !props.onScene3dSave) return
+
+  const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
+    if (d.type === "od:scene3d-save" && typeof d.payload === "string") {
+      props.onScene3dSave!(d.payload)
+    }
+  }
+
+  window.addEventListener("message", handleMessage)
+  onCleanup(() => window.removeEventListener("message", handleMessage))
+})
 createEffect(() => {
   const iframe = iframeRef
   if (!iframe || !props.modelEditing) return
@@ -2218,8 +2334,8 @@ return (
               */}
               <iframe
                 ref={iframeRef}
-                src={shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))}
-                {...(!shouldUseExternalUrl() && !shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
+                src={effectiveIframeSrc()}
+                {...(iframeSrc() === undefined ? { srcdoc: srcdoc() } : {})}
                 sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
@@ -2238,8 +2354,8 @@ return (
               */}
               <iframe
                 ref={iframeRef}
-                src={shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))}
-                {...(!shouldUseExternalUrl() && !shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
+                src={effectiveIframeSrc()}
+                {...(iframeSrc() === undefined ? { srcdoc: srcdoc() } : {})}
                 sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}

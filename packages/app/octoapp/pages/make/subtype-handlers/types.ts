@@ -7,6 +7,16 @@ import type { UploadZipOptions, UsePixsoTransportResult } from "@/utils/useZipTr
 
 export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit' | 'comment' | 'archive'
 
+/**
+ * 3D 场景编辑配置（scene3d 产物专用）。
+ * index.3d.html 内置编辑器保存时通过 postMessage(od:scene3d-save) 把 scene3d-changes
+ * 文本回传 host;host 调 buildPrompt 包装成发给 AI 的 prompt,AI 回写 source/public/scene3d/scene-data.json。
+ */
+export interface Scene3dEditConfig {
+  /** 把 iframe 回传的 scene3d-changes 文本包装成发给 AI 的 prompt */
+  buildPrompt: (args: { filePath: string; payload: string }) => string
+}
+
 export type HistoryTriggerEvent =
   | { type: 'open'; isNew: boolean }
   | { type: 'edit' }
@@ -137,6 +147,11 @@ export interface SubtypeHandler {
    * Model Edit 配置（组件感知属性面板）
    */
   modelEditConfig?: ModelEditConfig
+
+  /**
+   * 3D 场景编辑配置（scene3d 产物专用）
+   */
+  scene3dEditConfig?: Scene3dEditConfig
 
   /**
    * 自定义资产库确认后发送的提示词（覆盖 default assetConfig.onConfirm）
