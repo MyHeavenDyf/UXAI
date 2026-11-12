@@ -1,6 +1,5 @@
 import { Marked, Renderer } from "marked"
 import type { SessionSharePreviewResponses } from "@opencode-ai/sdk/v2/client"
-import { extractLinkTitle } from "@/pages/make/utils/artifact-cards"
 import { createArtifactParser } from "@/pages/make/utils/artifact-parser"
 
 export type SharePreviewMessage = SessionSharePreviewResponses[200]["messages"][number]
@@ -10,14 +9,16 @@ export const SHARE_PREVIEW_LIMIT = 100
 function previewLinkName(value: string) {
   const content = value.trim()
   if (!content) return ""
-  if (/^https?:\/\//i.test(content)) {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(content)) {
     try {
-      return decodeURIComponent(new URL(content).pathname.split("/").filter(Boolean).at(-1) ?? "") || extractLinkTitle(content)
+      const url = new URL(content)
+      const name = url.pathname.split("/").filter(Boolean).at(-1)
+      return name ? decodeURIComponent(name) : url.host
     } catch {
-      return extractLinkTitle(content)
+      return content.split(/[\\/]/).filter(Boolean).at(-1) ?? content
     }
   }
-  return content.split(/[\\/]/).filter(Boolean).at(-1) ?? extractLinkTitle(content)
+  return content.split(/[\\/]/).filter(Boolean).at(-1) ?? content
 }
 
 /** Reuse only the pure parser, never artifact auto-save or interactive previews. */

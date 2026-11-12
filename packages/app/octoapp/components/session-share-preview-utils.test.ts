@@ -64,6 +64,16 @@ describe("share preview rendering budget", () => {
     }).files).toEqual([{ name: "index.html", mime: "application/octet-stream" }])
   })
 
+  test("keeps URL file suffixes without loading artifact card runtime helpers", () => {
+    expect(previewMessageContent({
+      id: "msg_url_artifact",
+      role: "assistant",
+      files: [],
+      truncated: false,
+      text: '<artifact type="text/link">https://example.com/reports/%E6%80%BB%E7%BB%93.pdf</artifact>',
+    }).files).toEqual([{ name: "总结.pdf", mime: "application/octet-stream" }])
+  })
+
   test("keeps assistant reasoning separate for the labeled reasoning section", () => {
     expect(previewMessageContent({
       id: "msg_reasoning",
