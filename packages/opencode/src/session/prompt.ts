@@ -17,6 +17,7 @@ import { ModelID, ProviderID } from "../provider/schema"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
+import { CompactionDebug } from "./compaction-debug"
 import { Bus } from "../bus"
 import { ProviderTransform } from "@/provider/transform"
 import { SystemPrompt } from "./system"
@@ -804,6 +805,58 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         onStructuredOutput: () => {},
       })
       return Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
+    })
+
+    const dumpCompactionContext = Effect.fn("SessionPrompt.dumpCompactionContext")(function* (input: {
+      sessionID: SessionID
+      session: Session.Info
+      model: Provider.Model
+      phase: "before" | "after"
+      outcome?: "success" | "failed"
+    }) {
+      const exit = yield* Effect.gen(function* () {
+        const modelLabel = `${input.model.providerID}/${input.model.id}`
+        const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
+        const lastUser = messages.findLast((message) => message.info.role === "user")?.info
+        const lastAssistant = messages.findLast((message) => message.info.role === "assistant")?.info
+        const agent = lastUser?.role === "user" ? yield* agents.get(lastUser.agent) : undefined
+        if (!lastUser || lastUser.role !== "user" || !lastAssistant || lastAssistant.role !== "assistant" || !agent) {
+          yield* CompactionDebug.dump({
+            sessionID: input.sessionID,
+            phase: input.phase,
+            outcome: input.outcome,
+            note: `context not assemblable (lastUser=${lastUser?.role ?? "none"}, lastAssistant=${lastAssistant?.role ?? "none"}, agent=${agent?.name ?? "missing"})`,
+            model: modelLabel,
+            system: [],
+            modelMsgs: [],
+            activeTools: {},
+          })
+          return
+        }
+        const request = yield* prepareRequest({
+          messages,
+          lastUser,
+          agent,
+          session: input.session,
+          model: input.model,
+          processor: {
+            message: lastAssistant,
+            updateToolCall: () => Effect.succeed(undefined),
+            completeToolCall: () => Effect.succeed(undefined),
+          },
+          onStructuredOutput: () => {},
+        })
+        yield* CompactionDebug.dump({
+          sessionID: input.sessionID,
+          phase: input.phase,
+          outcome: input.outcome,
+          model: modelLabel,
+          system: request.system,
+          modelMsgs: request.modelMsgs,
+          activeTools: request.activeTools,
+        })
+      }).pipe(Effect.exit)
+      if (Exit.isFailure(exit)) yield* elog.warn("compaction debug dump failed", { error: Cause.squash(exit.cause) })
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
@@ -1793,12 +1846,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           if (task?.type === "compaction") {
             if (task.auto && !AUTOMATIC_COMPACTION_ENABLED) continue
+            yield* dumpCompactionContext({ sessionID, session, model, phase: "before" })
             const result = yield* compaction.process({
               messages: msgs,
               parentID: lastUser.id,
               sessionID,
               auto: task.auto,
               overflow: task.overflow,
+            })
+            yield* dumpCompactionContext({
+              sessionID,
+              session,
+              model,
+              phase: "after",
+              outcome: result === "stop" ? "failed" : "success",
             })
             if (result === "stop") break
             if (!task.auto) {
