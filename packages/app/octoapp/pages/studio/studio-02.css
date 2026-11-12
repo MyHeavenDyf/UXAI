@@ -1004,7 +1004,8 @@
   margin-bottom: 14px;
 }
 
-.studio-video-settings-quality .studio-image-settings-count:disabled {
+.studio-video-settings-quality .studio-image-settings-count:disabled,
+.studio-video-settings-count .studio-image-settings-count:disabled {
   opacity: 0.4;
   cursor: not-allowed;
   pointer-events: none;

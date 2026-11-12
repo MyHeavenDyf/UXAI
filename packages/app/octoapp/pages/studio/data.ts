@@ -11,6 +11,7 @@ export const STUDIO_CAPABILITIES: { id: StudioCapability; label: string; descrip
 ]
 
 export const STUDIO_STYLE_MODELS = [
+  { id: "seedream-5-pro", label: "Seedream 5.0 Pro", icon: "/studio/studio_seedream.webp", requiresSeedreamPermission: true, color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
   { id: "seedream-5-lite", label: "Seedream 5.0 Lite", icon: "/studio/studio_seedream.webp", requiresSeedreamPermission: true, color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
   { id: "qwen", label: "千问", icon: "/studio/studioModel1.png", color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
   { id: "bd-icon", label: "BDIcon", icon: "/studio/studioModel2.png", color: "linear-gradient(135deg, #5eead4, #3b82f6)" },
@@ -49,10 +50,14 @@ export function styleModelRequiresSeedreamPermission(id: string) {
   return STUDIO_STYLE_MODELS.find((item) => item.id === styleModelId(id))?.requiresSeedreamPermission === true
 }
 
+export function isSeedreamStyleModel(value?: string) {
+  const id = styleModelId(value)
+  return id === "seedream-5-lite" || id === "seedream-5-pro"
+}
+
 export function referenceImageLimit(styleModel: string) {
-  const model = STUDIO_STYLE_MODELS.find((item) => item.id === styleModelId(styleModel))
-  if (model?.id === "seedream-5-lite") return 4
-  if (model?.id === "qwen") return 3
+  if (isSeedreamStyleModel(styleModel)) return 4
+  if (styleModelId(styleModel) === "qwen") return 3
   return 1
 }
 

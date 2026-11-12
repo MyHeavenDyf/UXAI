@@ -129,11 +129,45 @@ test("manual scrolling releases clicked selection and follows the visible turn",
   } finally { view.dispose() }
 })
 
-test("equal-length turn replacements and session switches clear stale selection and tooltips", async () => {
+test("tooltips only follow mouse hover, not button focus", () => {
   const view = mount()
   try {
     const button = view.container.querySelector<HTMLButtonElement>("button")!
+    const row = button.parentElement!
     button.focus()
+    expect(view.container.querySelector(".studio-turn-anchor-tip")).toBeNull()
+    row.dispatchEvent(new MouseEvent("mouseenter"))
+    expect(view.container.querySelector(".studio-turn-anchor-tip")?.textContent).toBe("需求 one")
+    button.blur()
+    expect(view.container.querySelector(".studio-turn-anchor-tip")?.textContent).toBe("需求 one")
+    row.dispatchEvent(new MouseEvent("mouseleave"))
+    expect(view.container.querySelector(".studio-turn-anchor-tip")).toBeNull()
+  } finally { view.dispose() }
+})
+
+test.each(["blur", "visibilitychange"])("%s clears hovered tooltips without reopening on focus restoration", (type) => {
+  const view = mount()
+  try {
+    const button = view.container.querySelector<HTMLButtonElement>("button")!
+    const row = button.parentElement!
+    button.focus()
+    row.dispatchEvent(new MouseEvent("mouseenter"))
+    expect(view.container.querySelector(".studio-turn-anchor-tip")?.textContent).toBe("需求 one")
+    ;(type === "blur" ? window : document).dispatchEvent(new Event(type))
+    expect(view.container.querySelector(".studio-turn-anchor-tip")).toBeNull()
+    button.blur()
+    window.dispatchEvent(new Event("focus"))
+    button.focus()
+    expect(view.container.querySelector(".studio-turn-anchor-tip")).toBeNull()
+    row.dispatchEvent(new MouseEvent("mouseenter"))
+    expect(view.container.querySelector(".studio-turn-anchor-tip")?.textContent).toBe("需求 one")
+  } finally { view.dispose() }
+})
+
+test("equal-length turn replacements and session switches clear stale selection and tooltips", async () => {
+  const view = mount()
+  try {
+    view.container.querySelector(".studio-turn-anchor-row")!.dispatchEvent(new MouseEvent("mouseenter"))
     expect(view.container.querySelector(".studio-turn-anchor-tip")?.textContent).toBe("需求 one")
     view.setState("turns", 0, turn("replacement"))
     view.content.firstElementChild?.setAttribute("data-studio-turn-id", studioTurnAnchorID(turn("replacement")))
