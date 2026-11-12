@@ -367,24 +367,24 @@ function roundBorderWidthValue(value: string): string {
 // rgb()/rgba() 字符串 → hex(#RRGGBB / #RRGGBBAA);alpha=0 返回 ''(透明,等价于清除)。
 // 重开面板时颜色值来自 computed styles(rgb() 格式),统一规范成 hex 后
 // ColorPicker 的 displayLabel() 才能用 hex 对 hex 反查出 token 名。
-function rgbStringToHex(value: string): string | null {
+function rgbStringToHex(value: string, preserveTransparent: boolean): string | null {
   const m = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i)
   if (!m) return null
   const toHex = (n: number) => n.toString(16).padStart(2, '0')
   let hex = `#${toHex(parseInt(m[1]))}${toHex(parseInt(m[2]))}${toHex(parseInt(m[3]))}`
   if (m[4] !== undefined) {
     const alpha = parseFloat(m[4])
-    if (alpha <= 0) return ''
+    if (alpha <= 0 && !preserveTransparent) return ''
     if (alpha < 1) hex += Math.round(alpha * 255).toString(16).padStart(2, '0')
   }
   return hex.toLowerCase()
 }
 
-function normalizeManualEditInspectorColor(value: string): string {
+export function normalizeManualEditInspectorColor(value: string, preserveTransparent = false): string {
   const trimmed = value.trim()
   if (!trimmed) return ''
   if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed)) return trimmed.toLowerCase()
-  const hex = rgbStringToHex(trimmed)
+  const hex = rgbStringToHex(trimmed, preserveTransparent)
   return hex ?? trimmed
 }
 
