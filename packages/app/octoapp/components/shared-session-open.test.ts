@@ -7,7 +7,7 @@ test("consumes renderer deep links only once across a reload", () => {
   expect(consumePendingDeepLinks(target)).toEqual([])
 })
 
-test.each(["design", "insight"] as const)(
+test.each(["design", "insight", "studio"] as const)(
   "switches to %s and waits for its directory before importing",
   async (module) => {
     const events: string[] = []

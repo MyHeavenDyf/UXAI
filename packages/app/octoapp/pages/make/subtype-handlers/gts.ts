@@ -138,17 +138,17 @@ export const gtsModelEditConfig: ModelEditConfig = {
   ...defaultModelEditConfig,
   saveCallback: async (args: SaveCallbackArgs) => wrapGtsPrompt(args.filePath, await defaultModelEditConfig.saveCallback(args)),
   deleteCallback: async (args: DeleteCallbackArgs) => wrapGtsPrompt(args.filePath, await defaultModelEditConfig.deleteCallback(args)),
+  /** 选中 svg/img 元素时开放图标弹窗替换（与 gts-ep / components 一致）；确认产生的 prompt 再包一层
+   *  GTS 源码定位/重编译指引——index.gts.html 是编译产物，改源码后 rebuild */
+  iconConfig: createGtsIconConfig(wrapGtsPrompt),
+  /** 产品资产库：复用 direct 的选择器/状态逻辑，仅把确认 prompt 包上 GTS 专属指引
+   *  （定位源码 + 编译），与 saveCallback/deleteCallback 的包装模式一致 */
   assetConfig: {
-    showConfig: () => true,
-    getInitialState: () => ({ name: '未选择' }),
-    onConfirm: ({ dom, filePath, folderpath }) => {
-      return [
-        `[文件: ${filePath}]`,
-        `[选择器: ${dom.selector}（该元素可能是动态生成的）]`,
-        `把当前的元素替换成 ${folderpath} 内页面的内容，不要使用Iframe。`,
-      ].join('\n')
-    },
+    ...directModelEditConfig.assetConfig,
+    onConfirm: async (args) => wrapGtsPrompt(args.filePath, await directModelEditConfig.assetConfig!.onConfirm(args)),
   } satisfies AssetConfig,
+  /** 选中区域「AI 修改」对话框 prompt 前缀——包上 GTS 专属指引，避免 agent 直接改 index.gts.html */
+  promptCallback: (filePath, selector) => wrapGtsPrompt(filePath, directModelEditConfig.promptCallback!(filePath, selector)),
 }
 
 const gtsHandler: SubtypeHandler = {

@@ -1,5 +1,6 @@
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
 import { directoryHeader } from "@/utils/headers"
+import { fetchWithRetry } from "./retryable-fetch"
 import { extractSubtypeFromFilename } from "./subtype-extractor"
 import { isCodeFile } from "./code-highlight"
 
@@ -65,7 +66,7 @@ export async function fetchArtifactList(
     params.set("scope", scope)
   }
   const url = `${sdkUrl}/artifact/list?${params.toString()}`
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     headers: { ...directoryHeader(sdkDirectory) },
   })
   if (!response.ok) {

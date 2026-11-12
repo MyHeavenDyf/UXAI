@@ -28,14 +28,14 @@ function setup(cached?: RecommendationImageSettings, video = false, options?: {
       ? makePersisted(lastStore, { name: options.storage, storage: localStorage })
       : lastStore
     const mode = createRecommendationMode({
-      key: () => state.session, active: () => state.session === "A" && state.active,
+      key: () => state.session, enabled: () => state.session === "A" && state.active, busy: () => false,
       ready: () => true, entries: () => state.modes,
       save: (key, value) => setState("modes", key, value),
       global: () => state.globalCapability, setGlobal: (value) => setState("globalCapability", value),
     })
     const settings = createRecommendationSettings({
       key: () => state.session,
-      enabled: () => mode.capability() === "image.generate" && Boolean(state.modes[state.session] || mode.locked()),
+      enabled: () => mode.capability() === "image.generate" && Boolean(state.modes[state.session] || (state.session === "A" && state.active)),
       entries: () => state.settings,
       ready: () => state.ready,
       imageActive: () => mode.capability() === "image.generate",
@@ -106,7 +106,7 @@ test("ordinary sessions keep shared parameters without creating recommendation s
 test("a recommendation without an earlier snapshot uses image defaults when the shared controls belong to video", () => {
   const api = setup(undefined, true)
   try {
-    expect(api.settings.current()).toEqual({
+    expect(api.settings.image()).toEqual({
       aspectRatio: "3:4", count: 4, customWidth: 0, customHeight: 0, isCustom: false,
     })
     expect(api.state.shared.aspectRatio).toBe("21:9")
@@ -176,7 +176,7 @@ test("initial migration waits for persisted image parameters before seeding a re
     api.last[1]("value", image)
     api.setState("ready", true)
     expect(api.settings.image()).toEqual(image)
-    expect(api.state.settings.A).toEqual(image)
+    expect(api.settings.current().aspectRatio).toBe("21:9")
   } finally { api.dispose() }
 })
 

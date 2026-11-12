@@ -15,6 +15,7 @@ import {
   joinUrl,
   inferKindFromUrl,
   assetFileId,
+  getAssetDisplayName,
   getAssetThumb,
   getAssetThumbKind,
   isAssetThumbImage,
@@ -51,6 +52,7 @@ interface MentionPopoverProps {
   productId?: number
   onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onFilesTabOpen?: () => void
 }
 
 export function MentionPopover(props: MentionPopoverProps): JSX.Element {
@@ -397,7 +399,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: 'file',
-      filename: file.fileName,
+      filename: getAssetDisplayName(file),
       path: id,
       isFolder: isZip || undefined,
     }
@@ -648,7 +650,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <button
           type="button"
           class={`mention-tab-btn ${activeTab() === 'files' ? 'mention-tab-btn--active' : ''}`}
-          onClick={() => { setActiveTab('files'); setSelectedCategory('platform') }}
+          onClick={() => { setActiveTab('files'); setSelectedCategory('platform'); props.onFilesTabOpen?.() }}
         >
           设计文件
         </button>
