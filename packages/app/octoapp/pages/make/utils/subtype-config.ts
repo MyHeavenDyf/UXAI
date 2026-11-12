@@ -299,8 +299,10 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       assessment: false,
       scene3dEdit: { enabled: true, editOnly: true },
     },
+    // files 仅供文档说明；实际快照文件集由 scene3d handler 的 onHistoryTrigger 决定
+    //（index.3d.html + preview/scene-data.js + source/public/scene3d/scene-data.json）。
     history: {
-      files: ['.'],
+      files: ['.', 'preview/scene-data.js', 'source/public/scene3d/scene-data.json'],
       agentTurnRecord: 'turn',
     },
   }
