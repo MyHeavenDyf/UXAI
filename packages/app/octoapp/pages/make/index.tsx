@@ -3793,9 +3793,6 @@ const sessionMessagesLoaded = createMemo(() => {
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
-
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
       
       // Clear mention selections after processing
       setMentionSelections([])
@@ -3850,6 +3847,9 @@ const sessionMessagesLoaded = createMemo(() => {
       // [Workspace] 段(禁 artifact 内容输出/授权改项目文件)与其 strategy-field/
       // design-plan 表单流程直接冲突,normal 的 [Artifact Folder] 对纯对话流程只是噪音。
       const artifactFolderPrefix = inPlanSession ? "" : await buildArtifactFolderPrefix(sessionId)
+
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
 
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
