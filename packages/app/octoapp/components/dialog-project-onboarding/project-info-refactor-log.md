@@ -1478,5 +1478,14 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
   - `types.ts` — `VersionMember.nickName` / `account` 从 `string` 放宽为 `string | null | undefined`（与后端实际返回对齐，`??` 兜底有类型依据）
 - 根因 3（跨域 CORS preflight 失败导致请求未发出）属环境/网络问题，`apiFetch` 已有 `console.error` 留痕，无需代码改动
 
+### 167. 评审修复：designOwner/designDl 同构表达式提取 `joinNickNames`
+
+- `dialog-project-onboarding.tsx` — 两行同构的 nickName 拼接表达式提取为模块级小函数：
+  - `const joinNickNames = (list?: VersionMember[] | null) => list?.map((m) => (m.nickName ?? "").trim()).filter(Boolean).join(",") || undefined`
+  - 上报处改为 `designOwner: joinNickNames(version?.ownerList)` / `designDl: joinNickNames(version?.uxDlList)`
+- nickName 拼接规则注释随逻辑移至 helper 处，`handleConfirm` 注释相应精简
+- `Version` 类型 import 追加 `VersionMember`
+
+
 
 

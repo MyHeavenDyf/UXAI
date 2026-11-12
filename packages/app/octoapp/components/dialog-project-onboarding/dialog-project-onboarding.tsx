@@ -13,11 +13,15 @@ import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
 import { addUserProject } from "@/network/pipelineRequest"
 import { getUser } from "@/context/auth"
-import type { Domain, ProductLine, Product, Version } from "@/network/types"
+import type { Domain, ProductLine, Product, Version, VersionMember } from "@/network/types"
 
 interface DialogProjectOnboardingProps {
   onSelect: (data: { directory: string; domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void
 }
+
+// 多人 nickName 以逗号拼接; 元素 nickName 可能为 null 用 ?? 兜底防止同步 throw 中断主流程; 列表为 null/空或拼接结果为空时返回 undefined(字段不上报)
+const joinNickNames = (list?: VersionMember[] | null) =>
+  list?.map((m) => (m.nickName ?? "").trim()).filter(Boolean).join(",") || undefined
 
 export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   const globalSync = useGlobalSync()
@@ -91,7 +95,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         repoUrl: repoUrl() || undefined,
       }),
     })
-    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domain/productLine/product/version 取各对象 name; designOwner←version.ownerList、designDl←version.uxDlList, 多人取 nickName 以逗号拼接, 元素 nickName 可能为 null 用 ?? 兜底防止同步 throw 中断主流程; fire-and-forget, 失败 silent 不阻断)
+    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domain/productLine/product/version 取各对象 name; designOwner←version.ownerList、designDl←version.uxDlList 由 joinNickNames 拼接; fire-and-forget, 失败 silent 不阻断)
     // 登录态缺失或 nickName/account 为空时跳过上报(打点不受影响), console.warn 留痕便于排查"有打点无统计"问题
     const user = getUser()
     const userName = user?.nickName?.trim()
@@ -104,8 +108,8 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         productLine: productLine?.name,
         product: product?.name,
         version: version?.name,
-        designOwner: version?.ownerList?.map((m) => (m.nickName ?? "").trim()).filter(Boolean).join(",") || undefined,
-        designDl: version?.uxDlList?.map((m) => (m.nickName ?? "").trim()).filter(Boolean).join(",") || undefined,
+        designOwner: joinNickNames(version?.ownerList),
+        designDl: joinNickNames(version?.uxDlList),
       })
     } else {
       console.warn("[onboarding] 数据看板上报跳过: 登录态缺失或 nickName/account 为空", {
