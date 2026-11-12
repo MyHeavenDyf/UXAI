@@ -177,6 +177,7 @@ export type ElectronAPI = {
   copyFileToProjectDir: (srcPath: string, baseDir: string, relDir: string, filename: string) => Promise<string>
   /** 代码类型工作区:内存 blob 直接写进 <baseDir>/<relDir>/(同 copyFileToProjectDir 落点),返回落地绝对路径 */
   writeFileToProjectDir: (buffer: ArrayBuffer, baseDir: string, relDir: string, filename: string) => Promise<string>
+  gitCommand: (cwd: string, args: string[]) => Promise<{ ok: boolean; code: number; stdout: string; stderr: string }>
   downloadResourceToTemp: (
     url: string,
     namespace: string,

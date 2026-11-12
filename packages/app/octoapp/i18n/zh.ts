@@ -1129,6 +1129,8 @@ export const dict = {
 
   "designFiles.download": "下载",
   "designFiles.batchDelete": "删除",
+  "designFiles.pullCode": "拉取代码",
+  "designFiles.pushCode": "提交代码",
 
   "designFiles.timeToday": "今天",
   "designFiles.timeYesterday": "昨天",
