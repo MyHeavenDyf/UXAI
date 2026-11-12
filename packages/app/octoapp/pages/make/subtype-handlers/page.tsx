@@ -324,7 +324,7 @@ const pageHandler = {
         target,
         onSessionCreated: (id: string) => {
           childSessionId = id
-          // setAgentExecution(prev => ({ ...prev, [ctx.tab.id]: { childSessionId: id, title: `antd→${target} 编排 Agent`, visible: true } }))
+          setAgentExecution(prev => ({ ...prev, [ctx.tab.id]: { childSessionId: id, title: `antd→${target} 编排 Agent`, visible: true } }))
         },
       })
 
