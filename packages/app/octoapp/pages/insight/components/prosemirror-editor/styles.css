@@ -71,6 +71,10 @@
   cursor: pointer;
 }
 
+.ins-pm-editor .ins-pm-mention--skill {
+  margin-inline: 2px;
+}
+
 /* 选中态需要比胶囊底色更深一级的灰,token 表里没有对应层级(surface-hover / -disabled 同为 #F5F5F5),
    故此处保留字面量,不拿 border/brand token 硬凑——换蓝底会改掉设计确认过的观感。 */
 .ins-pm-mention.ProseMirror-selectednode {
