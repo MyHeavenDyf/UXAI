@@ -104,17 +104,25 @@ export function extractMentionsFromDoc(doc: PMNode): MentionAttrs[] {
 }
 
 export function getDocTextWithMentions(doc: PMNode): string {
-  return doc.textBetween(0, doc.content.size, "\n", (node) => {
-    if (node.type.name === "mention") {
-      return `@${node.attrs.name}`
-    }
-    // hard_break 也是 leaf,会走这个回调;不显式返回 "\n" 的话 Shift+Enter 敲出来的换行
-    // 只存在于编辑器里,取文本时被吞成空串 —— 发给模型的仍是连排一行。
-    if (node.type.name === "hard_break") {
-      return "\n"
-    }
-    return ""
+  const isSkill = (node: PMNode) => node.type.name === "mention" && node.attrs.type === "skill"
+  const paragraphs: string[] = []
+  doc.forEach(paragraph => {
+    let text = ""
+    paragraph.forEach((node, _offset, index) => {
+      if (node.type.name === "hard_break") {
+        text += "\n"
+        return
+      }
+      const value = node.type.name === "mention" ? `@${node.attrs.name}` : node.text ?? ""
+      // 按节点判断技能边界，保留用户输入的空白和普通 @ 文本。
+      if (index > 0 && (isSkill(node) || isSkill(paragraph.child(index - 1))) && /\S$/.test(text) && /^\S/.test(value)) {
+        text += " "
+      }
+      text += value
+    })
+    paragraphs.push(text)
   })
+  return paragraphs.join("\n")
 }
 
 export function docFromJSON(json: ReturnType<PMNode["toJSON"]>): PMNode {
