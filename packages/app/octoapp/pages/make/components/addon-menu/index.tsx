@@ -13,6 +13,7 @@ import emptyPng from "../../icons/empty.png"
 import { LinkUrlIcon, AttachmentIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
 import { assetFileId, type AssetFile } from "./asset-library"
 import { AssetDialog } from "./asset-dialog"
+import { LibraryDialog } from "./library-dialog"
 import { tracker } from "@/utils/tracker"
 import type { AddonMenuProps, AddonMenuItemKey, MenuSelection, AddonSkillConfig } from "./types"
 import "./styles.css"
@@ -105,6 +106,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const fileSelectionChanges = new Map<string, { initial?: Extract<MentionSelection, { type: "file" }>; selection: Extract<MentionSelection, { type: "file" }> }>()
   // 产品资产库弹窗(spec 改版:点击菜单项弹居中弹窗,不再是子菜单)
   const [assetDialogOpen, setAssetDialogOpen] = createSignal(false)
+  const [libraryDialogOpen, setLibraryDialogOpen] = createSignal(false)
   // 打开弹窗时的 chip id 快照;取消/关闭时移除快照之外(本次新增)的 chip
   let assetChipSnapshot = new Set<string>()
 
@@ -345,6 +347,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   // 弹窗确认:关闭弹窗 + 批量下载选中的文件(行为同原"触发附件面板关闭")
   const handleAssetDialogConfirm = (selectedFiles: AssetFile[]) => {
     setAssetDialogOpen(false)
+    setLibraryDialogOpen(false)
     if (selectedFiles.length > 0) {
       void downloadSelectedAssetFiles(selectedFiles)
     }
@@ -360,6 +363,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       }
     }
     setAssetDialogOpen(false)
+    setLibraryDialogOpen(false)
   }
 
   const closeAssetDownload = () => {
@@ -587,6 +591,29 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
           </button>
         )
+      case "assetLibrary":
+        return (
+          <button
+            type="button"
+            class="addon-menu-item"
+            disabled={!!props.assetLibraryDisabledReason}
+            title={props.assetLibraryDisabledReason}
+            onClick={() => {
+              request(() => {
+                // 快照当前 chip id,取消/关闭时移除本次新增的(同产品资产库)
+                assetChipSnapshot = new Set(
+                  props.selections.map(s => (s as any).id as string).filter(Boolean),
+                )
+                closeMenu(true)
+                setLibraryDialogOpen(true)
+              }, true)
+            }}
+          >
+            <span class="addon-menu-item-icon"><AssetsIcon /></span>
+            <span class="addon-menu-item-text">资产库</span>
+            <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
+          </button>
+        )
       case "designFiles":
         return (
           <button
@@ -674,7 +701,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             {/* 菜单项编排:items 数组内可混排内置 key 与插槽 key,按数组顺序渲染;
                 缺省为内置全序 + slots 追加在后;items 中无对应插槽定义的 key 跳过 */}
             <For each={(() => {
-              const builtin: AddonMenuItemKey[] = ["skills", "productAssets", "designFiles", "urlImport", "addAttachment"]
+              const builtin: AddonMenuItemKey[] = ["skills", "productAssets", "assetLibrary", "designFiles", "urlImport", "addAttachment"]
               const slots = props.slots ?? []
               if (!props.items) return [...builtin, ...slots.map(s => s.key)]
               return props.items.filter(key =>
@@ -1014,6 +1041,17 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       <AssetDialog
         trackerModule={trackerModule()}
         open={assetDialogOpen()}
+        productId={props.productId}
+        selections={props.selections as MentionSelection[]}
+        onSelect={(sel) => (props.onAssetSelect ?? props.onSelect)(sel as MentionSelection)}
+        onDeselect={(sel) => (props.onAssetDeselect ?? props.onDeselect)(sel as MentionSelection)}
+        onConfirm={handleAssetDialogConfirm}
+        onCancel={handleAssetDialogCancel}
+      />
+
+      <LibraryDialog
+        trackerModule={trackerModule()}
+        open={libraryDialogOpen()}
         productId={props.productId}
         selections={props.selections as MentionSelection[]}
         onSelect={(sel) => (props.onAssetSelect ?? props.onSelect)(sel as MentionSelection)}

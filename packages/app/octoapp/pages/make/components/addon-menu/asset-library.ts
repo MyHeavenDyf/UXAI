@@ -55,6 +55,7 @@ export interface AssetFile {
   docId?: string
   /** type 40:文件字节数 */
   fileSize?: number
+  realPathName?: string
   versionInfo?: AssetVersionInfo[] | null
 }
 
@@ -135,6 +136,7 @@ const MOCK_FILES: AssetFile[] = [
     s3BaseUrl: "http://127.0.0.1:8080/",
     convertHtmlUrl: "index.html",
     docPath: "assets/1753/2abc123123.xlsx",
+    realPathName: "a/b",
     docId: "ASSET_421",
     fileSize: 1111,
     versionInfo: [
@@ -146,6 +148,7 @@ const MOCK_FILES: AssetFile[] = [
     id: 2222,
     fileName: "容器2",
     docPath: "assets/1753/2abc123123.xlsx",
+    realPathName: "a/c",
     docId: "ASSET_421",
     fileSize: 1111,
     snapshot: "image/Iconolor.png",
@@ -158,6 +161,7 @@ const MOCK_FILES: AssetFile[] = [
     id: 3333,
     fileName: "产品效果图.png",
     docPath: "assets/1753/product-preview.png",
+    realPathName: "设计图/图标",
     s3BaseUrl: "http://127.0.0.1:8080/",
     fileSize: 20480,
   },
@@ -166,6 +170,7 @@ const MOCK_FILES: AssetFile[] = [
     id: 4444,
     fileName: "数据报表.xlsx",
     docPath: "assets/1753/report.xlsx",
+    realPathName: "报表/季度",
     snapshot: "image/report-thumb.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     fileSize: 20480,
@@ -177,6 +182,7 @@ const MOCK_FILES: AssetFile[] = [
     docPath: "assets/1753/api-doc.md",
     parseS3BaseUrl: "http://127.0.0.1:8080/",
     parseDocPath: "src/aaa",
+    realPathName: "文档/接口",
     s3BaseUrl: "http://127.0.0.1:8080/",
     fileSize: 4096,
   },

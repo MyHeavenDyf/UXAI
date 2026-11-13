@@ -992,3 +992,113 @@
   margin-top: 16px;
   margin-bottom: 52px;
 }
+
+/* ── 资产库弹窗(spec create-make-addonmenu.md line 211-293)── */
+.library-dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(1320px, calc(100vw - 160px));
+  height: min(872px, calc(100vh - 160px));
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+  padding: 24px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+/* tab 切换区 + 右侧已选n项;relative 供已选面板定位 */
+.library-dialog-tabrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-top: 24px;
+  flex-shrink: 0;
+}
+
+.library-dialog-tab {
+  padding: 5px 12px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.6);
+  line-height: 14px;
+  border-radius: 20px;
+  margin-right: 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.library-dialog-tab--active,
+.library-dialog-tab--active:hover {
+  background: rgba(10, 89, 247, 0.08);
+  color: #0a59f7;
+}
+
+.library-dialog-tabrow-spacer {
+  flex: 1 1 auto;
+}
+
+/* 已选n项面板:触发按钮下方弹出、右缘对齐、宽 50% 弹窗宽(spec line 220) */
+.library-selected-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 50%;
+  min-height: 98px;
+  max-height: 400px;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0px 1px 6px 0px rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+}
+
+/* 平台资产行:label 文本 + 常显开关(spec line 239) */
+.library-selected-platform-item {
+  height: 32px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.library-selected-platform-label {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 资产库底部按钮区:只有取消/确认,右下角对齐(spec line 293) */
+.library-dialog-footer {
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+/* iframe 区 */
+.library-dialog-iframe-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.library-dialog-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}

@@ -6380,7 +6380,7 @@ onPreview={(url) => {
                           onChange={handleFileInputChange}
                         />
                         <AddonMenu
-                          items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                          items={["skills", "assetLibrary", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
                           slots={[
                             {
                               key: "designStrategy",
@@ -6425,6 +6425,7 @@ onPreview={(url) => {
                           artifactFiles={artifactFilesMirror()}
                           productId={projectSelection()?.product?.id}
                           productAssetsDisabledReason={productAssetsDisabledReason()}
+                          assetLibraryDisabledReason={productAssetsDisabledReason()}
                           onDownloadProductAsset={downloadProductAsset}
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
@@ -6833,7 +6834,7 @@ onPreview={(url) => {
                         onChange={handleFileInputChange}
                       />
                       <AddonMenu
-                        items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                        items={["skills", "assetLibrary", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
                         slots={[
                           {
                             key: "designStrategy",
@@ -6878,6 +6879,7 @@ onPreview={(url) => {
                         artifactFiles={artifactFilesMirror()}
                         productId={projectSelection()?.product?.id}
                         productAssetsDisabledReason={productAssetsDisabledReason()}
+                        assetLibraryDisabledReason={productAssetsDisabledReason()}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
