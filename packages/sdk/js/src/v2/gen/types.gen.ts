@@ -1049,9 +1049,9 @@ export type ProviderConfig = {
         }
       }
       limit?: {
-        context: number
+        context?: number
         input?: number
-        output: number
+        output?: number
       }
       modalities?: {
         input: Array<"text" | "audio" | "image" | "video" | "pdf">
@@ -1629,6 +1629,18 @@ export type McpUnsupportedOAuthError = {
   error: string
 }
 
+export type BadRequestError = {
+  data: unknown
+  errors: Array<{
+    [key: string]: unknown
+  }>
+  success: false
+}
+
+export type InternalServerError = {
+  message: string
+}
+
 export type NotFoundError = {
   name: "NotFoundError"
   data: {
@@ -1677,14 +1689,6 @@ export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
   instructions: string
-}
-
-export type BadRequestError = {
-  data: unknown
-  errors: Array<{
-    [key: string]: unknown
-  }>
-  success: false
 }
 
 export type TextPartInput = {
@@ -5378,6 +5382,19 @@ export type ProjectInitGitData = {
   url: "/project/git/init"
 }
 
+export type ProjectInitGitErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
+}
+
+export type ProjectInitGitError = ProjectInitGitErrors[keyof ProjectInitGitErrors]
+
 export type ProjectInitGitResponses = {
   /**
    * Project information after git initialization
@@ -5386,6 +5403,76 @@ export type ProjectInitGitResponses = {
 }
 
 export type ProjectInitGitResponse = ProjectInitGitResponses[keyof ProjectInitGitResponses]
+
+export type ProjectGetGitRemoteData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/git/remote"
+}
+
+export type ProjectGetGitRemoteErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
+}
+
+export type ProjectGetGitRemoteError = ProjectGetGitRemoteErrors[keyof ProjectGetGitRemoteErrors]
+
+export type ProjectGetGitRemoteResponses = {
+  /**
+   * Origin remote URL (empty string if not configured)
+   */
+  200: {
+    remoteUrl: string
+  }
+}
+
+export type ProjectGetGitRemoteResponse = ProjectGetGitRemoteResponses[keyof ProjectGetGitRemoteResponses]
+
+export type ProjectAddGitRemoteData = {
+  body?: {
+    url: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/git/remote"
+}
+
+export type ProjectAddGitRemoteErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
+}
+
+export type ProjectAddGitRemoteError = ProjectAddGitRemoteErrors[keyof ProjectAddGitRemoteErrors]
+
+export type ProjectAddGitRemoteResponses = {
+  /**
+   * Origin remote URL after add/update
+   */
+  200: {
+    remoteUrl: string
+  }
+}
+
+export type ProjectAddGitRemoteResponse = ProjectAddGitRemoteResponses[keyof ProjectAddGitRemoteResponses]
 
 export type ProjectUpdateData = {
   body?: {
@@ -6021,6 +6108,7 @@ export type SessionPortableImportData = {
   body?: {
     path: string
     scope?: "project" | "session"
+    operationID?: string
   }
   path?: never
   query?: {
@@ -6056,6 +6144,7 @@ export type SessionPortableExportData = {
   body?: {
     path: string
     scope?: "project"
+    operationID?: string
   }
   path: {
     sessionID: string
@@ -6102,6 +6191,7 @@ export type SessionPortableShareData = {
     directory?: string
     workspace?: string
     scope?: "project"
+    operationID?: string
   }
   url: "/session/{sessionID}/portable-share"
 }
@@ -6167,6 +6257,7 @@ export type SessionSharePreviewResponses = {
       id: string
       role: "user" | "assistant"
       text: string
+      reasoning?: string
       truncated: boolean
       files: Array<{
         name: string
@@ -7119,13 +7210,42 @@ export type PartUpdateResponses = {
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
 
+export type SessionPortableProgressData = {
+  body?: never
+  path: {
+    operationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/portable-progress/{operationID}"
+}
+
+export type SessionPortableProgressResponses = {
+  /**
+   * Portable session transfer progress
+   */
+  200: {
+    type: "export" | "import" | "share"
+    stage: string
+    percent: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completed?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    total?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    processedBytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    totalBytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionPortableProgressResponse = SessionPortableProgressResponses[keyof SessionPortableProgressResponses]
+
 export type SessionGroupListData = {
   body?: never
   path?: never
   query: {
     directory?: string
     workspace?: string
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
   }
   url: "/session-group"
 }
@@ -7148,7 +7268,7 @@ export type SessionGroupListResponses = {
       id: string
       project_id: string
       directory: string
-      namespace: "make" | "insight"
+      namespace: "make" | "insight" | "studio"
       name: string
       position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -7167,7 +7287,7 @@ export type SessionGroupListResponse = SessionGroupListResponses[keyof SessionGr
 
 export type SessionGroupCreateData = {
   body?: {
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
     name: string
   }
   path?: never
@@ -7195,7 +7315,7 @@ export type SessionGroupCreateResponses = {
     id: string
     project_id: string
     directory: string
-    namespace: "make" | "insight"
+    namespace: "make" | "insight" | "studio"
     name: string
     position: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"

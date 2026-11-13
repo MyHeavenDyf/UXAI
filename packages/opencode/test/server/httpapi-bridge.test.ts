@@ -244,6 +244,14 @@ describe("HttpApi server", () => {
       const state = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation?guidePartID=${first.guidePartID}`, { headers })
       expect(state.status).toBe(200)
       expect(await state.json()).toMatchObject({ recommendation: { status: "armed", guidePartID: first.guidePartID } })
+      const entry = await client.request("http://localhost/studio/editor-entries", {
+        method: "POST", headers,
+        body: JSON.stringify({ sessionID: first.sessionID, entryID: crypto.randomUUID(), capability: "image.upscale" }),
+      })
+      expect(entry.status).toBe(200)
+      expect(await entry.json()).toMatchObject({ entryID: expect.any(String), assistantMessageID: expect.any(String) })
+      const retained = await client.request(`http://localhost/studio/sessions/${first.sessionID}/prompt-recommendation`, { headers })
+      expect(await retained.json()).toMatchObject({ recommendation: { status: "armed", guidePartID: first.guidePartID } })
       const invalid = await client.request("http://localhost/studio/prompt-expansions", { method: "POST", headers, body: "{broken" })
       expect(invalid.status).toBe(400)
       expect(await invalid.json()).toMatchObject({ name: "StudioPromptRecommendationError", data: { code: "INVALID_INPUT" } })

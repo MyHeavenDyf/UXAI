@@ -182,7 +182,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
           height: "40px",
           border: `1px solid ${props.error ? "var(--octo-danger, #ef4444)" : "var(--octo-border-input, #D1D5DB)"}`,
           "border-radius": "6px",
-          background: selecting() ? "var(--octo-surface-disabled, #F3F4F6)" : "transparent",
+          background: selecting() ? "var(--octo-surface-disabled, #F3F4F6)" : "#fff",
           cursor: selecting() ? "not-allowed" : "pointer",
           overflow: "hidden",
         }}

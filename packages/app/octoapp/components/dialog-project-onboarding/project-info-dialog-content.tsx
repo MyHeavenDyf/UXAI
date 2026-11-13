@@ -5,14 +5,13 @@ import { createEffect, createResource, createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
-import { fetchDomains, fetchProductLines, fetchProducts, fetchVersions, topVersion, cancelTopVersion } from "@/network/pipelineRequest"
+import { fetchVersions, topVersion, cancelTopVersion } from "@/network/pipelineRequest"
 interface ProjectInfoDialogContentProps {
   domain?: Domain
   productLine?: ProductLine
   product?: Product
   version?: Version
   disabled?: boolean
-  shouldAutoSelect?: boolean
   onSelectionChange?: (data: { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void
 }
 
@@ -41,18 +40,16 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   // 置顶/取消置顶期间置位：Kobalte press 检测在 capture 阶段，pin span 的 bubble stopPropagation 挡不住，
   // 点击置顶图标会选中该版本项（选中集合变化）→ onSelectionChange → close()，需在此期间拦截关闭与选中副作用。
   let pinActionActive = false
-  // 用户一旦手动操作，就中止自动选中链，避免在途接口返回后覆盖用户已选的项
-  let userInteracted = false
-  let autoSelectStarted = false
 
   const [versionOptions, { mutate: mutateVersions }] = createResource(() => store.product?.id ?? undefined, fetchVersions)
 
   const safeVersionOptions = () => {
+    if (!store.product) return []
     if (versionOptions.loading || versionOptions.error) return []
     return versionOptions() ?? []
   }
 
-  // 版本数据到达后校验当前版本是否仍存在；为空则自动选第一项
+  // 版本数据到达后校验当前版本是否仍存在；为空则自动选第一项；命中则以接口最新数据回填(本地缓存(lastSelection)可能缺少 ownerList/uxDlList 等后加字段)
   createEffect(() => {
     const options = safeVersionOptions()
     if (!options.length) return
@@ -61,36 +58,9 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
       setStore("version", options[0] ? { ...options[0] } : undefined)
       return
     }
-    if (!options.some((v) => v.id === current.id)) setStore("version", undefined)
+    const fresh = options.find((v) => v.id === current.id)
+    setStore("version", fresh ? { ...fresh } : undefined)
   })
-
-  // 新用户（无历史选择）自动级联选中第一个可用的领域/产品线/产品/版本
-  createEffect(() => {
-    if (!props.shouldAutoSelect) return
-    if (autoSelectStarted) return
-    autoSelectStarted = true
-    void autoSelectFirstAvailable()
-  })
-
-  async function autoSelectFirstAvailable() {
-    try {
-      const domains = await fetchDomains()
-      if (userInteracted || !domains?.length) return
-      const firstDomain = domains[0]
-      setStore("domain", firstDomain)
-      const productLines = await fetchProductLines(firstDomain.id)
-      if (userInteracted || !productLines?.length) return
-      const firstProductLine = productLines[0]
-      setStore("productLine", firstProductLine)
-      const products = await fetchProducts(firstProductLine.id)
-      if (userInteracted || !products?.length) return
-      const firstAvailable = products.find(p => !(p.isSecret && !p.isProductMember))
-      if (!firstAvailable) return
-      setStore("product", firstAvailable)
-    } catch {
-      // 接口失败时静默降级，保持未选中状态，由用户手动选择
-    }
-  }
 
   createEffect(() => {
     props.onSelectionChange?.({ domain: store.domain, productLine: store.productLine, product: store.product, version: store.version })
@@ -153,6 +123,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     "border-radius": "8px",
     "font-size": "14px",
     "line-height": "22px",
+    "font-weight": "400",
     border: "1px solid rgba(0,0,0,0.15)",
     background: props.disabled ? "rgba(0,0,0,0.04)" : "white",
     color: props.disabled ? "rgba(0,0,0,0.3)" : "#191919",
@@ -169,7 +140,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
         product={store.product}
         disabled={props.disabled}
         onProductConfirm={(data) => {
-          userInteracted = true
           setStore("domain", data.domain)
           setStore("productLine", data.productLine)
           setStore("product", data.product)
@@ -197,7 +167,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
         }}
         onSelect={(o) => {
           if (pinActionActive) return
-          userInteracted = true
           o && setStore("version", { ...o })
         }}
       />

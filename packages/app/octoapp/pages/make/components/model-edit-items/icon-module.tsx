@@ -39,6 +39,7 @@ const CATEGORY_MATCHERS: Record<string, RegExp> = {
 
 const DEFAULT_SHAPE_OPTIONS = [
   { key: '线性', label: '线性', value: 'outline' },
+  { key: '面性', label: '面性', value: 'filled' },
   { key: '线性双色', label: '线性双色', value: 'two-tone' },
   { key: '方底托', label: '方底托', value: 'square' },
   { key: '圆底托', label: '圆底托', value: 'circle' },
@@ -77,15 +78,16 @@ const mimeFromName = (name: string) => {
   return 'application/octet-stream'
 }
 
-function customIconsDir(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined): string | null {
+function customIconsDir(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined, customDir?: string): string | null {
+  if (customDir) return customDir
   if (htmlFilePath) return `${htmlFilePath.replace(/[\\/][^\\/]+$/, '')}/uploads`
   if (root && sessionId) return `${root}/.octo/${sessionId}/assets`
   return null
 }
 
-async function saveSessionIconFile(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined, name: string, buf: ArrayBuffer): Promise<CustomIcon | null> {
+async function saveSessionIconFile(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined, name: string, buf: ArrayBuffer, customDir?: string): Promise<CustomIcon | null> {
   const api = getDesktopApi()
-  const dir = customIconsDir(root, sessionId, htmlFilePath)
+  const dir = customIconsDir(root, sessionId, htmlFilePath, customDir)
   if (!dir || !api?.writeFileBuffer) return null
   const safe = name.replace(/[\\/:*?"<>|]/g, '_').replace(/^\.+/, '')
   const filename = `icon_${safe}`
@@ -99,9 +101,9 @@ async function saveSessionIconFile(root: string | undefined, sessionId: string |
   return { src: await blobToDataURL(new Blob([buf], { type: mimeFromName(name) })), path }
 }
 
-async function listSessionIconFiles(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined): Promise<CustomIcon[]> {
+async function listSessionIconFiles(root: string | undefined, sessionId: string | undefined, htmlFilePath: string | undefined, customDir?: string): Promise<CustomIcon[]> {
   const api = getDesktopApi()
-  const dir = customIconsDir(root, sessionId, htmlFilePath)
+  const dir = customIconsDir(root, sessionId, htmlFilePath, customDir)
   if (!dir || !api?.listDirectory || !api.readFileBuffer) return []
   const out: CustomIcon[] = []
   for (const e of await api.listDirectory(dir)) {
@@ -119,6 +121,16 @@ const customIconName = (srcOrPath: string) =>
 
 async function deleteSessionIconFile(icon: CustomIcon): Promise<void> {
   if (icon.path) await getDesktopApi()?.deleteFile?.(icon.path)
+}
+
+function customIconRelSrc(htmlFilePath: string | undefined, iconPath: string): string | undefined {
+  const filename = iconPath.split(/[\\/]/).pop()
+  if (!filename) return undefined
+  const htmlDir = htmlFilePath?.replace(/[\\/][^\\/]+$/, '')
+  if (htmlDir && iconPath.length > htmlDir.length && iconPath.toLowerCase().startsWith(htmlDir.toLowerCase()) && /[\\/]/.test(iconPath[htmlDir.length] ?? '')) {
+    return iconPath.slice(htmlDir.length + 1)
+  }
+  return `uploads/${filename}`
 }
 
 function buildStandaloneSvg(svgInner: string, shape: string, color: string, size: number): string {
@@ -267,6 +279,7 @@ function IconPickerPopup(props: {
   })
 
   const onlineUrl = props.iconConfig.onlineServiceUrl
+  const customDir = props.htmlFilePath ? props.iconConfig.getCustomIconDir?.({ sessionDir: sdk.directory, filePath: props.htmlFilePath }) : undefined
   const iconStore = createIconPlusStore(props.current ?? '')
   onMount(() => {
     if (props.initialSize && /^\d+$/.test(props.initialSize)) iconStore.setSize(props.initialSize)
@@ -343,14 +356,14 @@ function IconPickerPopup(props: {
     const added: CustomIcon[] = []
     for (const f of files) {
       const buf = await f.arrayBuffer()
-      added.push(await saveSessionIconFile(sdk.directory, sessionId(), props.htmlFilePath, f.name, buf) ?? { src: await blobToDataURL(f) })
+      added.push(await saveSessionIconFile(sdk.directory, sessionId(), props.htmlFilePath, f.name, buf, customDir) ?? { src: await blobToDataURL(f) })
     }
     const newNames = new Set(added.flatMap(a => { const fn = a.path?.split(/[\\/]/).pop(); return fn ? [fn] : [] }))
     setState('customIcons', prev => { const kept = newNames.size ? prev.filter(p => { const fn = p.path?.split(/[\\/]/).pop(); return !fn || !newNames.has(fn) }) : prev; return [...kept, ...added] })
   }
 
   onMount(() => {
-    void listSessionIconFiles(sdk.directory, sessionId(), props.htmlFilePath).then(icons => {
+    void listSessionIconFiles(sdk.directory, sessionId(), props.htmlFilePath, customDir).then(icons => {
       if (!icons.length) return
       const diskNames = new Set(icons.flatMap(i => { const fn = i.path?.split(/[\\/]/).pop(); return fn ? [fn] : [] }))
       setState('customIcons', prev => [...prev.filter(p => { const fn = p.path?.split(/[\\/]/).pop(); return !fn || !diskNames.has(fn) }), ...icons])
@@ -383,7 +396,7 @@ function IconPickerPopup(props: {
         name: custom ? customIconName(custom.path ?? custom.src) : state.selected,
         id: custom ? undefined : state.selectedId || undefined,
         url: apiUrl,
-        src: custom?.path ? `uploads/${custom.path.split(/[\\/]/).pop()}` : undefined,
+        src: custom?.path ? customIconRelSrc(props.htmlFilePath, custom.path) : undefined,
         isCustom: !!custom,
         size: iconStore.state.iconSize,
         style: state.shapeKey,

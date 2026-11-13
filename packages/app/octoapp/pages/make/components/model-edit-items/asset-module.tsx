@@ -13,6 +13,7 @@ import {
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
+import { getDesktopApi } from "../../lib/electron-api"
 import { FolderIcon } from "../addon-menu/icons"
 import { IconDropdownArrow } from "../../icons"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -39,6 +40,13 @@ export function AssetModule(props: {
 }): JSX.Element {
   const [popupOpen, setPopupOpen] = createSignal(false)
   const [assetValue, setAssetValue] = createSignal<AssetState>({})
+
+  const productAssetsDisabledReason = () =>
+    !props.productId
+      ? "请先选择关联产品的项目"
+      : !getDesktopApi()?.writeFileBuffer || !getDesktopApi()?.movePendingUploadToSession
+        ? "请在桌面端导入产品资产"
+        : undefined
 
   createEffect(() => {
     if (props.dom && props.assetConfig.getInitialState) {
@@ -67,9 +75,10 @@ export function AssetModule(props: {
   return (
     <>
       <div class="model-edit-group-title">产品资产库</div>
-      <button type="button" disabled={props.disabled}
+      <button type="button" disabled={props.disabled || !!productAssetsDisabledReason()}
+        title={productAssetsDisabledReason() ?? ""}
         onClick={() => setPopupOpen(true)}
-        class="cc-row" style={{ width: '100%', height: '36px', 'border-radius': '8px', background: '#F9F9F9', padding: '8px 12px', 'box-sizing': 'border-box', gap: '16px', cursor: props.disabled ? 'wait' : 'pointer' }}>
+        class="cc-row" style={{ width: '100%', height: '36px', 'border-radius': '8px', background: '#F9F9F9', padding: '8px 12px', 'box-sizing': 'border-box', gap: '16px', cursor: props.disabled ? 'wait' : productAssetsDisabledReason() ? 'not-allowed' : 'pointer', opacity: productAssetsDisabledReason() ? 0.5 : 1 }}>
         <span style={{ width: '16px', height: '16px', border: '1px solid #DFDFDF', background: 'white', 'border-radius': '3px', 'flex-shrink': '0' }} />
         <span class="flex-1 truncate text-[12px] text-slate-600 text-left">{assetValue().name || '未选择'}</span>
         <IconDropdownArrow class="text-[#777777]" />

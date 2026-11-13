@@ -128,7 +128,12 @@ import type {
   PermissionRespondErrors,
   PermissionRespondResponses,
   PermissionRuleset,
+  ProjectAddGitRemoteErrors,
+  ProjectAddGitRemoteResponses,
   ProjectCurrentResponses,
+  ProjectGetGitRemoteErrors,
+  ProjectGetGitRemoteResponses,
+  ProjectInitGitErrors,
   ProjectInitGitResponses,
   ProjectListResponses,
   ProjectUpdateErrors,
@@ -207,6 +212,7 @@ import type {
   SessionPortableExportResponses,
   SessionPortableImportErrors,
   SessionPortableImportResponses,
+  SessionPortableProgressResponses,
   SessionPortableShareErrors,
   SessionPortableShareResponses,
   SessionPromptAsyncErrors,
@@ -3078,11 +3084,80 @@ export class Project extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).post<ProjectInitGitResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).post<ProjectInitGitResponses, ProjectInitGitErrors, ThrowOnError>({
       url: "/project/git/init",
       ...options,
       ...params,
     })
+  }
+
+  /**
+   * Get git remote URL
+   *
+   * Retrieve the origin remote URL for the current project, or empty string if not configured.
+   */
+  public getGitRemote<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ProjectGetGitRemoteResponses, ProjectGetGitRemoteErrors, ThrowOnError>({
+      url: "/project/git/remote",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Add or update git remote
+   *
+   * Initialize git (if needed) and add or update the origin remote URL for the current project.
+   */
+  public addGitRemote<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      url?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "url" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ProjectAddGitRemoteResponses, ProjectAddGitRemoteErrors, ThrowOnError>(
+      {
+        url: "/project/git/remote",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
   }
 
   /**
@@ -3936,6 +4011,7 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       path?: string
       scope?: "project" | "session"
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3948,6 +4024,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "path" },
             { in: "body", key: "scope" },
+            { in: "body", key: "operationID" },
           ],
         },
       ],
@@ -3980,6 +4057,7 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       path?: string
       scope?: "project"
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3993,6 +4071,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "path" },
             { in: "body", key: "scope" },
+            { in: "body", key: "operationID" },
           ],
         },
       ],
@@ -4024,6 +4103,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       scope?: "project"
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4036,6 +4116,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "scope" },
+            { in: "query", key: "operationID" },
           ],
         },
       ],
@@ -4973,6 +5054,38 @@ export class Session2 extends HeyApiClient {
       ...params,
     })
   }
+
+  /**
+   * Get portable session progress
+   *
+   * Get current progress for an import, export, or share operation.
+   */
+  public portableProgress<ThrowOnError extends boolean = false>(
+    parameters: {
+      operationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "operationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionPortableProgressResponses, unknown, ThrowOnError>({
+      url: "/session/portable-progress/{operationID}",
+      ...options,
+      ...params,
+    })
+  }
 }
 
 export class Part extends HeyApiClient {
@@ -5062,7 +5175,7 @@ export class SessionGroup extends HeyApiClient {
     parameters: {
       directory?: string
       workspace?: string
-      namespace: "make" | "insight"
+      namespace: "make" | "insight" | "studio"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5094,7 +5207,7 @@ export class SessionGroup extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      namespace?: "make" | "insight"
+      namespace?: "make" | "insight" | "studio"
       name?: string
     },
     options?: Options<never, ThrowOnError>,

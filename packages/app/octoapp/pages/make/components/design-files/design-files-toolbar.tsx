@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { Icon } from "@opencode-ai/ui/icon"
 import type { ArtifactFileKind } from "../../utils/artifact-file-api"
 import { useLanguage } from "@/context/language"
 import { tracker } from "@/utils/tracker"
@@ -21,6 +22,10 @@ interface ToolbarProps {
   onBatchDownload: () => void
   onBatchDelete: () => void
   showDelete?: boolean
+  gitEnabled?: () => boolean
+  gitBusy?: () => "pull" | "commit" | null
+  onGitPull?: () => void
+  onGitPush?: () => void
 }
 
 export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
@@ -32,6 +37,11 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
   const deletableCount = createMemo(() => props.fileStore.selectedUploadedFiles().length)
   const selectedGeneratedCount = createMemo(() => props.fileStore.store.selected.size - deletableCount())
   const canDelete = createMemo(() => deletableCount() > 0 && selectedGeneratedCount() === 0)
+
+  const showGitButtons = createMemo(() => !!(props.onGitPull && props.onGitPush))
+  const pullRunning = createMemo(() => props.gitBusy?.() === "pull")
+  const pushRunning = createMemo(() => props.gitBusy?.() === "commit")
+  const gitDisabled = createMemo(() => !showGitButtons() || !props.gitEnabled?.() || props.gitBusy?.() != null)
 
   const filterButtonText = createMemo(() => {
     const filterSize = props.fileStore.store.kindFilter.size
@@ -253,6 +263,47 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               <span class="toolbar-btn-text">{language.t("designFiles.batchDelete")}</span>
             </button>
           </Show>
+        </Show>
+
+        <Show when={showGitButtons()}>
+          <button
+            type="button"
+            onClick={gitDisabled() ? undefined : () => props.onGitPull?.()}
+            disabled={gitDisabled()}
+            class="flex items-center gap-1 px-2 py-1 rounded transition-colors"
+            style={{
+              height: "32px",
+              "font-size": "14px",
+              "line-height": "22px",
+              color: gitDisabled() ? "#C9C9C9" : "rgba(0, 0, 0, 0.9)",
+              cursor: pullRunning() ? "progress" : gitDisabled() ? "not-allowed" : "pointer",
+            }}
+            title={!props.gitEnabled?.() ? "当前工作区不是代码仓或未关联远程仓库" : undefined}
+          >
+            <Show when={pullRunning()} fallback={<Icon name="download" size="small" style={{ width: "16px", height: "16px", "flex-shrink": "0" }} />}>
+              <Spinner class="size-[16px]" />
+            </Show>
+            <span class="toolbar-btn-text">{language.t("designFiles.pullCode")}</span>
+          </button>
+          <button
+            type="button"
+            onClick={gitDisabled() ? undefined : () => props.onGitPush?.()}
+            disabled={gitDisabled()}
+            class="flex items-center gap-1 px-2 py-1 rounded transition-colors"
+            style={{
+              height: "32px",
+              "font-size": "14px",
+              "line-height": "22px",
+              color: gitDisabled() ? "#C9C9C9" : "rgba(0, 0, 0, 0.9)",
+              cursor: pushRunning() ? "progress" : gitDisabled() ? "not-allowed" : "pointer",
+            }}
+            title={!props.gitEnabled?.() ? "当前工作区不是代码仓或未关联远程仓库" : undefined}
+          >
+            <Show when={pushRunning()} fallback={<Icon name="upload" size="small" style={{ width: "16px", height: "16px", "flex-shrink": "0" }} />}>
+              <Spinner class="size-[16px]" />
+            </Show>
+            <span class="toolbar-btn-text">{language.t("designFiles.pushCode")}</span>
+          </button>
         </Show>
 
         <Kobalte open={uploadOpen()} onOpenChange={setUploadOpen} modal={false} placement="bottom-end" gutter={4}>

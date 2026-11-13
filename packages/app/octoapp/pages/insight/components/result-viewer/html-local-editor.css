@@ -1,0 +1,46 @@
+/* 复用面板的菜单通过 Portal 挂到 body，只在 Insight 局部编辑期间提升层级。 */
+body:has(.insight-html-local-editor) .cc-select-panel {
+  z-index: 2147483646;
+}
+
+.insight-html-local-editor > .insight-property-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 268px;
+  max-width: calc(100% - 24px);
+  height: calc(100% - 24px);
+  z-index: 50;
+  pointer-events: none;
+}
+
+.insight-property-panel > .manual-edit-right {
+  position: relative;
+  top: 0;
+  right: auto;
+  width: 100%;
+  max-width: 100%;
+  max-height: 100% !important;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.insight-property-panel > .manual-edit-right > .manual-edit-modal {
+  min-height: 0;
+  max-height: none;
+}
+
+.insight-property-panel .manual-edit-titlebar {
+  cursor: grab;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+
+.insight-panel-dragging .manual-edit-titlebar {
+  cursor: grabbing;
+}
+
+.insight-panel-dragging > iframe {
+  pointer-events: none;
+}

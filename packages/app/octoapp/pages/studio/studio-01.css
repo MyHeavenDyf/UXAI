@@ -632,19 +632,25 @@
 
 .studio-prompt-recommendation-button:disabled { opacity: .5; cursor: default; }
 .studio-prompt-expansion { margin-top: 12px; font-size: 14px; }
+.studio-prompt-expansion-preview,
+.studio-prompt-expansion-editor {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.98)) padding-box,
+    linear-gradient(130.03deg, #6f69ff 5.795%, #ae42ff 18.126%, #179bff 26.732%, #00c4ff 34.809%, #00fffa 40.176%, #00fffa 47.663%, #4db3ff 57.608%, #db7bff 79.325%, #ff77eb 85.089%, #6784ff 95.104%) border-box;
+}
 .studio-prompt-expansion-preview {
   box-sizing: border-box;
   min-width: 0;
+  margin-top: 12px;
   overflow-wrap: anywhere;
-  border: 1px solid var(--studio-line, rgba(15, 23, 42, 0.1));
-  border-radius: 12px;
-  background: var(--studio-panel, #fff);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
 .studio-prompt-expansion-preview .scroll-view__viewport {
   box-sizing: border-box;
   height: auto;
-  max-height: 498px;
+  max-height: 198px;
   overflow-x: hidden;
   overscroll-behavior: contain;
   padding: 16px;
@@ -705,11 +711,6 @@
   box-sizing: border-box;
   min-width: 0;
   padding: 12px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  background:
-    linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
-    linear-gradient(130.03deg, #6f69ff 5.795%, #ae42ff 18.126%, #179bff 26.732%, #00c4ff 34.809%, #00fffa 40.176%, #00fffa 47.663%, #4db3ff 57.608%, #db7bff 79.325%, #ff77eb 85.089%, #6784ff 95.104%) border-box;
 }
 
 .studio-prompt-expansion-editor-title {

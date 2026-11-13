@@ -639,6 +639,9 @@ describe("session.overflow.exceedsContext", () => {
   test("allows Design agents to continue past the context limit", () => {
     const model = createModel({ context: 100, output: 20 })
 
+    expect(exceedsContext({ model, input: 100, agent: "octo_insight" })).toBe(false)
+    expect(exceedsContext({ model, input: 150, agent: "octo_insight" })).toBe(false)
+    expect(exceedsContext({ model, input: 150, agent: "build" })).toBe(true)
     expect(exceedsContext({ model, input: 100, agent: "octo_make" })).toBe(false)
     expect(exceedsContext({ model, input: 100, agent: "octo_make_plan" })).toBe(false)
     expect(exceedsContext({ model, input: 100, agent: "ict_pattern" })).toBe(false)

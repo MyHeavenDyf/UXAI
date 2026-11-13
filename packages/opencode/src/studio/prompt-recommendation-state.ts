@@ -3,7 +3,7 @@ import type { MessageV2 } from "@/session/message-v2"
 import { PartTable } from "@/session/session.sql"
 import { SessionID } from "@/session/schema"
 import { StudioGenerationTable } from "./studio-generation.sql"
-import { guideSchema, resultSchema, RecommendationError } from "./prompt-recommendation-schema"
+import { resultSchema, RecommendationError } from "./prompt-recommendation-schema"
 import { Context, Effect, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
@@ -32,6 +32,22 @@ const layer = Layer.effect(
 const runtime = makeRuntime(Submissions, layer)
 export const studioSubmissionState = () => runtime.runPromise((service) => service.get())
 
+export async function isStudioSessionGenerating(sessionID: string) {
+  if ((await studioSubmissionState()).sessions.has(sessionID)) return true
+  return !!Database.use((db) =>
+    db
+      .select({ id: StudioGenerationTable.id })
+      .from(StudioGenerationTable)
+      .where(
+        and(
+          eq(StudioGenerationTable.session_id, SessionID.make(sessionID)),
+          inArray(StudioGenerationTable.status, ["creating", "queued", "running"]),
+        ),
+      )
+      .get(),
+  )
+}
+
 export async function withStudioSubmission<A>(sessionID: string, work: () => Promise<A>) {
   const state = await studioSubmissionState()
   if (state.closing || state.sessions.has(sessionID)) throw new RecommendationError("SESSION_BUSY", 409)
@@ -53,12 +69,8 @@ export function assertCanGenerate(sessionID: string) {
   ).some((row) => {
     const part = row.data as Omit<MessageV2.TextPart, "id" | "messageID" | "sessionID">
     if (part.type !== "text") return false
-    const guide = guideSchema.safeParse(part.metadata?.studioPromptRecommendation)
     const result = resultSchema.safeParse(part.metadata?.studioPromptExpansion)
-    return (
-      (guide.success && guide.data.status === "armed") ||
-      (result.success && (result.data.status === "running" || result.data.status === "cancelling"))
-    )
+    return result.success && (result.data.status === "running" || result.data.status === "cancelling")
   })
   if (busy) throw new RecommendationError("SESSION_BUSY", 409)
 }

@@ -2,6 +2,7 @@ import { batch, createEffect, createRoot, onMount, onCleanup, untrack } from "so
 import { createStore } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { showToast } from "@opencode-ai/ui/toast"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { usePlatform } from "@/context/platform"
 import { useLayout } from "@/context/layout"
 import { useServer } from "@/context/server"
@@ -9,10 +10,16 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { applyDirectoryEvent } from "@/context/global-sync/event-reducer"
 import { tracker } from "@/utils/tracker"
+import { directoryHeader } from "@/utils/headers"
 import { createSharedSessionCache } from "./shared-session-cache"
 import { kindOf } from "./workspace-switcher"
-import { openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
+import { consumePendingDeepLinks, openPreparedSharedSession, type SharedSessionModule } from "./shared-session-open"
 import { sharedSessionImportContext } from "./shared-session-import-context"
+import {
+  PORTABLE_SESSION_IMPORT_EVENT,
+  type PortableSessionImportRequest,
+} from "./portable-session-import"
+import { showSessionTransferProgress, watchSessionTransferProgress } from "./session-transfer-progress"
 
 export function SharedSessionHandler() {
   const platform = usePlatform()
@@ -26,7 +33,7 @@ export function SharedSessionHandler() {
   onCleanup(() => lifetime.abort())
   const inFlight = new Set<string>()
   const cache = createSharedSessionCache({
-    importSession: async (uniqueId, directory, token) =>
+    importSession: async (uniqueId, directory, token, operationID) =>
       platform.importSharedSession?.(
         uniqueId,
         directory,
@@ -34,6 +41,7 @@ export function SharedSessionHandler() {
           ? "project"
           : "session",
         token,
+        operationID,
       ),
     isDeleted: (result) => !!globalSync.child(result.directory, { bootstrap: false })[0].deleted?.[result.sessionID],
     readSession: async (result) => {
@@ -48,6 +56,25 @@ export function SharedSessionHandler() {
   })
   const [pending, setPending] = createStore<{ ids: string[] }>({ ids: [] })
   let queue = Promise.resolve()
+
+  const modulePage = (module: SharedSessionModule) => module === "design" ? "make" : module
+  const modulePath = (module: SharedSessionModule, directory: string, sessionID?: string) => {
+    if (module === "studio") {
+      const base = `/${base64Encode(directory)}/studio`
+      return sessionID ? `${base}/${encodeURIComponent(sessionID)}` : `${base}?hint=${Date.now()}`
+    }
+    const base = `/${modulePage(module)}`
+    return sessionID ? `${base}/${encodeURIComponent(sessionID)}` : base
+  }
+
+  const selectModule = (module: SharedSessionModule) => {
+    if (lifetime.signal.aborted) throw new Error("导入已取消")
+    const page = modulePage(module)
+    const directory = server.projects.last()
+    if (!directory) throw new Error("请先选择导入对话的目录")
+    layout.lastSessionPerTab.setNewConversation(page === "insight" ? "cowork" : page, true)
+    navigate(modulePath(module, directory))
+  }
 
   const waitForContext = (module: SharedSessionModule) =>
     new Promise<string>((resolve, reject) => {
@@ -64,16 +91,21 @@ export function SharedSessionHandler() {
           lifetime.signal.removeEventListener("abort", aborted)
         })
         const ready = () => {
-          const page = module === "design" ? "make" : module
+          const page = modulePage(module)
+          const pathReady = module === "studio"
+            ? location.pathname.split("/")[2] === "studio"
+            : location.pathname === `/${page}` || location.pathname.startsWith(`/${page}/`)
+          const directoryReady = module === "studio"
+            || sharedSessionImportContext.directory === server.projects.last()
           return (
             !lifetime.signal.aborted &&
             server.ready() &&
             !layout.onboarding.show() &&
-            (location.pathname === `/${page}` || location.pathname.startsWith(`/${page}/`)) &&
+            pathReady &&
             sharedSessionImportContext.module === module &&
             sharedSessionImportContext.ready &&
             !!sharedSessionImportContext.directory &&
-            sharedSessionImportContext.directory === server.projects.last()
+            directoryReady
           )
         }
         if (lifetime.signal.aborted) return aborted()
@@ -90,7 +122,11 @@ export function SharedSessionHandler() {
       })
     })
 
-  const showImported = (result: NonNullable<Awaited<ReturnType<typeof cache.open>>>, module: SharedSessionModule) => {
+  const showImported = (
+    result: NonNullable<Awaited<ReturnType<typeof cache.open>>>,
+    module: SharedSessionModule,
+    source: "share" | "portable" = "share",
+  ) => {
     if (lifetime.signal.aborted) return
     const [store, setStore] = globalSync.child(result.directory, { bootstrap: false })
     // Import events can arrive before this directory's store is subscribed.
@@ -103,43 +139,83 @@ export function SharedSessionHandler() {
       push: () => {},
       loadLsp: () => {},
     })
-    const page = module === "design" ? "make" : module
+    const page = modulePage(module)
+    const routeDirectory = module === "studio" ? server.projects.last() || result.directory : result.directory
     batch(() => {
       if (page === "make") layout.lastSessionPerTab.setMake(result.directory, result.sessionID)
       if (page === "pattern") layout.lastSessionPerTab.setPattern(result.sessionID)
       if (page === "insight") layout.lastSessionPerTab.setCowork(result.sessionID)
+      if (page === "studio") layout.lastSessionPerTab.setStudio(routeDirectory, result.sessionID)
       layout.lastSessionPerTab.setNewConversation(page, false)
       if (page === "insight") layout.lastSessionPerTab.setNewConversation("cowork", false)
-      layout.projects.open(result.directory)
-      server.projects.touch(result.directory)
-      navigate(`/${page}/${encodeURIComponent(result.sessionID)}`)
+      if (module !== "studio") {
+        layout.projects.open(result.directory)
+        server.projects.touch(result.directory)
+      }
+      navigate(modulePath(module, routeDirectory, result.sessionID))
     })
+    // studio 分享打开（含 app 缓存命中、跳过服务端重导的路径）时刷新该会话的「我的资产」物化：
+    // 重开分享是显式恢复动作，从资产里删除的素材应回到列表（清墓碑 + 幂等 upsert）。
+    if (module === "studio") {
+      void globalSDK
+        .createClient({ directory: result.directory, throwOnError: false })
+        .studio.history.snapshot({ sessionID: result.sessionID, directory: result.directory })
+        .then((response) => {
+          if (!response.response.ok) {
+            console.warn("[octo:share] studio history snapshot failed", { sessionID: result.sessionID, status: response.response.status })
+          }
+        })
+        .catch((error) => {
+          console.warn("[octo:share] studio history snapshot failed", { sessionID: result.sessionID, error })
+        })
+    }
+    window.dispatchEvent(
+      new CustomEvent("octo:session-imported", {
+        detail: { sessionID: result.sessionID, directory: result.directory, agent: result.session.agent },
+      }),
+    )
     tracker.interaction({
       module: page === "make" ? "design" : page === "pattern" ? "prototype" : page,
-      name: "share-import-success",
+      name: source === "share" ? "share-import-success" : "portable-import-success",
     })
-    showToast({ variant: "success", title: "分享对话已打开" })
+    if (source === "share") showToast({ variant: "success", title: "分享对话已打开" })
   }
 
   const open = async (uniqueId: string) => {
     if (!platform.prepareSharedSession || !platform.releaseSharedSession) throw new Error("请升级 App 后再打开分享对话")
     const connection = server.current?.http.url ?? globalSDK.url
+    const operationID = crypto.randomUUID()
+    const progress = showSessionTransferProgress("正在导入 Session")
+    const watcher = new AbortController()
+    const unsubscribe = platform.onSessionTransferProgress?.((event) => {
+      if (event.operationID === operationID) progress.update(event)
+    })
+    void watchSessionTransferProgress({
+      url: globalSDK.url,
+      operationID,
+      fetch: platform.fetch ?? fetch,
+      headers: directoryHeader(server.projects.last()),
+      signal: watcher.signal,
+      update: (value) => progress.update({ ...value, percent: 25 + value.percent * 0.75 }),
+    })
+    progress.update({ type: "import", stage: "正在下载分享文件", percent: 2 })
     await openPreparedSharedSession({
-      prepare: () => platform.prepareSharedSession!(uniqueId),
+      prepare: () => platform.prepareSharedSession!(uniqueId, operationID),
       select: (module) => {
-        if (lifetime.signal.aborted) throw new Error("分享打开已取消")
-        const page = module === "design" ? "make" : module
-        layout.lastSessionPerTab.setNewConversation(page === "insight" ? "cowork" : page, true)
-        navigate(`/${page}`)
+        selectModule(module)
       },
       ready: waitForContext,
       importSession: (prepared, directory) => {
         if (lifetime.signal.aborted || connection !== (server.current?.http.url ?? globalSDK.url))
           throw new Error("连接已变更，请重新打开分享链接")
-        return cache.open(connection, uniqueId, directory, prepared.module, prepared.token)
+        return cache.open(connection, uniqueId, directory, prepared.module, prepared.token, operationID)
       },
       open: showImported,
       release: (token) => platform.releaseSharedSession!(token),
+    }).finally(() => {
+      watcher.abort()
+      unsubscribe?.()
+      progress.dismiss()
     })
   }
 
@@ -185,12 +261,62 @@ export function SharedSessionHandler() {
       cache.invalidate(event.details.properties.info.directory, event.details.properties.info.id)
     })
     onCleanup(unsubscribe)
-    const listener = (event: Event) => handle((event as CustomEvent<{ urls: string[] }>).detail?.urls ?? [])
-    window.addEventListener("opencode:deep-link", listener)
-    // 启动期间的链接先由桌面桥缓存，此时 Router 与 Platform 已就绪。
     const target = window as Window & { __OCTO__?: { deepLinks?: string[] } }
-    handle(target.__OCTO__?.deepLinks ?? [])
-    onCleanup(() => window.removeEventListener("opencode:deep-link", listener))
+    const consume = (fallback: string[] = []) => {
+      const cached = consumePendingDeepLinks((target.__OCTO__ ??= {}))
+      handle(cached.length ? cached : fallback)
+    }
+    const listener = (event: Event) => consume((event as CustomEvent<{ urls: string[] }>).detail?.urls ?? [])
+    window.addEventListener("opencode:deep-link", listener)
+    const portableListener = (event: Event) => {
+      const request = (event as CustomEvent<PortableSessionImportRequest>).detail
+      queue = queue
+        .then(() => {
+          const operationID = crypto.randomUUID()
+          const progress = showSessionTransferProgress("正在导入 Session")
+          const watcher = new AbortController()
+          void watchSessionTransferProgress({
+            url: globalSDK.url,
+            operationID,
+            fetch: platform.fetch ?? fetch,
+            headers: directoryHeader(server.projects.last()),
+            signal: watcher.signal,
+            update: progress.update,
+          })
+          progress.update({ type: "import", stage: "正在识别 Session 所属模块", percent: 2 })
+          return (async () => {
+            if (!platform.inspectPortableSession) throw new Error("当前客户端不支持识别 Session 模块，请升级客户端")
+            const inspected = await platform.inspectPortableSession(request.path)
+            selectModule(inspected.module)
+            progress.update({ type: "import", stage: "正在等待目标模块就绪", percent: 5 })
+            const directory = await waitForContext(inspected.module)
+            const client = globalSDK.createClient({ directory, throwOnError: true })
+            const imported = (await client.session.portableImport({ path: request.path, operationID })).data
+            if (!imported) throw new Error("导入接口未返回 Session 信息")
+            progress.update({ type: "import", stage: "正在打开导入的对话", percent: 99 })
+            const session = (await client.session.get({ sessionID: imported.sessionID })).data
+            if (!session) throw new Error("导入的对话不存在")
+            showImported({
+              sessionID: imported.sessionID,
+              directory,
+              agent: session.agent,
+              session,
+            }, inspected.module, "portable")
+            return imported
+          })().finally(() => {
+            watcher.abort()
+            progress.dismiss()
+          })
+        })
+        .then(request.resolve, request.reject)
+    }
+    window.addEventListener(PORTABLE_SESSION_IMPORT_EVENT, portableListener)
+    // 启动期间的链接先由桌面桥缓存，此时 Router 与 Platform 已就绪。
+    consume()
+    onCleanup(() => {
+      window.removeEventListener("opencode:deep-link", listener)
+      window.removeEventListener(PORTABLE_SESSION_IMPORT_EVENT, portableListener)
+    })
   })
   return null
 }

@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test"
-import { openPreparedSharedSession } from "./shared-session-open"
+import { consumePendingDeepLinks, openPreparedSharedSession } from "./shared-session-open"
 
-test.each(["design", "insight"] as const)(
+test("consumes renderer deep links only once across a reload", () => {
+  const target = { deepLinks: ["octo-agent://share?uniqueId=once"] }
+  expect(consumePendingDeepLinks(target)).toEqual(["octo-agent://share?uniqueId=once"])
+  expect(consumePendingDeepLinks(target)).toEqual([])
+})
+
+test.each(["design", "insight", "studio"] as const)(
   "switches to %s and waits for its directory before importing",
   async (module) => {
     const events: string[] = []
