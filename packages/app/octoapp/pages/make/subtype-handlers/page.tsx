@@ -45,7 +45,7 @@ function wrapPagePrompt(filePath: string, body: string): string {
   const previewRoot = filePath.replace(/[/\\][^/\\]+$/, '')
   return [
     `预览页面源码根目录：${previewRoot}`,
-    '（本页面是通过ict-react-coder skill动态编译生成的）',
+    '（本页面是通过ict-coder skill动态编译生成的）',
     '',
     body,
     '',
@@ -69,10 +69,10 @@ const pageAssetConfig = directModelEditConfig.assetConfig!
  * 提示词模式：onConfirm 返回完整图标改动 prompt，由模型改源码后重新编译
  */
 const pageIconConfig: IconConfig = {
-  // 自定义图标上传目录：HTML 同级 uploads/；无 filePath 时回退会话 assets 目录
+  // 自定义图标上传目录：HTML 同级 public/uploads/（page 专属，区别于其他 subtype 的 uploads/）；无 filePath 时回退会话 public 目录
   getCustomIconDir: ({ sessionDir, filePath }) => {
-    if (filePath) return `${filePath.replace(/[\\/][^\\/]+$/, '')}/uploads`
-    return `${sessionDir}/.octo/${sessionDir}/assets`
+    if (filePath) return `${filePath.replace(/[\\/][^\\/]+$/, '')}/public/uploads`
+    return `${sessionDir}/.octo/${sessionDir}/public`
   },
   // 打开面板时从元素 data-icon-* 属性还原当前图标状态（回显）
   getInitialState: (dom) => ({
@@ -131,7 +131,7 @@ const pageModelEditConfig: ModelEditConfig = {
   saveCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.saveCallback(args))),
   deleteCallback: async (args) => wrapPagePrompt(args.filePath, applySelectorHint(await defaultModelEditConfig.deleteCallback(args))),
   promptCallback: (filePath, selector) => [
-    `[文件: ${filePath}（本页面是通过ict-react-coder skill动态编译生成的）]`,
+    `[文件: ${filePath}（本页面是通过ict-coder skill动态编译生成的）]`,
     `[选择器: ${selector}${SELECTOR_HINT ? `（${SELECTOR_HINT}）` : ''}]`,
     `[用户需求]:`
   ].join('\n'),
@@ -282,7 +282,7 @@ const pageHandler = {
    *  之后分别接 antd-to-eview-react / antd-to-eview-ui（骨架换血路线） */
   downloadOptions: [
     { value: 'eview-react', label: 'Eview-React' },
-    { value: 'eview-ui', label: 'Eview UI' },
+    // { value: 'eview-ui', label: 'Eview UI' },
   ],
 
   isDownloadBusy(ctx) {
