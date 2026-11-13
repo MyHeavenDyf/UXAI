@@ -137,8 +137,6 @@ export function ResultViewer(props: {
                 onRefresh={() => { setDiskVersion(v => v + 1); props.onRefresh?.() }}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => setFocusMode(f => !f)}
-                onFilesRefresh={props.onFilesRefresh}
-                refreshKey={(props.refreshKey ?? 0) + diskVersion()}
                 canvasLoadState={canvasPreview.key === canvasKey() ? canvasPreview.state : "loading"}
                 working={props.working}
               />
