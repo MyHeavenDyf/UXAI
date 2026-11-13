@@ -31,7 +31,7 @@ export interface ArchiveConfirmData {
 
 interface DeliverableItem {
   fileName: string
-  coverUrl: string
+  coverUrl: string | null
   id: number
   docId: string
 }
@@ -562,7 +562,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       const items = data?.content?.data || []
       const transformed = items.map((item: DeliverableItem) => ({
         ...item,
-        coverUrl: `${getBaseUrl()}/pipeline${item.coverUrl}`
+        coverUrl: item.coverUrl ? `${getBaseUrl()}/pipeline${item.coverUrl}` : null
       }))
       setDeliverables(transformed)
     } catch (err) {
@@ -1142,7 +1142,15 @@ export function ArchiveDialog(props: Props): JSX.Element {
                         {item => (
                           <div class="archive-prototype-item">
                             <div class="archive-prototype-cover">
-                              <img src={item.coverUrl || ""} alt={item.fileName} />
+                              {/* 封面缺失（null）不渲染 img，露出容器浅灰底 = 空白方块；
+                                  加载失败（404 / mock 相对路径）由 onError 同样兜底 */}
+                              <Show when={item.coverUrl}>
+                                <img
+                                  src={item.coverUrl!}
+                                  alt={item.fileName}
+                                  onError={(e) => { e.currentTarget.style.display = "none" }}
+                                />
+                              </Show>
                             </div>
                             <div class="archive-prototype-name">{item.fileName}</div>
                           </div>
@@ -1341,6 +1349,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
             flex-shrink: 0;
             border-radius: 4px;
             border: 1px solid rgba(0, 0, 0, 0.1);
+            background: rgba(0, 0, 0, 0.04);
             overflow: hidden;
             display: flex;
             align-items: center;
