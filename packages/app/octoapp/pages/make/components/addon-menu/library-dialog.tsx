@@ -20,6 +20,8 @@ import { tracker } from "@/utils/tracker"
 interface PlatformAsset {
   label: string
   id: number | string
+  /** 资产类型(如 'icon',spec line 229);回传给 iframe 时原样携带 */
+  type?: string
   enable: boolean
 }
 
@@ -173,7 +175,7 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
     const enable = !asset.enable
     setPlatformAssets(prev => prev.map(a => (a.id === asset.id && a.label === asset.label ? { ...a, enable } : a)))
     setPlatformPanelRows(prev => prev.map(a => (a.id === asset.id && a.label === asset.label ? { ...a, enable } : a)))
-    postToIframe(platformIframeRef, { type: "assetsList", data: JSON.stringify([{ label: asset.label, id: asset.id, enable }]) })
+    postToIframe(platformIframeRef, { type: "assetsList", data: JSON.stringify([{ label: asset.label, id: asset.id, type: asset.type, enable }]) })
     tracker.interaction({ module: props.trackerModule ?? "design", name: "addon-toggle-platform-asset", extend: JSON.stringify({ label: asset.label, enable }) })
   }
 
@@ -181,6 +183,18 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
     setPlatformPanelRows(platformAssets().filter(a => a.enable))
     setPlatformPanelOpen(v => !v)
     setProductPanelOpen(false)
+  }
+
+  // 清空:全部置为取消选中(逐项发 assetsList 给 iframe),行列表立即清空(同产品面板清空语义)
+  const clearPlatformAssets = () => {
+    const enabled = platformAssets().filter(a => a.enable)
+    setPlatformPanelRows([])
+    if (enabled.length === 0) return
+    setPlatformAssets(prev => prev.map(a => ({ ...a, enable: false })))
+    postToIframe(platformIframeRef, {
+      type: "assetsList",
+      data: JSON.stringify(enabled.map(a => ({ label: a.label, id: a.id, type: a.type, enable: false }))),
+    })
   }
 
   const platformCount = () => platformAssets().filter(a => a.enable).length
@@ -308,6 +322,7 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
               <div class="library-selected-popover">
                 <div class="asset-selected-popover-header">
                   <span class="asset-selected-popover-count">已选{platformCount()}项</span>
+                  <button type="button" class="asset-selected-clear" onClick={clearPlatformAssets}>清空</button>
                 </div>
                 <div class="asset-selected-list">
                   <Show
@@ -318,7 +333,10 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
                       {(asset) => (
                         <div class="library-selected-platform-item">
                           <span class="library-selected-platform-label" title={asset.label}>{asset.label}</span>
-                          <Switch checked={asset.enable} onChange={() => togglePlatformAsset(asset)} hideLabel />
+                          {/* panel-switch 包裹取应用内圆角胶囊样式(octoapp 未打包 ui kit 的 switch 几何 css,裸 Switch 无圆角) */}
+                          <div class="panel-switch">
+                            <Switch checked={asset.enable} onChange={() => togglePlatformAsset(asset)} hideLabel />
+                          </div>
                         </div>
                       )}
                     </For>
