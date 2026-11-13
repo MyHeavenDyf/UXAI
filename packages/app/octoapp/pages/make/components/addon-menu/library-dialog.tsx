@@ -106,7 +106,7 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
   }
 
   const sendIniSelection = (list: unknown[]) => {
-    postToIframe(productIframeRef, { type: "iniPickerSelection", data: list })
+    postToIframe(productIframeRef, { type: "initPickerSelection", data: list })
   }
 
   // iframe onLoad 后回显已选;无 ready 握手,短重试兜底页面脚本晚于 load 注册监听的情况

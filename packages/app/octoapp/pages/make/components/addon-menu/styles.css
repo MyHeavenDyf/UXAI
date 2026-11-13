@@ -1010,6 +1010,10 @@
   flex-direction: column;
 }
 
+.library-dialog .asset-dialog-title {
+  cursor: default;
+}
+
 /* tab 切换区 + 右侧已选n项;relative 供已选面板定位 */
 .library-dialog-tabrow {
   position: relative;
