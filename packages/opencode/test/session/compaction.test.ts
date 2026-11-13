@@ -1071,7 +1071,7 @@ describe("session.compaction.process", () => {
       fn: async () => {
         const session = await svc.create({})
         await user(session.id, "first")
-        await user(session.id, "second")
+        await user(session.id, `second ${"x".repeat(80_000)}`)
         const keep = await user(session.id, "third")
         await SessionCompaction.create({
           sessionID: session.id,
@@ -1110,7 +1110,7 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("compresses the first 70 percent of conversation turns", async () => {
+  test("preserves recent turns within the token budget", async () => {
     const stub = llm()
     let captured = ""
     stub.push(
@@ -1124,7 +1124,7 @@ describe("session.compaction.process", () => {
       fn: async () => {
         const session = await svc.create({})
         const users: MessageV2.User[] = []
-        for (let i = 0; i < 10; i++) users.push(await user(session.id, `turn-${i}`))
+        for (let i = 0; i < 10; i++) users.push(await user(session.id, `turn-${i} ${"x".repeat(24_000)}`))
         await SessionCompaction.create({
           sessionID: session.id,
           agent: "build",
@@ -1150,11 +1150,11 @@ describe("session.compaction.process", () => {
 
           const part = await lastCompactionPart(session.id)
           expect(part?.type).toBe("compaction")
-          expect(part?.tail_start_id).toBe(users[7]?.id)
+          expect(part?.tail_start_id).toBe(users[8]?.id)
           for (const [index, message] of users.entries()) {
-            if (index < 7) expect(captured).toContain(`turn-${index}`)
+            if (index < 8) expect(captured).toContain(`turn-${index}`)
             else expect(captured).not.toContain(`turn-${index}`)
-            if (index >= 7) expect(MessageV2.filterCompacted(MessageV2.stream(session.id))).toContainEqual(
+            if (index >= 8) expect(MessageV2.filterCompacted(MessageV2.stream(session.id))).toContainEqual(
               expect.objectContaining({ info: expect.objectContaining({ id: message.id }) }),
             )
           }
@@ -1165,7 +1165,7 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("retains the newest 30 percent of turns regardless of token budget settings", async () => {
+  test("limits the retained tail to the configured token budget", async () => {
     await using tmp = await tmpdir()
     await WithInstance.provide({
       directory: tmp.path,
@@ -1181,7 +1181,7 @@ describe("session.compaction.process", () => {
           auto: false,
         })
 
-        const rt = runtime("continue", Plugin.defaultLayer, wide(), cfg())
+        const rt = runtime("continue", Plugin.defaultLayer, wide(), cfg({ preserve_recent_tokens: 100 }))
         try {
           const msgs = await svc.messages({ sessionID: session.id })
           const parent = msgs.at(-1)?.info.id
@@ -1220,7 +1220,7 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
-        await user(session.id, "first")
+        await user(session.id, `first ${"x".repeat(80_000)}`)
         const keep = await user(session.id, "y".repeat(2_000))
         await SessionCompaction.create({
           sessionID: session.id,
@@ -1269,7 +1269,7 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
-        await user(session.id, "older")
+        await user(session.id, `older ${"x".repeat(80_000)}`)
         const recent = await user(session.id, "recent image turn")
         await svc.updatePart({
           id: PartID.ascending(),
@@ -1328,7 +1328,7 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
-        await user(session.id, "older")
+        await user(session.id, `older ${"x".repeat(80_000)}`)
         const recent = await user(session.id, "recent turn")
         const large = await assistant(session.id, recent.id, tmp.path)
         await svc.updatePart({
@@ -1770,7 +1770,7 @@ describe("session.compaction.process", () => {
       fn: async () => {
         const session = await svc.create({})
         await user(session.id, "older context")
-        await user(session.id, "keep this turn")
+        await user(session.id, `keep this turn ${"x".repeat(80_000)}`)
         await user(session.id, "and this one too")
         await SessionCompaction.create({
           sessionID: session.id,
@@ -1893,9 +1893,9 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
-        const u1 = await user(session.id, "one")
-        const u2 = await user(session.id, "two")
-        const u3 = await user(session.id, "three")
+        const u1 = await user(session.id, `one ${"x".repeat(80_000)}`)
+        const u2 = await user(session.id, `two ${"x".repeat(80_000)}`)
+        const u3 = await user(session.id, `three ${"x".repeat(40_000)}`)
         await SessionCompaction.create({
           sessionID: session.id,
           agent: "build",
@@ -1919,7 +1919,7 @@ describe("session.compaction.process", () => {
             ),
           )
 
-          const u4 = await user(session.id, "four")
+          const u4 = await user(session.id, `four ${"x".repeat(32_000)}`)
           await SessionCompaction.create({
             sessionID: session.id,
             agent: "build",
@@ -1973,7 +1973,7 @@ describe("session.compaction.process", () => {
           messageID: keepReply.id,
           sessionID: session.id,
           type: "text",
-          text: "keep reply",
+          text: `keep reply ${"x".repeat(80_000)}`,
         })
 
         await SessionCompaction.create({
