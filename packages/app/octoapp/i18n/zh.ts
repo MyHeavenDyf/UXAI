@@ -244,6 +244,12 @@ export const dict = {
   "provider.custom.models.name.placeholder": "显示名称",
   "provider.custom.models.remove": "移除模型",
   "provider.custom.models.add": "添加模型",
+  "provider.custom.advanced.label": "高级配置",
+  "provider.custom.advanced.image": "图片输入",
+  "provider.custom.advanced.input": "输入",
+  "provider.custom.advanced.output": "输出",
+  "provider.custom.advanced.default": "使用提供商默认值",
+  "provider.custom.error.limit": "请输入大于 0 的整数 Token 数",
   "provider.custom.models.modalities.label": "Modalities 配置（可选）",
   "provider.custom.models.modalities.key.label": "Modalities Key",
   "provider.custom.models.modalities.key.placeholder": "input",
@@ -1129,6 +1135,8 @@ export const dict = {
 
   "designFiles.download": "下载",
   "designFiles.batchDelete": "删除",
+  "designFiles.pullCode": "拉取代码",
+  "designFiles.pushCode": "提交代码",
 
   "designFiles.timeToday": "今天",
   "designFiles.timeYesterday": "昨天",

@@ -133,6 +133,8 @@ export function StudioTurnAnchorNav(props: {
   createEventListener(() => props.viewport(), "pointerdown", cancelPendingClick)
   createEventListener(() => props.viewport(), "keydown", cancelPendingClick)
   createEventListener(() => props.viewport(), "touchstart", cancelPendingClick)
+  createEventListener(window, "blur", () => setState("tip", null))
+  createEventListener(document, "visibilitychange", () => setState("tip", null))
 
   onCleanup(() => {
     if (rafId !== undefined) cancelAnimationFrame(rafId)
@@ -223,8 +225,6 @@ export function StudioTurnAnchorNav(props: {
                   class="studio-turn-anchor"
                   aria-label={`定位到第 ${index() + 1} 轮：${studioTurnAnchorText(turn)}`}
                   aria-current={state.activeId === studioTurnAnchorID(turn) ? "step" : undefined}
-                  onFocus={(e) => handleRowEnter(turn, e.currentTarget)}
-                  onBlur={() => setState("tip", null)}
                   data-active={state.activeId === studioTurnAnchorID(turn) ? "true" : undefined}
                   onClick={() => handleClick(turn)}
                 >

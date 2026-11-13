@@ -89,6 +89,8 @@ export type DesktopApi = {
   copyFileToProjectDir?: (srcPath: string, baseDir: string, relDir: string, filename: string) => Promise<string>
   /** 代码类型工作区：内存 blob 直接写进 <baseDir>/<relDir>/（同 copyFileToProjectDir 落点）；返回落地绝对路径 */
   writeFileToProjectDir?: (buffer: ArrayBuffer, baseDir: string, relDir: string, filename: string) => Promise<string>
+  /** 代码工作区「拉取/提交代码」：在 cwd 执行白名单 git 子命令；git 非零退出也 resolve（带 code/stdout/stderr），spawn 级失败才 reject */
+  gitCommand?: (cwd: string, args: string[]) => Promise<{ ok: boolean; code: number; stdout: string; stderr: string }>
   openLink?: (url: string) => void
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-start
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-end

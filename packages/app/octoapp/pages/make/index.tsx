@@ -1696,8 +1696,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (lastBusyState && !busy && id) {
       // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
       setFilesRefreshKey(k => k + 1)
-      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态
-      void harvestAssessmentReview()
+      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态。
+      void harvestAssessmentReview(() => effectiveBusy())
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -1937,6 +1937,26 @@ const sessionMessagesLoaded = createMemo(() => {
     if (choice !== undefined) return choice
     const preset = skillConfig().designSystemSkills?.selectedSkillName
     return preset && designSystemOptions().includes(preset) ? preset : null
+  })
+
+  // 存量对话页展示：创建会话时选中的设计系统 —— 主 session 首条可见用户消息的 skill part
+  // （state.input.name）匹配设计系统列表（注入时 chip 前置 → 首个匹配即创建时选择；
+  // 消息推导跨设备可用，旧会话/创建时未选 → 无匹配 → null → displayOnly 仅图标）
+  const sessionDesignSystem = createMemo(() => {
+    const sid = params.id
+    if (!sid) return null
+    const firstUser = sortMessages(
+      ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => isVisibleUserMessage(m, sync.data.part[m.id])),
+    )[0]
+    if (!firstUser) return null
+    const parts = (sync.data.part?.[firstUser.id] ?? []) as Array<Record<string, unknown>>
+    const opts = designSystemOptions()
+    return (
+      parts
+        .filter((p) => p.type === "tool" && (p.tool as string | undefined) === "skill")
+        .map((p) => (p.state as { input?: { name?: string } } | undefined)?.input?.name)
+        .find((name) => name && opts.includes(name)) ?? null
+    )
   })
 
   // ── Slash Command List ──
@@ -3710,7 +3730,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string, attachmentSnapshot?: Attachment[]) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -3793,14 +3813,11 @@ const sessionMessagesLoaded = createMemo(() => {
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
-
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
       
       // Clear mention selections after processing
       setMentionSelections([])
       
-      const done = attachments().filter(a => a.status === "done")
+      const done = (attachmentSnapshot ?? attachments()).filter(a => a.status === "done")
 
       // 附件从 tmps 搬进 session/uploads（原子 rename IPC，与 insight 一致）
       const movedPaths = new Map<string, string>()
@@ -3850,6 +3867,9 @@ const sessionMessagesLoaded = createMemo(() => {
       // [Workspace] 段(禁 artifact 内容输出/授权改项目文件)与其 strategy-field/
       // design-plan 表单流程直接冲突,normal 的 [Artifact Folder] 对纯对话流程只是噪音。
       const artifactFolderPrefix = inPlanSession ? "" : await buildArtifactFolderPrefix(sessionId)
+
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
 
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
@@ -4192,6 +4212,7 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     try {
       let sid = submitSessionId
+      let attachmentSnapshot: Attachment[] | undefined
       if (!sid) {
         const dir = sdk.directory
         if (!dir) {
@@ -4316,6 +4337,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
 
         await movePendingUploadsToSession(session.id)
+        attachmentSnapshot = attachments()
 
       // 如果用户没有手动选择 spec，检查是否有存量配置
       if (SPEC_SELECTOR_VISIBLE && !selectedSpecDisplay()) {
@@ -4396,7 +4418,7 @@ const sessionMessagesLoaded = createMemo(() => {
           }
         }
       } else {
-        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem)
+        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem, attachmentSnapshot)
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
@@ -6876,9 +6898,14 @@ onPreview={(url) => {
                             }
                           }}
                        >
-                        <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
-                      </ModelSelectorPopover>
-                    </div>
+                         <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
+                       </ModelSelectorPopover>
+                      <DesignSystemSelector
+                        options={designSystemOptions()}
+                        selected={sessionDesignSystem()}
+                        displayOnly
+                      />
+                     </div>
 <IconButton
                        data-action="prompt-submit"
                        type="submit"

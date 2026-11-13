@@ -47,34 +47,34 @@ export const MOCK_PRODUCTS: Record<number, any[]> = {
 
 export const MOCK_VERSIONS: Record<number, any[]> = {
   111: [
-    { id: 1111, name: "v2612304", productId: 111, productName: "PYPTO", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 100, userTeamType: null, workflowRoleList: [1, 2] },
-    { id: 1112, name: "v2501", productId: 111, productName: "PYPTO", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: false, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 2, spaceId: 101, userTeamType: null, workflowRoleList: [1] },
+    { id: 1111, name: "v2612304", productId: 111, productName: "PYPTO", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 100, userTeamType: null, workflowRoleList: [1, 2], ownerList: [{ nickName: "张设计", account: "zhangsheji" }], uxDlList: [{ nickName: "李组长", account: "lizuzhang" }] },
+    { id: 1112, name: "v2501", productId: 111, productName: "PYPTO", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: false, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 2, spaceId: 101, userTeamType: null, workflowRoleList: [1], ownerList: null, uxDlList: null },
   ],
   112: [
-    { id: 1121, name: "v3.0", productId: 112, productName: "CANN开发套件", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 102, userTeamType: null, workflowRoleList: [] },
+    { id: 1121, name: "v3.0", productId: 112, productName: "CANN开发套件", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 102, userTeamType: null, workflowRoleList: [], ownerList: [{ nickName: "王设计", account: "wangsheji" }], uxDlList: [] },
   ],
   121: [
-    { id: 1211, name: "v2.1", productId: 121, productName: "防火墙", deliveryTypeId: 2, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 1, sort: 1, spaceId: 200, userTeamType: 1, workflowRoleList: [3] },
+    { id: 1211, name: "v2.1", productId: 121, productName: "防火墙", deliveryTypeId: 2, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 1, sort: 1, spaceId: 200, userTeamType: 1, workflowRoleList: [3], ownerList: [{ nickName: "赵设计", account: "zhaosheji" }, { nickName: "钱设计", account: "qiansheji" }], uxDlList: [{ nickName: "孙组长", account: "sunzuzhang" }] },
   ],
   211: [
-    { id: 2111, name: "v5.0", productId: 211, productName: "ECS", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 300, userTeamType: null, workflowRoleList: [1, 2, 3] },
-    { id: 2112, name: "v4.0", productId: 211, productName: "ECS", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: false, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 2, spaceId: 301, userTeamType: null, workflowRoleList: [1] },
+    { id: 2111, name: "v5.0", productId: 211, productName: "ECS", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 300, userTeamType: null, workflowRoleList: [1, 2, 3], ownerList: [{ nickName: "周设计", account: "zhousheji" }], uxDlList: [{ nickName: "吴组长", account: "wuzuzhang" }, { nickName: "郑组长", account: "zhengzuzhang" }] },
+    { id: 2112, name: "v4.0", productId: 211, productName: "ECS", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: false, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 2, spaceId: 301, userTeamType: null, workflowRoleList: [1], ownerList: [], uxDlList: [] },
   ],
   212: [
-    { id: 2121, name: "v3.0", productId: 212, productName: "OBS", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 302, userTeamType: null, workflowRoleList: [1, 2] },
+    { id: 2121, name: "v3.0", productId: 212, productName: "OBS", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 302, userTeamType: null, workflowRoleList: [1, 2], ownerList: [{ nickName: "冯设计", account: "fengsheji" }], uxDlList: [] },
   ],
   221: [
-    { id: 2211, name: "v1.28", productId: 221, productName: "Kubernetes", deliveryTypeId: 2, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 1, sort: 1, spaceId: 303, userTeamType: 2, workflowRoleList: [2, 3] },
+    { id: 2211, name: "v1.28", productId: 221, productName: "Kubernetes", deliveryTypeId: 2, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 1, sort: 1, spaceId: 303, userTeamType: 2, workflowRoleList: [2, 3], ownerList: [], uxDlList: [{ nickName: "陈组长", account: "chenzuzhang" }] },
   ],
   311: [
-    { id: 3111, name: "v1.0", productId: 311, productName: "推理服务", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 400, userTeamType: null, workflowRoleList: [1] },
-    { id: 3112, name: "v0.9", productId: 311, productName: "推理服务", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: false, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 2, spaceId: 401, userTeamType: null, workflowRoleList: [1] },
+    { id: 3111, name: "v1.0", productId: 311, productName: "推理服务", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 400, userTeamType: null, workflowRoleList: [1], ownerList: [{ nickName: "褚设计", account: "chusheji" }], uxDlList: [{ nickName: "卫组长", account: "weizuzhang" }] },
+    { id: 3112, name: "v0.9", productId: 311, productName: "推理服务", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: false, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 2, spaceId: 401, userTeamType: null, workflowRoleList: [1], ownerList: [], uxDlList: [] },
   ],
   312: [
-    { id: 3121, name: "v2.0", productId: 312, productName: "训练平台", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 402, userTeamType: null, workflowRoleList: [2] },
+    { id: 3121, name: "v2.0", productId: 312, productName: "训练平台", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 402, userTeamType: null, workflowRoleList: [2], ownerList: [{ nickName: "蒋设计", account: "jiangsheji" }], uxDlList: [] },
   ],
   321: [
-    { id: 3211, name: "v3.5", productId: 321, productName: "NLP引擎", deliveryTypeId: 2, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 1, sort: 1, spaceId: 500, userTeamType: 3, workflowRoleList: [1, 3] },
+    { id: 3211, name: "v3.5", productId: 321, productName: "NLP引擎", deliveryTypeId: 2, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 1, sort: 1, spaceId: 500, userTeamType: 3, workflowRoleList: [1, 3], ownerList: [{ nickName: "沈设计", account: "shensheji" }], uxDlList: [{ nickName: "韩组长", account: "hanzuzhang" }] },
   ],
 }
 
