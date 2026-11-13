@@ -21,6 +21,99 @@ export function applyHtmlEditMessage(source: string, message: unknown): string {
   return result.source
 }
 
+const appearanceProperties = {
+  backgroundColor: "background-color",
+  borderColor: "border-color",
+  borderStyle: "border-style",
+  borderTopWidth: "border-top-width",
+  borderRightWidth: "border-right-width",
+  borderBottomWidth: "border-bottom-width",
+  borderLeftWidth: "border-left-width",
+  boxShadow: "box-shadow",
+  filter: "filter",
+  backdropFilter: "backdrop-filter",
+  backgroundImage: "background-image",
+  paddingTop: "padding-top",
+  paddingRight: "padding-right",
+  paddingBottom: "padding-bottom",
+  paddingLeft: "padding-left",
+  marginTop: "margin-top",
+  marginRight: "margin-right",
+  marginBottom: "margin-bottom",
+  marginLeft: "margin-left",
+  width: "width",
+  height: "height",
+  overflow: "overflow",
+  borderRadius: "border-radius",
+  borderTopLeftRadius: "border-top-left-radius",
+  borderTopRightRadius: "border-top-right-radius",
+  borderBottomRightRadius: "border-bottom-right-radius",
+  borderBottomLeftRadius: "border-bottom-left-radius",
+  display: "display",
+  flexDirection: "flex-direction",
+  justifyContent: "justify-content",
+  alignItems: "align-items",
+  gap: "gap",
+} as const
+
+export const borderEditKeys = ["borderColor", "borderStyle", "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth"] as const
+
+export function applyHtmlAppearanceEdit(
+  source: string,
+  target: ModelEditElement & { documentSelector?: string },
+  styles: Partial<Record<keyof typeof appearanceProperties, string>>,
+) {
+  const fill = styles.backgroundColor !== undefined
+  const border = borderEditKeys.some(key => styles[key] !== undefined)
+  const label = fill ? "填充色" : border ? "描边" : "样式"
+  const declaration = document.createElement("div").style
+  const changes = (Object.keys(appearanceProperties) as (keyof typeof appearanceProperties)[]).flatMap(key => {
+    const value = styles[key]
+    if (value === undefined) return []
+    const property = appearanceProperties[key]
+    if (fill || border) return [{ key, property, value }]
+    const input = key === "backgroundImage" && !value.trim() ? "none" : value
+    if (!input) return [{ key, property, value: input }]
+    declaration.setProperty(property, input)
+    const normalized = declaration.getPropertyValue(property)
+    if (!normalized) throw new Error(key === "backgroundImage" ? "请输入有效的背景图 CSS 值，例如 url(...)" : "样式格式无效")
+    return [{ key, property, value: normalized }]
+  })
+  const inlineStyles = Object.fromEntries(changes.map(item => [item.key, item.value]))
+  const result = applyManualEditPatch(source, {
+    id: target.dataOdId, kind: "set-style", styles: inlineStyles,
+  })
+  if (result.ok) return { source: result.source, styles: inlineStyles, important: false }
+  if (result.error !== `Target not found: ${target.dataOdId}`) throw new Error(`无法修改 HTML ${label}`)
+  const selector = target.documentSelector
+  if (typeof selector !== "string" || !/^(?:body|[a-z][\w-]*#[a-z_][\w-]*)(?: > [a-z][\w-]*:nth-of-type\([1-9]\d*\))*$/i.test(selector)) {
+    throw new Error(`无法定位选中元素，无法保存${label}`)
+  }
+  const overrides = changes.map(item => {
+    if (fill || border) {
+      const format = item.key.endsWith("Color") ? /^(?:#[\da-f]{6}(?:[\da-f]{2})?)?$/i
+        : item.key === "borderStyle" ? /^(?:solid|dashed|dotted|none)$/ : /^\d+(?:\.\d+)?px$/
+      if (!format.test(item.value)) throw new Error(`${label}格式无效`)
+    }
+    const value = item.value || (fill || border ? "transparent" : "")
+    return { key: item.key, value, prefix: `${selector} { ${item.property}: ` }
+  })
+  const doc = new DOMParser().parseFromString(source, "text/html")
+  const attribute = fill ? "data-insight-fill-overrides" : border ? "data-insight-border-overrides" : "data-insight-style-overrides"
+  const style = doc.head.querySelector(`style[${attribute}]`) ?? doc.createElement("style")
+  const rules = (style.textContent ?? "").split("\n").filter(rule => rule && !overrides.some(item => rule.startsWith(item.prefix)))
+  style.textContent = [...rules, ...overrides.filter(item => item.value).map(item => `${item.prefix}${item.value.replace(/</g, "\\3c ")} !important; }`)].join("\n")
+  if (!style.parentNode) {
+    style.setAttribute(attribute, "")
+    doc.head.append(style)
+  }
+  return {
+    source: `${doc.doctype ? "<!doctype html>\n" : ""}${doc.documentElement.outerHTML}`,
+    styles: Object.fromEntries(overrides.map(item => [item.key, item.value])),
+    important: true,
+  }
+}
+
 /** 静态节点直接改源码；只有定位缺失才交给 Agent 处理生成逻辑。 */
 export function prepareHtmlDeletion(source: string, target: ModelEditElement, filePath: string) {
   if (["html", "head", "body"].includes(target.tagName.toLowerCase())) throw new Error("不能删除页面根节点（html、head、body）")
