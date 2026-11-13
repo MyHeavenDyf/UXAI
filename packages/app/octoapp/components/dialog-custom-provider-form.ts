@@ -10,8 +10,6 @@ type Translator = (key: string, vars?: Record<string, string | number | boolean>
 export type ModelErr = {
   id?: string
   name?: string
-  inputLimit?: string
-  outputLimit?: string
   modalities: ModalityErr[]
 }
 
@@ -37,10 +35,6 @@ export type ModelRow = {
   id: string
   name: string
   modalities: ModalityRow[]
-  imageInput?: boolean
-  inputLimit?: string
-  outputLimit?: string
-  limit?: { context?: number; input?: number; output?: number }
   err: ModelErr
 }
 
@@ -157,46 +151,19 @@ export function validateCustomProvider(input: ValidateArgs) {
     if (missingModalities) {
       modalities[0] = { ...modalities[0], key: missingModalities }
     }
-    const limitError = (value: string | undefined) =>
-      value?.trim() && (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0)
-        ? input.t("provider.custom.error.limit")
-        : undefined
-    return {
-      id: idError,
-      name: nameError,
-      modalities,
-      ...(limitError(m.inputLimit) ? { inputLimit: limitError(m.inputLimit) } : {}),
-      ...(limitError(m.outputLimit) ? { outputLimit: limitError(m.outputLimit) } : {}),
-    }
+    return { id: idError, name: nameError, modalities }
   })
-  const modelsValid = models.every(
-    (m) =>
-      !m.id && !m.name && !m.inputLimit && !m.outputLimit && m.modalities.every((item) => !item.key && !item.value),
-  )
+  const modelsValid = models.every((m) => !m.id && !m.name && m.modalities.every((item) => !item.key && !item.value))
   const modelConfig = Object.fromEntries(
     input.form.models.map((m) => {
       const modalities = Object.fromEntries(
         m.modalities.map((item) => [item.key.trim(), parseModalities(item.value.trim())]),
       ) as { input: ModalityValue[]; output: ModalityValue[] }
-      if (m.imageInput !== undefined) {
-        modalities.input = (modalities.input ?? ["text"]).filter((item) => item !== "image")
-        if (m.imageInput) modalities.input.push("image")
-        if (modalities.input.length === 0) modalities.input.push("text")
-        modalities.output ??= ["text"]
-      }
-      const limit = Object.fromEntries(
-        Object.entries({
-          ...m.limit,
-          ...(m.inputLimit !== undefined ? { input: m.inputLimit.trim() ? Number(m.inputLimit) : undefined } : {}),
-          ...(m.outputLimit !== undefined ? { output: m.outputLimit.trim() ? Number(m.outputLimit) : undefined } : {}),
-        }).filter(([, value]) => value !== undefined),
-      )
       return [
         m.id.trim(),
         {
           name: m.name.trim(),
-          ...(m.modalities.length > 0 || m.imageInput !== undefined ? { modalities } : {}),
-          ...(Object.keys(limit).length ? { limit } : {}),
+          ...(m.modalities.length > 0 ? { modalities } : {}),
         },
       ]
     }),

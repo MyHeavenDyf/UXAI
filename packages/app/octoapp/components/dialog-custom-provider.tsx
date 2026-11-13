@@ -1,5 +1,4 @@
 import { Button } from "@opencode-ai/ui/button"
-import { Checkbox } from "@opencode-ai/ui/checkbox"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -45,7 +44,6 @@ export function DialogCustomProvider(props: Props) {
             row: modelRow().row,
             id,
             name: model.name ?? id,
-            limit: model.limit,
             modalities: Object.entries(model.modalities ?? {}).map(([key, value]) =>
               modalityRow(key, JSON.stringify(value)),
             ),
@@ -118,6 +116,35 @@ export function DialogCustomProvider(props: Props) {
     })
   }
 
+  const addModality = (modelIndex: number) => {
+    setForm(
+      "models",
+      modelIndex,
+      "modalities",
+      produce((rows) => {
+        rows.push(modalityRow())
+      }),
+    )
+  }
+
+  const removeModality = (modelIndex: number, index: number) => {
+    setForm(
+      "models",
+      modelIndex,
+      "modalities",
+      produce((rows) => {
+        rows.splice(index, 1)
+      }),
+    )
+  }
+
+  const setModality = (modelIndex: number, index: number, key: "key" | "value", value: string) => {
+    batch(() => {
+      setForm("models", modelIndex, "modalities", index, key, value)
+      setForm("models", modelIndex, "modalities", index, "err", key, undefined)
+    })
+  }
+
   const setHeader = (index: number, key: "key" | "value", value: string) => {
     batch(() => {
       setForm("headers", index, key, value)
@@ -164,8 +191,8 @@ export function DialogCustomProvider(props: Props) {
       const existing = globalSync.data.config.provider?.[result.providerID]
       const models = Object.fromEntries(
         Object.entries(result.config.models).map(([id, model]) => {
-          const { modalities: _, limit: __, ...before } = existing?.models?.[id] ?? {}
-          return [id, { attachment: true, ...before, ...model }]
+          const { modalities: _, ...before } = existing?.models?.[id] ?? {}
+          return [id, { ...before, ...model }]
         }),
       )
       const { baseURL: _, headers: __, ...options } = existing?.options ?? {}
@@ -321,65 +348,55 @@ export function DialogCustomProvider(props: Props) {
                     />
                   </div>
                   <div class="flex flex-col gap-2">
-                    <label class="text-12-medium text-text-weak">{language.t("provider.custom.advanced.label")}</label>
-                    <div class="flex flex-wrap items-center gap-4">
-                      <Checkbox
-                        style={{ position: "relative" }}
-                        checked={
-                          m.imageInput ??
-                          m.modalities.some((item) => item.key === "input" && item.value.includes('"image"'))
-                        }
-                        onChange={(value) => setForm("models", i(), "imageInput", value)}
-                      >
-                        {language.t("provider.custom.advanced.image")}
-                      </Checkbox>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                      <For each={["input", "output"] as const}>
-                        {(kind) => {
-                          const field = kind === "input" ? "inputLimit" : "outputLimit"
-                          const presets = kind === "input" ? [32, 64, 128, 256] : [8, 16, 32, 64]
-                          const value = () => m[field] ?? String(m.limit?.[kind] ?? "")
-                          return (
-                            <div class="flex flex-col gap-2">
-                              <TextField
-                                label={language.t(
-                                  kind === "input"
-                                    ? "provider.custom.advanced.input"
-                                    : "provider.custom.advanced.output",
-                                )}
-                                placeholder={language.t("provider.custom.advanced.default")}
-                                inputMode="numeric"
-                                value={value()}
-                                onChange={(value) => {
-                                  setForm("models", i(), field, value)
-                                  setForm("models", i(), "err", field, undefined)
-                                }}
-                                validationState={m.err[field] ? "invalid" : undefined}
-                                error={m.err[field]}
-                              />
-                              <div class="flex flex-wrap gap-1">
-                                <For each={presets}>
-                                  {(size) => (
-                                    <Button
-                                      type="button"
-                                      size="small"
-                                      variant="ghost"
-                                      onClick={() => {
-                                        setForm("models", i(), field, String(size * 1000))
-                                        setForm("models", i(), "err", field, undefined)
-                                      }}
-                                    >
-                                      {size}K
-                                    </Button>
-                                  )}
-                                </For>
-                              </div>
-                            </div>
-                          )
-                        }}
-                      </For>
-                    </div>
+                    <label class="text-12-medium text-text-weak">
+                      {language.t("provider.custom.models.modalities.label")}
+                    </label>
+                    <For each={m.modalities}>
+                      {(item, modalityIndex) => (
+                        <div class="flex gap-2 items-start" data-row={item.row}>
+                          <div class="w-1/3">
+                            <TextField
+                              label={language.t("provider.custom.models.modalities.key.label")}
+                              hideLabel
+                              placeholder={language.t("provider.custom.models.modalities.key.placeholder")}
+                              value={item.key}
+                              onChange={(value) => setModality(i(), modalityIndex(), "key", value)}
+                              validationState={item.err.key ? "invalid" : undefined}
+                              error={item.err.key}
+                            />
+                          </div>
+                          <div class="flex-1">
+                            <TextField
+                              label={language.t("provider.custom.models.modalities.value.label")}
+                              hideLabel
+                              placeholder={language.t("provider.custom.models.modalities.value.placeholder")}
+                              value={item.value}
+                              onChange={(value) => setModality(i(), modalityIndex(), "value", value)}
+                              validationState={item.err.value ? "invalid" : undefined}
+                              error={item.err.value}
+                            />
+                          </div>
+                          <IconButton
+                            type="button"
+                            icon="trash"
+                            variant="ghost"
+                            class="mt-1.5"
+                            onClick={() => removeModality(i(), modalityIndex())}
+                            aria-label={language.t("provider.custom.models.modalities.remove")}
+                          />
+                        </div>
+                      )}
+                    </For>
+                    <Button
+                      type="button"
+                      size="small"
+                      variant="ghost"
+                      icon="plus-small"
+                      onClick={() => addModality(i())}
+                      class="self-start"
+                    >
+                      {language.t("provider.custom.models.modalities.add")}
+                    </Button>
                   </div>
                 </div>
               )}
