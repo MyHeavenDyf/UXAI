@@ -48,10 +48,14 @@ export interface AssetFile {
   convertHtmlUrl?: string
   /** type 40:EDM 文档路径(下载路径 = s3BaseUrl + '/' + docPath) */
   docPath?: string
+  /** type 40:md 源文件地址(与 parseDocPath 成对出现时,下载路径改用 parseS3BaseUrl + '/' + parseDocPath,文件名后缀改 md) */
+  parseS3BaseUrl?: string
+  parseDocPath?: string
   /** type 40:EDM 下载所需的文档 id */
   docId?: string
   /** type 40:文件字节数 */
   fileSize?: number
+  realPathName?: string
   versionInfo?: AssetVersionInfo[] | null
 }
 
@@ -132,6 +136,7 @@ const MOCK_FILES: AssetFile[] = [
     s3BaseUrl: "http://127.0.0.1:8080/",
     convertHtmlUrl: "index.html",
     docPath: "assets/1753/2abc123123.xlsx",
+    realPathName: "a/b",
     docId: "ASSET_421",
     fileSize: 1111,
     versionInfo: [
@@ -143,6 +148,7 @@ const MOCK_FILES: AssetFile[] = [
     id: 2222,
     fileName: "容器2",
     docPath: "assets/1753/2abc123123.xlsx",
+    realPathName: "a/c",
     docId: "ASSET_421",
     fileSize: 1111,
     snapshot: "image/Iconolor.png",
@@ -155,6 +161,7 @@ const MOCK_FILES: AssetFile[] = [
     id: 3333,
     fileName: "产品效果图.png",
     docPath: "assets/1753/product-preview.png",
+    realPathName: "设计图/图标",
     s3BaseUrl: "http://127.0.0.1:8080/",
     fileSize: 20480,
   },
@@ -163,9 +170,21 @@ const MOCK_FILES: AssetFile[] = [
     id: 4444,
     fileName: "数据报表.xlsx",
     docPath: "assets/1753/report.xlsx",
+    realPathName: "报表/季度",
     snapshot: "image/report-thumb.png",
     s3BaseUrl: "http://127.0.0.1:8080/",
     fileSize: 20480,
+  },
+  {
+    type: 40,
+    id: 5555,
+    fileName: "接口文档.md",
+    docPath: "assets/1753/api-doc.md",
+    parseS3BaseUrl: "http://127.0.0.1:8080/",
+    parseDocPath: "src/aaa",
+    realPathName: "文档/接口",
+    s3BaseUrl: "http://127.0.0.1:8080/",
+    fileSize: 4096,
   },
 ]
 
@@ -218,6 +237,24 @@ export function assetFileId(file: AssetFile): string {
   const base = joinUrl(file.s3BaseUrl || "", file.convertHtmlUrl || "")
   if (file.convertHtmlUrl) return base
   return joinUrl(base, file.fileName)
+}
+
+/** type 40 是否带 md 源文件字段(成对出现才生效) */
+export function hasAssetParseSource(file: Pick<AssetFile, "parseS3BaseUrl" | "parseDocPath">): boolean {
+  return !!(file.parseS3BaseUrl && file.parseDocPath)
+}
+
+/**
+ * 资产的展示/保存文件名。type 40 带 parse 字段时下载的是 md 源文件,
+ * fileName 的后缀名改为 md;其余场景原样返回 fileName。
+ */
+export function getAssetDisplayName(file: AssetFile): string {
+  if (file.type === 40 && hasAssetParseSource(file)) {
+    const dot = file.fileName.lastIndexOf(".")
+    const base = dot > 0 ? file.fileName.slice(0, dot) : file.fileName
+    return `${base}.md`
+  }
+  return file.fileName
 }
 
 async function getJson(url: string): Promise<any> {

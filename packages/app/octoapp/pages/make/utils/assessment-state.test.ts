@@ -67,24 +67,27 @@ describe("parseReviewItems", () => {
 })
 
 describe("路径推导", () => {
-  test("评审文件：normal 走 .octo/<sid>/outputs", () => {
-    setAssessmentContext({ projectDir: "D:/proj", sessionId: "ses_123", workspaceKind: "normal" })
-    expect(computeAssessmentReviewPath("D:/proj/output/abc123/abc.html", "H Design官网规范评估")).toBe(
+  test("评审文件：与被评估文件同目录（outputs 内文件）", () => {
+    expect(computeAssessmentReviewPath("D:/proj/.octo/ses_123/outputs/abc.html", "H Design官网规范评估")).toBe(
       "D:/proj/.octo/ses_123/outputs/评估报告_abc_H Design官网规范评估/annotations.json",
     )
   })
 
-  test("评审文件：code 走项目根本身", () => {
-    setAssessmentContext({ projectDir: "D:/proj", sessionId: "ses_123", workspaceKind: "code" })
+  test("评审文件：与被评估文件同目录（项目根文件，任何工作区类型一致）", () => {
     expect(computeAssessmentReviewPath("D:/proj/abc.html", "ICT 领域规范评估")).toBe(
       "D:/proj/评估报告_abc_ICT 领域规范评估/annotations.json",
     )
   })
 
-  test("评审文件：Windows 分隔符 + 反斜杠路径归一化", () => {
-    setAssessmentContext({ projectDir: "D:\\proj", sessionId: "ses_123", workspaceKind: "normal" })
+  test("评审文件：子目录文件 → 评估报告文件夹在子目录内（与文件同级）", () => {
+    expect(computeAssessmentReviewPath("D:/proj/src/a.html", "技能A")).toBe(
+      "D:/proj/src/评估报告_a_技能A/annotations.json",
+    )
+  })
+
+  test("评审文件：Windows 反斜杠归一化为正斜杠输出", () => {
     expect(computeAssessmentReviewPath("D:\\proj\\x\\abc.html", "技能A")).toBe(
-      "D:\\proj\\.octo\\ses_123\\outputs\\评估报告_abc_技能A\\annotations.json",
+      "D:/proj/x/评估报告_abc_技能A/annotations.json",
     )
   })
 
@@ -103,11 +106,10 @@ describe("路径推导", () => {
     expect(computeAssessmentStatePath("E:/elsewhere/x.html")).toBe("D:/proj/.octo/ses_123/assessment/x.html.json")
   })
 
-  test("无上下文返回 null", () => {
-    setAssessmentContext({ projectDir: "", sessionId: "", workspaceKind: "normal" })
-    // projectDir 为空串时 sepOf 判定走 "/"，仍可推导——空串上下文由调用方（make 页）保证不出现；
-    // 此处仅验证类型通路
-    expect(typeof computeAssessmentReviewPath("a.html", "s")).toBe("string")
+  test("评审文件：空 filePath 返回 null；纯文件名走根相对路径", () => {
+    expect(computeAssessmentReviewPath("", "s")).toBeNull()
+    // 实际 filePath 均为绝对路径（tab.filePath），纯文件名仅为边界行为记录
+    expect(computeAssessmentReviewPath("a.html", "s")).toBe("/评估报告_a_s/annotations.json")
   })
 })
 

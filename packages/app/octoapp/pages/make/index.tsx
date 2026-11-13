@@ -5,7 +5,7 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, docFromJSON, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { DesignStrategyIcon } from "./components/addon-menu/icons"
-import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
+import { encodeAssetUrl, getAssetDisplayName, hasAssetParseSource, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import { type PanelSkill, type SkillConfig, lookupDisplayName } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
@@ -107,6 +107,7 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ComplianceNotice } from "@/components/compliance-notice"
+import { DesignSystemSelector, DESIGN_SYSTEM_NONE } from "./components/design-system-selector"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { showInsightNotice, InsightNoticeHost } from "@/pages/insight/components/insight-notice"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
@@ -1695,8 +1696,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (lastBusyState && !busy && id) {
       // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
       setFilesRefreshKey(k => k + 1)
-      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态
-      void harvestAssessmentReview()
+      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态。
+      void harvestAssessmentReview(() => effectiveBusy())
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -1918,6 +1919,44 @@ const sessionMessagesLoaded = createMemo(() => {
     return (cfg.panel?.octo_make ?? [])
       .filter(s => s.autoInject === true && s.enable !== false)
       .map(s => ({ type: 'skill' as const, name: s.label, label: lookupDisplayName(cfg.skill, s.label) ?? s.label }))
+  })
+
+  // ── Design System Selector（新建 session 对话框，数据来自 skill_config.json 的 designSystemSkills）──
+  // undefined = 用户未手动选择（跟随 selectedSkillName 默认值），null = 手动选择“不使用设计系统”
+  const [designSystemChoice, setDesignSystemChoice] = createSignal<string | null | undefined>(undefined)
+  const designSystemOptions = createMemo(() => {
+    const seen = new Set<string>()
+    return (skillConfig().designSystemSkills?.skillList ?? []).map(s => s.label).filter(label => {
+      if (seen.has(label)) return false
+      seen.add(label)
+      return true
+    })
+  })
+  const designSystemSelected = createMemo(() => {
+    const choice = designSystemChoice()
+    if (choice !== undefined) return choice
+    const preset = skillConfig().designSystemSkills?.selectedSkillName
+    return preset && designSystemOptions().includes(preset) ? preset : null
+  })
+
+  // 存量对话页展示：创建会话时选中的设计系统 —— 主 session 首条可见用户消息的 skill part
+  // （state.input.name）匹配设计系统列表（注入时 chip 前置 → 首个匹配即创建时选择；
+  // 消息推导跨设备可用，旧会话/创建时未选 → 无匹配 → null → displayOnly 仅图标）
+  const sessionDesignSystem = createMemo(() => {
+    const sid = params.id
+    if (!sid) return null
+    const firstUser = sortMessages(
+      ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => isVisibleUserMessage(m, sync.data.part[m.id])),
+    )[0]
+    if (!firstUser) return null
+    const parts = (sync.data.part?.[firstUser.id] ?? []) as Array<Record<string, unknown>>
+    const opts = designSystemOptions()
+    return (
+      parts
+        .filter((p) => p.type === "tool" && (p.tool as string | undefined) === "skill")
+        .map((p) => (p.state as { input?: { name?: string } } | undefined)?.input?.name)
+        .find((name) => name && opts.includes(name)) ?? null
+    )
   })
 
   // ── Slash Command List ──
@@ -3691,7 +3730,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string, attachmentSnapshot?: Attachment[]) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -3778,7 +3817,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // Clear mention selections after processing
       setMentionSelections([])
       
-      const done = attachments().filter(a => a.status === "done")
+      const done = (attachmentSnapshot ?? attachments()).filter(a => a.status === "done")
 
       // 附件从 tmps 搬进 session/uploads（原子 rename IPC，与 insight 一致）
       const movedPaths = new Map<string, string>()
@@ -4053,8 +4092,9 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({
         module: "design",
         name: "send-message",
-        extend: JSON.stringify({ 
+        extend: JSON.stringify({
           hasAttachment: fileParts.length > 0 || localManifest.length > 0,
+          ...(injectedDesignSystem ? { designSystem: injectedDesignSystem } : {}),
         }),
       })
       
@@ -4125,6 +4165,17 @@ const sessionMessagesLoaded = createMemo(() => {
       text = `@${specName} ` + text
       mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
+
+    let injectedDesignSystem: string | undefined
+    if (!hasSessionView()) {
+      const designSystem = designSystemSelected()
+      if (designSystem && !mentions.some(m => m.type === "skill" && m.name === designSystem)) {
+        injectedDesignSystem = designSystem
+        text = `​@${designSystem}​ ` + text
+        mentions = [{ type: 'skill', name: designSystem, label: designSystem, id: designSystem, path: "" }, ...mentions]
+        tracker.interaction({ module: "design", name: "send-design-system", extend: JSON.stringify({ designSystem }) })
+      }
+    }
     
     if (effectiveBusy() || !activeModelKey()) return
 
@@ -4165,6 +4216,7 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     try {
       let sid = submitSessionId
+      let attachmentSnapshot: Attachment[] | undefined
       if (!sid) {
         const dir = sdk.directory
         if (!dir) {
@@ -4289,6 +4341,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
 
         await movePendingUploadsToSession(session.id)
+        attachmentSnapshot = attachments()
 
       // 如果用户没有手动选择 spec，检查是否有存量配置
       if (SPEC_SELECTOR_VISIBLE && !selectedSpecDisplay()) {
@@ -4347,7 +4400,7 @@ const sessionMessagesLoaded = createMemo(() => {
             setPatternBlockMatching(false)
             // 不清空 lastEnriched*MsgId：跳过历史中已处理过的旧 <pattern-match>/<module-list>，
             // 仅当 agent 本轮输出新的 match/module-list 时才重新触发匹配弹窗
-            await sendMessage(existingChildId, text, capturedModelKey, mentions)
+            await sendMessage(existingChildId, text, capturedModelKey, mentions, injectedDesignSystem)
           } else {
             // 首次进入：创建新的 ict_pattern 子 session
             lastEnrichedPatternMatchMsgId = null
@@ -4364,12 +4417,12 @@ const sessionMessagesLoaded = createMemo(() => {
               setPatternSubPhase("match")
               setPatternMatches(null)
               sync.session.sync(patternChildSession.id).catch(() => {})
-              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions)
+              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions, injectedDesignSystem)
             }
           }
         }
       } else {
-        await sendMessage(sid, text, capturedModelKey, mentions)
+        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem, attachmentSnapshot)
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
@@ -5051,6 +5104,8 @@ const sessionMessagesLoaded = createMemo(() => {
       fileName: string
       s3BaseUrl?: string
       docPath?: string
+      parseS3BaseUrl?: string
+      parseDocPath?: string
       docId?: string
       fileSize?: number
       versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
@@ -5068,10 +5123,12 @@ const sessionMessagesLoaded = createMemo(() => {
     let buffer: ArrayBuffer
     let downloadName: string
     if (file.type === 40) {
-      // type 40: 下载路径 = s3BaseUrl + '/' + docPath (spec line 77)
-      if (!file.docPath) throw new Error("缺少 docPath,无法下载")
-      downloadName = file.docPath
-      const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.docPath))
+      // type 40: 下载路径 = s3BaseUrl + '/' + docPath;带 parse 字段时改用 parse 源文件
+      const useParse = hasAssetParseSource(file)
+      const remotePath = useParse ? file.parseDocPath! : file.docPath
+      if (!remotePath) throw new Error("缺少 docPath,无法下载")
+      downloadName = remotePath
+      const fileUrl = encodeAssetUrl(joinUrl(useParse ? file.parseS3BaseUrl! : file.s3BaseUrl, remotePath))
       const response = await fetch(fileUrl, { signal })
       if (!response.ok) throw new Error(`下载失败: ${response.status}`)
       const blob = await response.blob()
@@ -5138,10 +5195,10 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     }
 
-    // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
+    // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77,带 parse 字段时后缀改 md),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
     let saveName: string
     if (file.type === 40) {
-      saveName = file.fileName
+      saveName = getAssetDisplayName(file)
     } else {
       const dot = downloadName.lastIndexOf(".")
       const ext = dot > 0 ? downloadName.slice(dot) : ""
@@ -6114,7 +6171,7 @@ const sessionMessagesLoaded = createMemo(() => {
                   onClick={(e) => {
                     setMenuTriggerEl(e.currentTarget as HTMLElement)
                     setMenuPos({ x: e.clientX, y: e.clientY })
-                    setTitleState("menuOpen", true)
+                    setTitleState("menuOpen", !titleState.menuOpen)
                   }}
                 >
                   <Icon name="ellipsis" class="size-4" />
@@ -6323,7 +6380,7 @@ onPreview={(url) => {
                           onChange={handleFileInputChange}
                         />
                         <AddonMenu
-                          items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                          items={["skills", "assetLibrary", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
                           slots={[
                             {
                               key: "designStrategy",
@@ -6368,6 +6425,7 @@ onPreview={(url) => {
                           artifactFiles={artifactFilesMirror()}
                           productId={projectSelection()?.product?.id}
                           productAssetsDisabledReason={productAssetsDisabledReason()}
+                          assetLibraryDisabledReason={productAssetsDisabledReason()}
                           onDownloadProductAsset={downloadProductAsset}
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
@@ -6392,9 +6450,20 @@ onPreview={(url) => {
                               }
                             }}
                          >
-                          <ModelTriggerLabel model={local.model} />
-                         </ModelSelectorPopover>
-                       </div>
+                           <ModelTriggerLabel model={local.model} />
+                          </ModelSelectorPopover>
+                          <DesignSystemSelector
+                            options={designSystemOptions()}
+                            selected={designSystemSelected()}
+                            onSelect={(label) => {
+                              setDesignSystemChoice(label)
+                              getDesktopApi()?.setDesignSystemSkillConfig?.(label ?? DESIGN_SYSTEM_NONE)?.catch((err) =>
+                                console.warn("[MakePage] setDesignSystemSkillConfig failed", err)
+                              )
+                              tracker.interaction({ module: "design", name: "select-design-system", extend: JSON.stringify({ designSystem: label ?? "none" }) })
+                            }}
+                          />
+                        </div>
  <IconButton
                           data-action="prompt-submit"
                           type="submit"
@@ -6765,7 +6834,7 @@ onPreview={(url) => {
                         onChange={handleFileInputChange}
                       />
                       <AddonMenu
-                        items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                        items={["skills", "assetLibrary", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
                         slots={[
                           {
                             key: "designStrategy",
@@ -6810,6 +6879,7 @@ onPreview={(url) => {
                         artifactFiles={artifactFilesMirror()}
                         productId={projectSelection()?.product?.id}
                         productAssetsDisabledReason={productAssetsDisabledReason()}
+                        assetLibraryDisabledReason={productAssetsDisabledReason()}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
@@ -6834,9 +6904,14 @@ onPreview={(url) => {
                             }
                           }}
                        >
-                        <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
-                      </ModelSelectorPopover>
-                    </div>
+                         <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
+                       </ModelSelectorPopover>
+                      <DesignSystemSelector
+                        options={designSystemOptions()}
+                        selected={sessionDesignSystem()}
+                        displayOnly
+                      />
+                     </div>
 <IconButton
                        data-action="prompt-submit"
                        type="submit"

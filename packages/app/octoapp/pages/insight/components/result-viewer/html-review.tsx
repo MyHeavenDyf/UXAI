@@ -7,13 +7,14 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { HistoryPanel } from "../../../make/components/result-viewer/history-panel"
+import { IconLocalModify } from "../../../make/icons"
 import type { VersionEntry } from "../../../make/utils/history-store"
 import { getDesktopApi } from "../../lib/electron-api"
 import { createHtmlHistory } from "../../utils/html-history"
 import { createHtmlComments } from "../../utils/html-comments"
 import { tabLocalPath, type ResultTab } from "./tab-store"
 
-function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void }) {
+function createReview(props: { productId?: number; onEditPrompt?: (sessionId: string, prompt: string, source: string) => Promise<void>; tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void }) {
   const params = useParams()
   const sdk = useSDK()
   const directory = useProjectDir()
@@ -83,6 +84,26 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
   }
   return {
     state, key, path, comments, history,
+    productId: () => props.productId,
+    directory,
+    sessionId: () => params.id,
+    editWithAgent: async (prompt: string, content: string, original: string, onSaved: (content: string) => void, source = "html-asset-replace") => {
+      const sessionId = params.id
+      const scope = key()
+      const file = path()
+      const api = getDesktopApi()
+      if (!sessionId || !file || !api || !props.onEditPrompt || state.busy || props.working) throw new Error("当前无法发起源码修改")
+      setState("busy", true)
+      try {
+        await saveHtmlEdit(file, original, content, api, () => scope === key() && !props.working)
+        if (scope !== key() || disposed) throw new Error("编辑页面已关闭")
+        onSaved(content)
+        await props.onEditPrompt(sessionId, prompt, source)
+        if (scope === key()) { setState("editing", false); props.onRestore() }
+      } finally {
+        if (scope === key()) setState("busy", false)
+      }
+    },
     editDisabled: () => !eligible() || !history() || !getDesktopApi()?.writeFileBuffer || !!props.working || state.busy,
     toggleEdit: () => setState({ editing: !state.editing, commenting: false }),
     saveEdit: async (content: string, original: string) => {
@@ -133,6 +154,7 @@ export const useHtmlReview = () => useContext(ReviewContext)
 const htmlReviewEnabled = true
 
 export function HtmlReviewProvider(props: {
+  productId?: number; onEditPrompt?: (sessionId: string, prompt: string, source: string) => Promise<void>;
   tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void; children: JSX.Element
 }) {
   const review = htmlReviewEnabled ? createReview(props) : undefined
@@ -155,7 +177,7 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
     <Tooltip value="局部修改" placement="top">
       <button type="button" class={buttonClass()} disabled={!!disabled() || review?.editDisabled()}
         aria-pressed={review?.state.editing} classList={{ "octo-viewport-btn-active": review?.state.editing }}
-        onClick={() => review?.toggleEdit()}><span>{review?.state.editing ? "退出修改" : "局部修改"}</span></button>
+        onClick={() => review?.toggleEdit()}><IconLocalModify size={iconSize()} /><span>{review?.state.editing ? "退出修改" : "局部修改"}</span></button>
     </Tooltip>
     <Tooltip value={disabled() || "标注"} placement="top">
       <button type="button" class={buttonClass()} disabled={!!disabled() || review?.state.busy}

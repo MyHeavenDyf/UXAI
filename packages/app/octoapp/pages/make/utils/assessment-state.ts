@@ -2,6 +2,7 @@ import { createSignal } from "solid-js"
 import type { WorkspaceKind } from "@/context/server"
 import { getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
+import { tracker } from "@/utils/tracker"
 
 
 export type AssessmentSolution = { desc: string; suggest: string }
@@ -214,11 +215,11 @@ export function exitPendingAssessment() {
 
 // ── 评审数据采集（busy→idle 钩子调用）─────────────────────────────────
 
-const [assessmentTurn, setAssessmentTurn] = createSignal<{ fileKey: string; filePath: string; skillName: string } | null>(null)
+const [assessmentTurn, setAssessmentTurn] = createSignal<{ fileKey: string; filePath: string; skillName: string; sentAt: number } | null>(null)
 
 /** sendAssessment 发送前记录本回合，供回合结束后按 (文件, 技能) 拼 annotations.json 路径 */
 export function recordAssessmentTurn(opts: { fileKey: string; filePath: string; skillName: string }) {
-  setAssessmentTurn(opts)
+  setAssessmentTurn({ ...opts, sentAt: Date.now() })
 }
 
 /** 发送失败（ack 失败）时清除回合标记，避免下次 busy→idle 误采集 */
@@ -226,35 +227,63 @@ export function clearAssessmentTurn() {
   setAssessmentTurn(null)
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-export async function harvestAssessmentReview(): Promise<void> {
+
+export async function harvestAssessmentReview(busyNow: () => boolean): Promise<void> {
   const turn = assessmentTurn()
   if (!turn) return
-  setAssessmentTurn(null)
   const reviewPath = computeAssessmentReviewPath(turn.filePath, turn.skillName)
   const api = getDesktopApi()
   if (!reviewPath || !api?.readFileBuffer) return
+  // 采集结果打点：有没有生成评审数据 + 成功时的条数（skill 区分 DMG预审；age = 回合耗时）。
+  const track = (fields: Record<string, unknown>) =>
+    tracker.interaction({ module: "design", name: "assessment-harvest", extend: JSON.stringify({ skill: turn.skillName, age: Date.now() - turn.sentAt, ...fields }) })
+  const stillCurrent = () => assessmentTurn() === turn
   let raw: unknown
   try {
-    const buf = await api.readFileBuffer(reviewPath)
+
+    let buf = await api.readFileBuffer(reviewPath)
+    for (let i = 0; i < 3 && !buf; i++) {
+      await sleep(800)
+      if (busyNow()) return
+      buf = await api.readFileBuffer(reviewPath)
+    }
     if (!buf) {
       const dir = reviewPath.replace(/[\\/][^\\/]+$/, "")
       if (await api.dirExists?.(dir)) {
+        if (!stillCurrent()) return
+        setAssessmentTurn(null)
         showOctoToast({ title: "评审数据文件缺失", description: "请将评审数据文件命名为 annotations.json", variant: "error" })
+        track({ ok: false, reason: "file-missing-in-folder" })
+        return
       }
+      if (busyNow()) return
+      if (!stillCurrent()) return
+      setAssessmentTurn(null)
+      track({ ok: false, reason: "file-missing" })
       return
     }
     raw = JSON.parse(new TextDecoder().decode(buf))
   } catch (err) {
+    if (!stillCurrent()) return
+    setAssessmentTurn(null)
     console.warn("[assessment] 读取 annotations.json 失败", reviewPath, err)
     showOctoToast({ title: "评审数据读取失败", description: "annotations.json 不是合法的 JSON", variant: "error" })
+    track({ ok: false, reason: "json-parse" })
     return
   }
   const reviewData = parseReviewItems(raw)
   if (!reviewData) {
+    if (!stillCurrent()) return
+    setAssessmentTurn(null)
     console.warn("[assessment] annotations.json 结构非法", reviewPath)
     showOctoToast({ title: "评审数据格式异常", description: "annotations.json 结构不符合评审数据契约", variant: "error" })
+    track({ ok: false, reason: "invalid-structure" })
     return
   }
+  if (!stillCurrent()) return
+  setAssessmentTurn(null)
+  track({ ok: true, count: reviewData.length })
   enterPending({ fileKey: turn.fileKey, filePath: turn.filePath, skillName: turn.skillName, reviewData })
 }

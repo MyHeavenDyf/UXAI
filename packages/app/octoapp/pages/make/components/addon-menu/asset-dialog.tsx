@@ -10,6 +10,7 @@ import {
   encodeAssetUrl,
   joinUrl,
   assetFileId,
+  getAssetDisplayName,
   getAssetThumb,
   getAssetThumbKind,
   isAssetThumbImage,
@@ -153,9 +154,10 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: "file",
-      filename: file.fileName,
+      filename: getAssetDisplayName(file),
       path: id,
       isFolder: isZip || undefined,
+      realPathName: file.realPathName,
     }
     if (isFileSelected(file)) {
       props.onDeselect(selection)
@@ -176,8 +178,9 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
     const id = assetFileId(file)
     const selection: MentionSelection = {
       type: "file",
-      filename: file.fileName,
+      filename: getAssetDisplayName(file),
       path: id,
+      realPathName: file.realPathName,
     }
     props.onDeselect(selection)
     setSelectedAssets(prev => {
@@ -499,7 +502,9 @@ export function AssetDialog(props: AssetDialogProps): JSX.Element {
                               </Show>
                             </Show>
                           </div>
-                          <span class="asset-selected-name" title={file.fileName}>{file.fileName}</span>
+                          <span class="asset-selected-name" title={file.realPathName ? `${file.realPathName}/${file.fileName}` : file.fileName}>
+                            {file.realPathName ? `${file.realPathName}/${file.fileName}` : file.fileName}
+                          </span>
                           <button
                             type="button"
                             class="asset-selected-remove"

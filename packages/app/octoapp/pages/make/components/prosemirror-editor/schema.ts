@@ -6,6 +6,7 @@ export interface MentionAttrs {
   type: "skill" | "file" | "folder"
   label: string
   path?: string
+  realPathName?: string
 }
 
 export const mentionNodeSpec = {
@@ -19,6 +20,7 @@ export const mentionNodeSpec = {
     type: { default: "skill" },
     label: { default: "" },
     path: { default: "" },
+    realPathName: { default: "" },
   },
   toDOM: (node: PMNode): readonly [string, ...any[]] => {
     const attrs = node.attrs as MentionAttrs
@@ -34,6 +36,7 @@ export const mentionNodeSpec = {
         "data-type": attrs.type,
         "data-label": attrs.label,
         "data-path": attrs.path || "",
+        "data-real-path-name": attrs.realPathName || "",
         title: `@${attrs.label || attrs.name}`,
       },
       `   @${attrs.label || attrs.name}   `,
@@ -48,6 +51,7 @@ export const mentionNodeSpec = {
         type: (dom.getAttribute("data-type") as "skill" | "file" | "folder") || "skill",
         label: dom.getAttribute("data-label") || "",
         path: dom.getAttribute("data-path") || "",
+        realPathName: dom.getAttribute("data-real-path-name") || "",
       }),
     },
   ],
@@ -93,6 +97,7 @@ export function extractMentionsFromDoc(doc: PMNode): MentionAttrs[] {
         type: node.attrs.type,
         label: node.attrs.label,
         path: node.attrs.path,
+        realPathName: node.attrs.realPathName,
       })
     }
   })

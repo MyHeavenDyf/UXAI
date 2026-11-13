@@ -1358,3 +1358,62 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 - 产品自动选中 effect 新增 `if (userClearedProduct) return` — 用户清除后不再自动选中
 - 领域/产品线/产品/搜索结果 onClick 中设置 `userClearedProduct = false` — 用户重新开始选择时恢复自动选中
 - 原因：点"不选择"后 `selectedProductId` 为 undefined，effect 条件 `!list.some(item => item.id === selectedProductId())` 恒为 true，会立即把 list[0] 重新暂存回来，与"不选择"的意图矛盾
+
+---
+
+## 第四十二轮改动（关联代码仓入口 + 弹窗 + 后端 git remote 接口）
+
+### 153. `dialog-project-onboarding.tsx` — "关联本地文件夹"标签右侧新增"关联代码仓"入口
+
+- "关联本地文件夹"标签行改为 `display: flex; justify-content: space-between`：左侧保持必填标题（红色 `*` + "关联本地文件夹"），右侧新增蓝色文字按钮"关联代码仓"
+- 按钮样式：`font-size: 14px, font-weight: 400, color: #0a59f7, background: transparent, border: none, cursor: pointer`
+- 点击 `setRepoDialogOpen(true)` 打开 `DialogRepoAssociate` 弹窗
+- 新增 `repoDialogOpen` / `repoUrl` 两个 signal — 控制弹窗显隐和暂存已关联的远程仓库地址
+- `<Show when={repoDialogOpen()}>` 渲染 `DialogRepoAssociate`，传入 `directory={directory()}`（当前选中的本地文件夹路径）
+- 确认回调 `setRepoUrl(url)` + `setRepoDialogOpen(false)` — 暂存 URL 并关闭弹窗
+- `handleConfirm` 中 tracker 埋点 `extend` JSON 新增 `repoUrl: repoUrl() || undefined` — 上报已关联的代码仓地址
+
+### 154. 新建 `dialog-repo-associate.tsx` — 关联代码仓弹窗组件
+
+- 弹窗容器：`width: 452px, box-sizing: border-box, padding: 20px 24px, border-radius: 8px`，与主弹窗一致的渐变背景和阴影
+- Props：`directory: string`（所选本地文件夹路径）、`onClose()`、`onConfirm(repoUrl: string)`
+- 检测逻辑（`onMount`）：通过 `globalSDK.client.project.getGitRemote({ directory })` 调用后端接口检测所选目录是否已配置 git remote origin
+  - `status === "loading"` — 显示"正在检测代码仓..."
+  - `status === "found"` — 只读展示当前远程仓库地址（灰色背景输入框，`font-family: monospace`）
+  - `status === "not-found"` — 显示必填输入框"关联代码仓地址"（红色 `*` + placeholder），用户输入 URL 后点击确定调用 `globalSDK.client.project.addGitRemote({ directory, url })` 完成关联
+  - `status === "no-directory"` — 显示"请先选择关联本地文件夹"
+- URL 格式校验正则 `GIT_REPO_REGEX`：支持 HTTPS（`https://host/path`）和 SSH（`git@host:path`）格式
+- 按钮：取消（88×32px、`border-radius: 20px`、白底灰边）+ 确定（88×32px、`border-radius: 20px`、蓝底白字），`justify-content: flex-end` 居右
+- 确定按钮在"已有远程"时直接回传 URL；在"未配置远程"时校验输入后调后端 `addGitRemote`，提交中显示"关联中..."
+
+### 155. 后端 `packages/opencode/src/project/project.ts` — Project Service 新增 `getGitRemote` / `addGitRemote`
+
+- `getGitRemote({ directory })` — 执行 `git remote get-url origin`，返回 `{ remoteUrl: string | null }`；未配置时返回 null
+- `addGitRemote({ directory, url })` — 完整关联流程：
+  1. 检测 git 是否已安装（`which("git")`）
+  2. 检测目录是否已初始化 git（`git rev-parse --git-dir`），未初始化则 `git init --quiet`
+  3. 检测 origin 是否已存在（`git remote get-url origin`）：已存在 → `git remote set-url origin <url>` 更新；不存在 → `git remote add origin <url>` 新增
+- 两个方法注册到 Project Service interface 和 return 对象
+
+### 156. 后端路由 — legacy Hono + HttpApi 双注册
+
+- `packages/opencode/src/server/routes/instance/project.ts` — 新增 `GET /project/git/remote`（查询远程仓库地址）和 `POST /project/git/remote`（关联/更新远程仓库地址）两个 Hono 路由
+  - `GitRemoteResponse` schema：`{ remoteUrl: z.string().nullable() }`
+  - `GitRemoteInput` schema：`{ url: z.string().min(1) }`
+  - 路由 handler 中 `directory` 优先从 `c.req.query("directory")` 读取，`Instance.directory` 仅作 fallback — 避免 onboarding 阶段实例尚未加载时 `Instance.directory` 抛 `NotFound`
+- `packages/opencode/src/server/routes/instance/httpapi/groups/project.ts` — HttpApi group 新增 `getGitRemote`（GET）和 `addGitRemote`（POST）endpoint，保持与 legacy 路由 parity
+- `packages/opencode/src/server/routes/instance/httpapi/handlers/project.ts` — HttpApi handler 新增 `getGitRemote` / `addGitRemote`，通过 `InstanceState.context` 获取 directory
+- `packages/opencode/src/server/routes/instance/index.ts` — 注册 `app.get("/project/git/remote")` 和 `app.post("/project/git/remote")` 路由
+
+### 157. SDK 重新生成
+
+- `./packages/sdk/js/script/build.ts` — 从 Effect HttpApi 契约重新生成 OpenAPI spec 和 SDK client
+- `packages/sdk/js/src/v2/gen/sdk.gen.ts` — 新增 `project.getGitRemote({ directory })` 和 `project.addGitRemote({ directory, url })` 方法
+- `packages/sdk/js/src/v2/gen/types.gen.ts` — 新增 `ProjectGetGitRemoteResponses` / `ProjectAddGitRemoteResponses` 等类型
+
+### 158. 修复：前端 SDK 调用从 `createClient` 改为 `globalSDK.client`
+
+- `dialog-repo-associate.tsx` — `onMount` 和 `handleConfirm` 中的 SDK 调用从 `globalSDK.createClient({ directory })` 改为 `globalSDK.client`
+- 原因：`globalSDK.createClient({ directory })` 创建的客户端**未配置** `throwOnError: true`，服务端返回非 2xx 时 SDK 静默返回 `{ data: undefined, error: ... }` 而非 throw，`.then((res) => res.data?.remoteUrl)` 得到 `undefined`，弹窗显示"未关联"而非真实错误
+- `globalSDK.client` 在 `GlobalSDK` 初始化时已配置 `throwOnError: true`，服务端错误会正确 throw 并被 `.catch()` 捕获
+- `directory` 通过方法参数显式传递（`.getGitRemote({ directory: props.directory })`），作为 query parameter 发送到服务端

@@ -2,6 +2,7 @@ import * as Database from "@/storage/db"
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "@/storage/db"
 import { readdir, rm, stat } from "node:fs/promises"
 import path from "path"
+import { MessageV2 } from "@/session/message-v2"
 import type { SessionID } from "@/session/schema"
 import { SessionTable } from "@/session/session.sql"
 import { StudioGenerationTable } from "./studio-generation.sql"
@@ -270,6 +271,9 @@ function upsertMedia(directory: string, items: StudioHistoryMediaItem[]): number
         .onConflictDoUpdate({
           target: [StudioHistoryTable.directory, StudioHistoryTable.id],
           set: {
+            // 导入物化的 created_at 是导入时间，重导同一分享时刷新为最新导入时间；
+            // 生成路径的 created_at 源自 generation 完成时间，重写同值幂等。
+            created_at: sql`excluded.created_at`,
             url: sql`excluded.url`,
             thumbnail_url: sql`excluded.thumbnail_url`,
             thumbnail_status: sql`excluded.thumbnail_status`,
@@ -828,6 +832,84 @@ export function snapshotSessionMedia(directory: string, sessionID: string): numb
   )
 
   return upsertMedia(directory, items)
+}
+
+// 分享/导出文件导入的 octo_studio 会话没有 studio_generation 行（分享包只含消息与
+// parts），而历史表 backfill 只扫 studio_generation，导入会话的媒体因此永远进不了
+// 「我的资产」。从导入后已完成 tool part 的 output/input 物化媒体；素材时间取导入
+// 成功时刻——「我的资产」里视作刚刚生成，不沿用包里的原始生成时间；重复导入同一
+// 分享时按媒体 id 幂等去重，时间刷新为最新一次导入时间。
+export function materializeStudioSessionParts(directory: string, sessionID: SessionID, parts: MessageV2.Part[]): number {
+  const importedAt = Date.now()
+  const items = parts.flatMap((part) => {
+    if (part.type !== "tool" || part.state.status !== "completed") return []
+    const output = parseToolOutput(part.state.output)
+    const images = importedToolImages(output, part.state.attachments)
+    if (images.length === 0) return []
+    const studio = part.state.metadata.studio as Record<string, unknown> | undefined
+    const input = importedToolInput(part.state.input)
+    const extra = input && typeof input.extra === "object" && !Array.isArray(input.extra) ? input.extra as Record<string, unknown> : undefined
+    return extractMediaFromResult(
+      {
+        ...output,
+        id: typeof studio?.generationID === "string" ? studio.generationID : `studio_${part.id}`,
+        images,
+        isCustom:
+          input && (Boolean(input.isCustom) || Boolean(extra?.isCustom) || (typeof input.width === "number" && typeof input.height === "number"))
+            || undefined,
+      },
+      sessionID,
+      importedAt,
+      input,
+    )
+  })
+  return upsertMedia(directory, items)
+}
+
+function parseToolOutput(output: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(output) as unknown
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+// 旧格式 tool output 没有 media 数组时，与客户端 buildResult 的回退一致：
+// 附件 + images/videos URL 列表，按 URL 去重。
+function importedToolImages(
+  output: Record<string, unknown>,
+  attachments: MessageV2.FilePart[] | undefined,
+): Record<string, unknown>[] {
+  if (Array.isArray(output.media)) {
+    return output.media.flatMap((item) =>
+      item && typeof item === "object" && !Array.isArray(item) ? [item as Record<string, unknown>] : [],
+    )
+  }
+  const seen = new Set<string>()
+  const images: Record<string, unknown>[] = []
+  const push = (url: unknown, kind: "image" | "video") => {
+    if (typeof url !== "string" || !url || seen.has(url)) return
+    seen.add(url)
+    images.push({ url, kind })
+  }
+  for (const attachment of attachments ?? []) {
+    if (attachment.mime.startsWith("video/")) push(attachment.url, "video")
+    else if (attachment.mime.startsWith("image/")) push(attachment.url, "image")
+  }
+  for (const url of Array.isArray(output.images) ? output.images : []) push(url, "image")
+  for (const url of Array.isArray(output.videos) ? output.videos : []) push(url, "video")
+  return images
+}
+
+// historyTextFields 只读 input.prompt；工具入参里的有效提示词在 effectivePrompt/refinedPrompt。
+function importedToolInput(input: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const prompt = typeof input?.effectivePrompt === "string"
+    ? input.effectivePrompt
+    : typeof input?.refinedPrompt === "string"
+      ? input.refinedPrompt
+      : undefined
+  return prompt !== undefined ? { ...input, prompt } : input
 }
 
 // 真正删除历史记录：只移除 `studio_history` 行，绝不触碰 `studio_generation`

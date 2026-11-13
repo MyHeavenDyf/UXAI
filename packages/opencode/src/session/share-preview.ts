@@ -48,6 +48,30 @@ const userText = sql<string | null>`case
     select substr(cast(substr(value, coalesce((select start + max(pos) + 4 from positions, tail), 1), 32772) as text), 1, 8193) from source
   ) end`
 
+function studioUserDemand(text: string) {
+  const marker = "用户需求："
+  const content = text.slice(Math.max(0, text.lastIndexOf(marker) + (text.includes(marker) ? marker.length : 0)))
+  const stop = [
+    "\n能力：",
+    "\n风格模型：",
+    "\n画幅比例：",
+    "\n生成数量：",
+    "\n当前选中的生图工具：",
+    "\n工具参数JSON：",
+    "\n调用生图工具",
+    "\n输出时先简短说明",
+  ]
+    .map((item) => content.indexOf(item))
+    .filter((index) => index >= 0)
+    .sort((left, right) => left - right)[0]
+  return content
+    .slice(0, stop ?? content.length)
+    .split("\n")
+    .filter((line) => !line.startsWith("工具参数JSON：") && !line.startsWith("调用生图工具"))
+    .join("\n")
+    .trim()
+}
+
 export const previewSession = Effect.fn("SessionShare.preview")(function* (input: {
   sessionID: SessionID
   limit?: number
@@ -109,6 +133,20 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
                         where type = 'object' limit 8
                       )), '')
                     else substr(json_extract(${PartTable.data}, '$.text'), 1, 8193) end`
+                  : session.agent === "octo_studio"
+                    ? sql<string | null>`case when json_extract(${PartTable.data}, '$.type') = 'tool' then
+                        case when coalesce(
+                          json_extract(${PartTable.data}, '$.state.input.capability'),
+                          case when json_valid(json_extract(${PartTable.data}, '$.state.output'))
+                            then json_extract(json_extract(${PartTable.data}, '$.state.output'), '$.capability') end,
+                          '') = 'video.generate' then '视频' else '图片' end
+                        || case coalesce(json_extract(${PartTable.data}, '$.state.status'), '')
+                          when 'completed' then '生成完成'
+                          when 'running' then '生成中'
+                          when 'pending' then '生成中'
+                          when 'error' then '生成失败'
+                          else '生成任务' end
+                      else substr(json_extract(${PartTable.data}, '$.text'), 1, 8193) end`
                   : sql<string | null>`substr(json_extract(${PartTable.data}, '$.text'), 1, 8193)`,
             name: sql<string | null>`substr(json_extract(${PartTable.data}, '$.filename'), 1, 256)`,
             mime: sql<string | null>`substr(json_extract(${PartTable.data}, '$.mime'), 1, 128)`,
@@ -117,7 +155,7 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
           .where(
             and(
               eq(PartTable.message_id, row.id),
-              session.agent === "octo_insight" && row.role === "assistant"
+              (session.agent === "octo_insight" || session.agent === "octo_studio") && row.role === "assistant"
                 ? sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file', 'tool')`
                 : sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file')`,
               row.role === "user" ? undefined : sql`coalesce(json_extract(${PartTable.data}, '$.ignored'), 0) != 1`,
@@ -135,12 +173,37 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
           .limit(17)
           .all(),
       )
+      const studioDisplayPrompt = session.agent === "octo_studio" && row.role === "user"
+        ? Database.use((db) =>
+            db
+              .select({
+                text: sql<string | null>`substr(json_extract(${PartTable.data}, '$.state.input.displayPrompt'), 1, 8193)`,
+              })
+              .from(MessageTable)
+              .innerJoin(PartTable, eq(PartTable.message_id, MessageTable.id))
+              .where(
+                and(
+                  eq(MessageTable.session_id, input.sessionID),
+                  sql`json_extract(${MessageTable.data}, '$.role') = 'assistant'`,
+                  sql`json_extract(${MessageTable.data}, '$.parentID') = ${row.id}`,
+                  sql`json_extract(${PartTable.data}, '$.type') = 'tool'`,
+                  sql`json_type(${PartTable.data}, '$.state.input.displayPrompt') = 'text'`,
+                  sql`length(json_extract(${PartTable.data}, '$.state.input.displayPrompt')) > 0`,
+                ),
+              )
+              .orderBy(PartTable.id)
+              .limit(1)
+              .get(),
+          )?.text?.trim()
+        : undefined
       const text =
         row.role === "user"
-          ? (parts.find((part) => part.type === "text")?.text ?? "").trim()
+          ? studioDisplayPrompt || (session.agent === "octo_studio"
+              ? studioUserDemand((parts.find((part) => part.type === "text")?.text ?? "").trim())
+              : (parts.find((part) => part.type === "text")?.text ?? "").trim())
           : parts
               .slice(0, 16)
-              .filter((part) => part.type === "text" || (session.agent === "octo_insight" && part.type === "tool"))
+              .filter((part) => part.type === "text" || ((session.agent === "octo_insight" || session.agent === "octo_studio") && part.type === "tool"))
               .map((part) => part.text ?? "")
               .join("\n")
       const files = parts

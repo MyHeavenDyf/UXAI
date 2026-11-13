@@ -221,7 +221,7 @@ export function AssessmentResultPanel(): JSX.Element {
       .sort((a, b) => a - b)
     if (selected.length === 0) return
     tracker.interaction({ module: "design", name: "assessment-adopt", extend: JSON.stringify({ count: selected.length }) })
-    const lines = ["请按以下评审意见修改页面：", ""]
+    const lines = [`请按以下评审意见修改页面: ${pending()?.filePath ?? ""}`, ""]
     selected.forEach((idx, n) => {
       const it = all[idx]
       lines.push(`【问题${n + 1}】${it.title}（${it.xpath}）`)

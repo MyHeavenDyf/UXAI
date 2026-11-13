@@ -15,6 +15,7 @@ import {
   joinUrl,
   inferKindFromUrl,
   assetFileId,
+  getAssetDisplayName,
   getAssetThumb,
   getAssetThumbKind,
   isAssetThumbImage,
@@ -30,7 +31,7 @@ export type MentionTab = 'skills' | 'product-assets' | 'files'
 
 export type MentionSelection =
   | { type: 'skill'; name: string; label: string }
-  | { type: 'file'; filename: string; path: string; id?: string; isFolder?: boolean }
+  | { type: 'file'; filename: string; path: string; id?: string; isFolder?: boolean; realPathName?: string }
   | { type: 'product-asset'; filename: string; path: string; s3BaseUrl: string; convertHtmlUrl: string; snapshot: string }
 
 interface MentionPopoverProps {
@@ -398,9 +399,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: 'file',
-      filename: file.fileName,
+      filename: getAssetDisplayName(file),
       path: id,
       isFolder: isZip || undefined,
+      realPathName: file.realPathName,
     }
     if (isAssetFileSelected(file)) {
       props.onDeselect(selection)

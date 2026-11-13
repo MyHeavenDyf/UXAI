@@ -437,7 +437,7 @@ export function HtmlRenderer(props: {
   const [assessmentPopupIndex, setAssessmentPopupIndex] = createSignal<number | null>(null)
   const [assessmentPopupAnchor, setAssessmentPopupAnchor] = createSignal<{ left: number; top: number; width: number; height: number } | null>(null)
 
-  let assessmentPopupFromSelect: number | null = null
+  let assessmentPopupFromSelect: { index: number; fromPin: boolean } | null = null
   const closeAssessmentPopup = () => {
     setAssessmentPopupIndex(null)
     setAssessmentPopupAnchor(null)
@@ -1914,12 +1914,13 @@ createEffect(() => {
       }
 
       if (d.type === "od:assessment-pin-position") {
-        // 多值下拉选择触发的激活：拿到 pin 位置后打开弹窗（两步打开的第二步）
-        if (assessmentPopupFromSelect === d.index) {
+        // 激活后拿到 pin 位置打开弹窗（多值下拉选中的第二步/面板行点击的锚定）。
+        const sel = assessmentPopupFromSelect
+        if (sel && sel.index === d.index) {
           assessmentPopupFromSelect = null
           setAssessmentPopupIndex(d.index)
           setAssessmentPopupAnchor(transformRect(d.pinPosition))
-          dispatchAssessmentPinActivated(d.index)
+          if (sel.fromPin) dispatchAssessmentPinActivated(d.index)
         }
         return
       }
@@ -1938,7 +1939,7 @@ createEffect(() => {
   createEffect(() => {
     if (!assessmentActiveHere()) return
     onCleanup(onAssessmentActivatePin((index, opts) => {
-      if (opts.openPopup) assessmentPopupFromSelect = index
+      if (opts.openPopup) assessmentPopupFromSelect = { index, fromPin: false }
       activateAssessmentPin(index)
     }))
   })
@@ -3083,7 +3084,7 @@ fetch(`${props.sdkUrl}/comment/file?${commentQueryString({ commentFilePath: comm
                   indices={assessmentDropdown()!.indices}
                   anchorRect={assessmentDropdown()!.pinPosition}
                   onSelect={(index) => {
-                    assessmentPopupFromSelect = index
+                    assessmentPopupFromSelect = { index, fromPin: true }
                     setAssessmentDropdown(null)
                     activateAssessmentPin(index)
                   }}

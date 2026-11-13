@@ -117,7 +117,7 @@ export const ProseMirrorEditor = (props: Props) => {
       if (m.type === "skill") {
         return { type: "skill", name: m.name, label: m.label }
       } else {
-        return { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined, isFolder: m.type === "folder" ? true : undefined }
+        return { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined, isFolder: m.type === "folder" ? true : undefined, realPathName: (m as any).realPathName || undefined }
       }
     })
     props.setMentionSelections(selections)
@@ -321,6 +321,7 @@ export const ProseMirrorEditor = (props: Props) => {
                 type: (selection as any).isFolder ? ("folder" as const) : ("file" as const),
                 label: selection.filename,
                 path: selection.path,
+                realPathName: (selection as any).realPathName || "",
               }
           const node = editorSchema.nodes.mention.create(attrs)
           const { from, to } = v.state.selection
@@ -431,7 +432,7 @@ export const ProseMirrorEditor = (props: Props) => {
       props.setMentionSelections(initialMentions.map((m) =>
         m.type === "skill"
           ? { type: "skill", name: m.name, label: m.label }
-          : { type: "file", filename: m.name, path: m.path || "" }
+          : { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined, realPathName: m.realPathName || undefined }
       ))
     }
     const initialText = getDocTextWithMentions(initialDoc)
@@ -496,7 +497,7 @@ export const ProseMirrorEditor = (props: Props) => {
       for (const sel of injects) {
         const attrs = sel.type === "skill"
           ? { id: sel.name, name: sel.name, type: "skill" as const, label: sel.label, path: "" }
-          : { id: (sel as any).path || (sel as any).filename, name: (sel as any).filename, type: "file" as const, label: (sel as any).filename, path: (sel as any).path }
+          : { id: (sel as any).path || (sel as any).filename, name: (sel as any).filename, type: "file" as const, label: (sel as any).filename, path: (sel as any).path, realPathName: (sel as any).realPathName || "" }
         const node = editorSchema.nodes.mention.create(attrs)
         const { from, to } = v.state.selection
         const tr = v.state.tr.replaceWith(from, to, node)
@@ -586,7 +587,7 @@ export const ProseMirrorEditor = (props: Props) => {
       attrs = { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
     } else {
       const id = selection.path || selection.filename
-      attrs = { id, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+      attrs = { id, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path, realPathName: (selection as any).realPathName || "" }
     }
 
     const node = editorSchema.nodes.mention.create(attrs)
