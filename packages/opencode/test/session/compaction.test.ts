@@ -2526,6 +2526,71 @@ describe("session.compaction.conversationWithin", () => {
     expect(built.text).toBeUndefined()
     expect(built.degraded).toBe(true)
   })
+
+  function withUserTexts(...texts: string[]): MessageV2.WithParts {
+    const id = MessageID.ascending()
+    const sessionID = SessionID.descending()
+    return {
+      info: {
+        id,
+        role: "user",
+        sessionID,
+        agent: "build",
+        model: ref,
+        time: { created: Date.now() },
+      },
+      parts: texts.map((text) => ({ id: PartID.ascending(), messageID: id, sessionID, type: "text" as const, text })),
+    }
+  }
+
+  test("collapses repeated skill doc injections into one copy plus a reference", () => {
+    const doc = `# Skill: my-skill\n\n${"d".repeat(100_000)}`
+    const first = withUserTexts(doc, "workspace note")
+    const head = [first, withAssistantText(first.info.id, "assistant reply"), withUserTexts(doc, "task text")]
+    const built = SessionCompaction.conversationWithin(head, undefined)
+    expect(built.degraded).toBe(false)
+    expect(built.text!.match(/# Skill: my-skill/g)?.length).toBe(1)
+    expect(built.text).toContain("[Skill my-skill was loaded again later in the conversation; duplicate content omitted]")
+    expect(built.text).toContain("workspace note")
+    expect(built.text).toContain("task text")
+    expect(built.text!.length).toBeGreaterThan(doc.length)
+    expect(built.text!.length).toBeLessThan(doc.length * 1.5)
+  })
+
+  test("keeps different skill docs side by side", () => {
+    const head = [withUserTexts("# Skill: skill-a\ncontent a"), withUserTexts("# Skill: skill-b\ncontent b")]
+    const built = SessionCompaction.conversationWithin(head, undefined)
+    expect(built.text).toContain("skill-a")
+    expect(built.text).toContain("skill-b")
+    expect(built.text).not.toContain("duplicate content omitted")
+  })
+
+  test("gives skill docs a larger clip quota than plain text at the user-only level", () => {
+    const doc = `# Skill: my-skill\n${"d".repeat(50_000)}`
+    const plain = "p".repeat(50_000)
+    const head = [withUserTexts(doc, plain)]
+    const built = SessionCompaction.conversationWithin(head, 4_000)
+    expect(built.degraded).toBe(true)
+    expect(built.text).toContain("42018 characters omitted")
+    expect(built.text).toContain("48000 characters omitted")
+    expect(built.text).toContain("d".repeat(3_900))
+    expect(built.text).toContain("p".repeat(990))
+    expect(built.text).not.toContain("p".repeat(1_100))
+  })
+
+  test("retains the kept copy when the first skill injection is dropped by the ladder", () => {
+    const doc = `# Skill: my-skill\n${"d".repeat(40_000)}`
+    const head = [
+      withUserTexts(doc),
+      withUserTexts(...Array.from({ length: 10 }, () => "m".repeat(40_000))),
+      withUserTexts(doc),
+    ]
+    const built = SessionCompaction.conversationWithin(head, 4_000)
+    expect(built.degraded).toBe(true)
+    expect(built.text).toContain("d".repeat(1_000))
+    expect(built.text).not.toContain("m".repeat(990))
+    expect(built.text).not.toContain("duplicate content omitted")
+  })
 })
 
 describe("session.compaction.summary sizing", () => {

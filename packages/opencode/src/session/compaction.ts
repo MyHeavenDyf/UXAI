@@ -58,6 +58,8 @@ const SUMMARY_RESERVE_MIN = 16_000
 const SUMMARY_RESERVE_SHARE = 0.15
 const SUMMARY_SHRINK_STEPS = [0.85, 0.7, 0.5, 0.35]
 const TRANSCRIPT_CLIP = 2_000
+// 文档型 text part(skill 注入,首行 "# Skill: <name>")在降级档的独立裁剪配额
+const SKILL_DOC_CLIP = 8_000
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -114,20 +116,35 @@ type CompletedCompaction = {
 const truncate = (value: string) =>
   value.length <= TOOL_OUTPUT_MAX_CHARS ? value : `${value.slice(0, TOOL_OUTPUT_MAX_CHARS)}\n[truncated]`
 
-/** `value` cut to `TRANSCRIPT_CLIP` characters from its start and end. */
-const clip = (value: string) => {
-  if (value.length <= TRANSCRIPT_CLIP) return value
-  const half = TRANSCRIPT_CLIP / 2
-  return `${value.slice(0, half)}\n[… ${value.length - TRANSCRIPT_CLIP} characters omitted …]\n${value.slice(-half)}`
+/** `value` cut to `limit` characters from its start and end. */
+const clip = (value: string, limit = TRANSCRIPT_CLIP) => {
+  if (value.length <= limit) return value
+  const half = limit / 2
+  return `${value.slice(0, half)}\n[… ${value.length - limit} characters omitted …]\n${value.slice(-half)}`
 }
 
-const serialize = (message: MessageV2.WithParts, level: "full" | "user-only" = "full") => {
+/** skill 文档注入由 Skill.formatLoaded 生成,首行固定为 "# Skill: <name>"。 */
+const skillDocName = (text: string) => {
+  if (!text.startsWith("# Skill: ")) return undefined
+  return text.split("\n", 1)[0]!.slice("# Skill: ".length).trim()
+}
+
+type SerializeSeen = { skills: Set<string> }
+
+const serialize = (message: MessageV2.WithParts, level: "full" | "user-only" = "full", seen?: SerializeSeen) => {
   if (message.info.role === "user") {
-    const text = message.parts
-      .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.ignored)
-      .map((part) => (level === "user-only" ? clip(part.text) : part.text))
-      .filter(Boolean)
-      .join("\n")
+    const texts: string[] = []
+    for (const part of message.parts) {
+      if (part.type !== "text" || part.ignored || !part.text) continue
+      const skill = skillDocName(part.text)
+      if (skill && seen?.skills.has(skill)) {
+        texts.push(`[Skill ${skill} was loaded again later in the conversation; duplicate content omitted]`)
+        continue
+      }
+      if (skill) seen?.skills.add(skill)
+      texts.push(level === "user-only" ? clip(part.text, skill ? SKILL_DOC_CLIP : TRANSCRIPT_CLIP) : part.text)
+    }
+    const text = texts.join("\n")
     const files = message.parts.flatMap((part) =>
       part.type === "file" ? [`[Attached ${part.mime}: ${part.filename ?? "file"}]`] : [],
     )
@@ -251,12 +268,15 @@ function splitTurn(input: {
 
 /**
  * Serialize `head` into a transcript that fits `budget` tokens (undefined = no preflight).
- * Ladder: full → user-only (user texts clipped to TRANSCRIPT_CLIP) → drop oldest turns at
- * user-only. The newest turn is never dropped; text is undefined when even it cannot fit.
+ * Ladder: full → user-only (skill docs clipped to SKILL_DOC_CLIP, other texts to TRANSCRIPT_CLIP) → drop
+ * oldest turns at user-only. The newest turn is never dropped; text is undefined when even it cannot fit.
+ * Skill docs are deduplicated by name across the transcript: repeat injections collapse to a reference line.
  */
 export function conversationWithin(head: MessageV2.WithParts[], budget: number | undefined) {
-  const join = (level: "full" | "user-only", messages: MessageV2.WithParts[]) =>
-    messages.map((msg) => serialize(msg, level)).filter(Boolean).join("\n\n")
+  const join = (level: "full" | "user-only", messages: MessageV2.WithParts[]) => {
+    const seen: SerializeSeen = { skills: new Set() }
+    return messages.map((msg) => serialize(msg, level, seen)).filter(Boolean).join("\n\n")
+  }
   if (budget === undefined) return { text: join("full", head), degraded: false }
   const full = join("full", head)
   if (Token.estimate(full) <= budget) return { text: full, degraded: false }
@@ -506,7 +526,8 @@ export const layer: Layer.Layer<
       const built = conversationWithin(msgs, summaryBudget === undefined ? undefined : summaryBudget - fixedEstimate)
 
       if (built.text === undefined) {
-        const minimal = Token.estimate(msgs.map((msg) => serialize(msg, "user-only")).filter(Boolean).join("\n\n"))
+        const seen: SerializeSeen = { skills: new Set() }
+        const minimal = Token.estimate(msgs.map((msg) => serialize(msg, "user-only", seen)).filter(Boolean).join("\n\n"))
         log.error("compaction transcript exceeds summary model limit", {
           sessionID: input.sessionID,
           modelID: model.id,
