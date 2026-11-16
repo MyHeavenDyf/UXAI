@@ -172,12 +172,13 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
     : "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
   const iconSize = () => props.tab.fromAttachment ? 16 : 14
   const disabled = () => review?.disabled() || (props.loadState === "loading" ? "HTML 内容加载中" : props.loadState === "error" ? "请先重新加载 HTML" : "")
+  const editLabel = () => review?.state.editing ? "退出修改" : "局部修改"
   createEffect(() => { review?.key(); props.tab.viewMode; setState("open", false) })
   return <Show when={props.tab.type === "html" && review}>
-    <Tooltip value="局部修改" placement="top">
+    <Tooltip value={editLabel()} placement="top">
       <button type="button" class={buttonClass()} disabled={!!disabled() || review?.editDisabled()}
         aria-pressed={review?.state.editing} classList={{ "octo-viewport-btn-active": review?.state.editing }}
-        onClick={() => review?.toggleEdit()}><IconLocalModify size={iconSize()} /><span>{review?.state.editing ? "退出修改" : "局部修改"}</span></button>
+        onClick={() => review?.toggleEdit()}><IconLocalModify size={iconSize()} /><span>{editLabel()}</span></button>
     </Tooltip>
     <Tooltip value={disabled() || "标注"} placement="top">
       <button type="button" class={buttonClass()} disabled={!!disabled() || review?.state.busy}
@@ -187,16 +188,16 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
         <svg aria-hidden="true" viewBox="0 0 20 20" width={iconSize()} height={iconSize()} fill="none"><path d="M2 18V10a8 8 0 1 1 8 8H2Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" /></svg><span>标注</span>
       </button>
     </Tooltip>
-    <Tooltip value={!review?.history() ? "历史版本需要本地 HTML 和桌面端支持" : "历史版本"} placement="top">
+    <Tooltip value={!review?.history() ? "历史版本需要本地 HTML 和桌面端支持" : "历史"} placement="top">
       <button ref={button} type="button" class={buttonClass()}
         disabled={!review?.history() || review?.state.busy || review?.state.editing || props.working}
         classList={{ "opacity-40": !review?.history() || review?.state.busy || props.working }}
-        aria-label="历史版本" aria-expanded={state.open}
+        aria-label="历史" aria-expanded={state.open}
         onClick={() => {
           setState({ open: !state.open, anchor: button?.getBoundingClientRect() ?? null })
           if (state.open) void review?.refresh()
         }}>
-        <svg aria-hidden="true" viewBox="0 0 16 16" width={iconSize()} height={iconSize()} fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" /></svg><span>{review?.state.busy ? "处理中..." : "历史版本"}</span>
+        <svg aria-hidden="true" viewBox="0 0 16 16" width={iconSize()} height={iconSize()} fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" /></svg><span>{review?.state.busy ? "处理中..." : "历史"}</span>
       </button>
     </Tooltip>
     <Show when={state.open && state.anchor}>
