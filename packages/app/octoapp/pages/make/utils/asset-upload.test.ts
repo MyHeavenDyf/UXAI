@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test"
 import JSZip from "jszip"
 import { encodeSelectorToBase64Url, isAssetLibraryLoggedIn, sanitizeAssetFileName, zipBlobToBase64 } from "./asset-upload"
-import { createPartialAssetsZip } from "./html-assets-zip"
+import { createPartialAssetsZip, extractHeadStyles } from "./html-assets-zip"
 
 describe("encodeSelectorToBase64Url", () => {
   test("已知值：a → YQ（去填充）", () => {
@@ -104,6 +104,71 @@ describe("createPartialAssetsZip（无桌面 API 分支）", () => {
     })
     const zip = await JSZip.loadAsync(await blob.arrayBuffer())
     expect(Object.keys(zip.files)).toEqual(["frag.html"])
+  })
+
+  test("页面 head 样式随片段打包，CSS 及其二级引用收集为资源", async () => {
+    // mock window.api（getDesktopUrl 运行时读取 window.api）验证资源收集分支
+    const files: Record<string, string> = {
+      "D:/site/html/style.css": `.card { font-family: "X"; }\n@font-face { src: url(font.woff2); }`,
+      "D:/site/html/font.woff2": "binary-font",
+    }
+    const w = window as unknown as { api?: unknown }
+    const prevApi = w.api
+    w.api = {
+      readFileBuffer: async (p: string) =>
+        p in files ? new TextEncoder().encode(files[p]).buffer as ArrayBuffer : null,
+    }
+    try {
+      const blob = await createPartialAssetsZip({
+        fragmentHtml: '<div class="card" data-od-id="el-3">hi</div>',
+        pageHtml:
+          "<html><head>" +
+          "<title>页面</title>" +
+          '<style data-od-edit-bridge-style>html[data-od-edit-mode]{}</style>' +
+          "<style>.card { font-family: \"X\" }</style>" +
+          '<link rel="stylesheet" href="./style.css">' +
+          '<script>console.log("no")</script>' +
+          "</head><body><div class=card></div></body></html>",
+        htmlFilePath: "D:/site/html/index.html",
+        fileNameInZip: "frag.html",
+      })
+      const zip = await JSZip.loadAsync(await blob.arrayBuffer())
+      const names = Object.keys(zip.files).sort()
+      expect(names).toEqual(["font.woff2", "frag.html", "style.css"])
+      const content = await zip.file("frag.html")!.async("string")
+      expect(content).toContain("<style>.card")
+      expect(content).not.toContain("data-od-edit-bridge-style")
+      expect(content).not.toContain("<script>")
+      expect(content).not.toContain("<title>")
+      expect(content).not.toContain("data-od-id")
+    } finally {
+      w.api = prevApi
+      if (prevApi === undefined) delete w.api
+    }
+  })
+})
+
+describe("extractHeadStyles", () => {
+  test("只取 style 块与 link[stylesheet]，排除 script/title/importmap", () => {
+    const html =
+      "<html><head>" +
+      "<title>t</title>" +
+      '<style>.a{color:red}</style>' +
+      '<link rel="stylesheet" href="./s.css">' +
+      '<link rel="icon" href="i.png">' +
+      '<script type="importmap">{"imports":{}}</script>' +
+      '<script src="./x.js"></script>' +
+      "</head><body></body></html>"
+    const out = extractHeadStyles(html)
+    expect(out).toContain('<style>.a{color:red}</style>')
+    expect(out).toContain('<link rel="stylesheet" href="./s.css">')
+    expect(out).not.toContain("<title>")
+    expect(out).not.toContain("importmap")
+    expect(out).not.toContain("./x.js")
+  })
+
+  test("空输入返回空串", () => {
+    expect(extractHeadStyles("")).toBe("")
   })
 })
 

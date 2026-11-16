@@ -885,11 +885,14 @@ const requestAssetUpload = (target: ManualEditTarget, name: string) => {
     title: "保存到资产库(局部)",
     name: `${name}.zip`,
     buildZip: async () => {
-      const html = await requestElementHtml(target.id)
+      // 并行拉取：元素 outerHTML + 完整页面快照（live DOM，含运行时注入的样式）
+      const [html, snapshot] = await Promise.all([requestElementHtml(target.id), getIframeSnapshot()])
       if (!html) throw new Error("无法读取选中元素内容")
       const { createPartialAssetsZip } = await import("../../utils/html-assets-zip")
       return await createPartialAssetsZip({
         fragmentHtml: html,
+        // 快照失败（超时/无 iframe）回退 props.content 提取的源 HTML，样式尽力而为
+        pageHtml: snapshot || extractHtmlContent(props.content),
         htmlFilePath: props.filePath || "",
         fileNameInZip: `${name}.html`,
       })

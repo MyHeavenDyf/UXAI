@@ -21,6 +21,7 @@ import {
   relativeTo,
 } from "./references"
 import { observedUrlsToAbsPaths } from "./resource-tracker"
+import { cleanBridgeContent } from "./bridge-cleaner"
 
 /**
  * 从磁盘读原始 HTML 文件内容（不含桥脚本注入）。
@@ -132,6 +133,8 @@ export async function createHtmlAssetsZip(options: CreateHtmlAssetsZipOptions): 
 export interface CreatePartialAssetsZipOptions {
   /** 选中元素的 outerHTML（来自 iframe live DOM，经 od:get-element-html 拉取） */
   fragmentHtml: string
+  /** 完整页面 HTML（iframe live 快照优先）：提取 <head> 样式随片段打包；为空则片段无页面样式 */
+  pageHtml?: string
   /** 原页面文件路径：片段内相对引用按此目录解析；为空则不做资源收集 */
   htmlFilePath: string
   /** 片段文件在 ZIP 内的名字（含 .html） */
@@ -139,13 +142,26 @@ export interface CreatePartialAssetsZipOptions {
 }
 
 /**
- * 局部保存 ZIP：最小 HTML 文档包裹选中元素 outerHTML，
+ * 提取页面 <head> 中的样式元素（<style> 块 + <link rel=stylesheet>）。
+ * 调用方需先过 cleanBridgeContent 剥桥注入（<style data-od-...>）；
+ */
+export function extractHeadStyles(html: string): string {
+  if (!html) return ""
+  const doc = new DOMParser().parseFromString(html, "text/html")
+  const els = doc.head.querySelectorAll('style, link[rel~="stylesheet"]')
+  return Array.from(els, (el) => el.outerHTML).join("\n")
+}
+
+/**
+ * 局部保存 ZIP：最小 HTML 文档包裹选中元素 outerHTML + 页面 <head> 样式。
  */
 export async function createPartialAssetsZip(options: CreatePartialAssetsZipOptions): Promise<Blob> {
   const zip = new JSZip()
   const api = getDesktopApi()
 
-  const doc = `<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"></head>\n<body>\n${options.fragmentHtml}\n</body>\n</html>`
+  const fragmentHtml = cleanBridgeContent(options.fragmentHtml)
+  const headStyles = extractHeadStyles(cleanBridgeContent(options.pageHtml || ""))
+  const doc = `<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8">\n${headStyles}\n</head>\n<body>\n${fragmentHtml}\n</body>\n</html>`
   // 局部名称来自用户输入
   const safeFileName =
     options.fileNameInZip
