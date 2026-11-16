@@ -199,3 +199,22 @@ index.tsx 两处 InsightTurn 调用自动合并，dev 的 `canRevert` 以 `sessi
 - 测试:visible-message.test.ts 加 `isCompactionInjectedMessage` 6 例、turn-anchor-text.test.ts 加注入消息无锚点 2 例;两文件 24 pass;packages/app typecheck 过
 
 **注意**:该过滤为显示层,消息仍在 userMessages 列表(续跑输出依赖 turn 存在);Fix 8/9 校验口径未动。后端 compaction_continue 标记注释声明"不稳定契约",若上游改标记名需同步此处。
+
+## 影响面分析后第二批修复（2026-11-16）
+
+路由+子任务对现有功能的影响面系统排查（后端/前端两路调查 + 人工验证），确认无影响面与真实影响后，修复用户指定的 3 项：
+
+**1. 分享预览泄漏压缩注入文本（opencode 后端）**
+`src/session/share-preview.ts` user 行 where 只滤 type 不滤注入标记（synthetic 过滤仅对 assistant 行生效）——compaction 注入的 "Continue..."/overflow 回放消息在分享页渲染成用户气泡（insight 会话分享同样中招，非 make 专属）。修法：user 行 SQL 加 `not (text 且 metadata.compaction_continue/compaction_replay=1)`；过滤后空 parts 的注入消息经既有 225 行空产出逻辑自动消失。手动 /compact 回显（synthetic 无标记）继续显示，由既有测试锁定。测试：share-preview.test.ts 新增注入隐藏用例（真实消息保留 + continue/replay 消失），9/9 pass。
+
+**2. 模型选择器被子会话消息拨动（app 前端）**
+`octoapp/pages/make/index.tsx` 模型同步 effect 的 `local.model.set` 无 sessionID 守卫——合并流 lastUserMessage 是子会话消息（task prompt/压缩注入）时把输入框模型拨回旧值（用户切新模型后重进会话触发）。修法：`(msg.sessionID ?? sid) !== sid` 跳过；`syncSessionModel`（local.tsx:383）本有守卫无需动。
+
+**3. 子会话生成计时/忙碌判定/输出徽标（app 前端）**
+- `childBusy` 原来只查 plan 子会话 → 扩为遍历 childSessionIDs（design/code/pattern 全覆盖）兜底孤儿子会话运行（SSE 断连/竞态），effectiveBusy 连带修正 blockTime 触发面与并发发送防护。正常流程主会话 task await 已 busy，纯防御缺口
+- `elapsedText` pending assistant 查找加活跃子会话兜底（主会话无 pending 时取 busy 子会话的 pending）
+- subtask 卡片头 "N 输出" 徽标 childInline 时隐藏（产物已由子会话 turn 完整展示，对齐 showExpandable 的 `!childInline()` 模式）
+
+验证：packages/app 与 packages/opencode typecheck 过；share-preview 9/9。
+
+**影响面分析其余结论（未修，待产品决策）**：分享导出只同步根会话（make 会话分享缺子代理产物正文）；回退不回退子会话 autoSave 落盘文件（消息流与磁盘不一致）；question 断连无重播（permission 有，sidecar 重启时子会话 pending question 挂死）；`AUTOMATIC_COMPACTION_ENABLED` false→true 为全局开关（所有会话首次启用自动压缩，insight 主界面走上游 SessionTurn 滤 synthetic 安全，分享页已由本次修复覆盖）。排查确认无影响：question/permission 树感知 BFS 收集、发消息路由、停止级联 abort、刷新恢复、skill/MCP 别名链、ACP/studio/tui、Fix 8/9。

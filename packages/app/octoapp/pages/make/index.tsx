@@ -1480,6 +1480,9 @@ const sessionMessagesLoaded = createMemo(() => {
         const msg = lastUserMessage()
         if (!msg) return
         syncSessionModel(local, msg as UserMessage)
+        // 子会话消息(task prompt/压缩注入)不拨动输入框模型选择,只跟随主会话消息
+        const sid = params.id
+        if (!sid || (msg.sessionID ?? sid) !== sid) return
         // Sync tab key so new conversations inherit this session's model.
         if ((msg as UserMessage).model?.providerID && (msg as UserMessage).model?.modelID) {
           local.model.set((msg as UserMessage).model, { recent: true })
@@ -1563,7 +1566,13 @@ const sessionMessagesLoaded = createMemo(() => {
 
   const childBusy = createMemo(() => {
     const planSid = activePlanForCurrentSession()
-    return !!planSid && sync.data.session_status[planSid]?.type === "busy"
+    if (planSid && sync.data.session_status[planSid]?.type === "busy") return true
+    // 兜底:任一子会话(design/code/pattern)仍在跑(SSE 断连/竞态下的孤儿运行)视为忙碌,
+    // 正常流程主会话 task await 已 busy,这里只补防御缺口
+    for (const id of childSessionIDs()) {
+      if (sync.data.session_status[id]?.type === "busy") return true
+    }
+    return false
   })
 
   // pattern 子 session 是否正在工作（agent 处理 [模块匹配] 请求期间）
@@ -1677,8 +1686,13 @@ const sessionMessagesLoaded = createMemo(() => {
     if (effectiveBusy()) {
       const id = params.id
       if (id) {
-        const messages = (sync.data.message?.[id] ?? []) as Message[]
-        const pending = [...messages].reverse().find((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+        const findPending = (sid: string) =>
+          [...((sync.data.message?.[sid] ?? []) as Message[])].reverse().find((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+        // 主会话优先;主会话无 pending assistant(子会话孤儿运行)时取活跃子会话的 pending
+        const pending = findPending(id) ?? [...childSessionIDs()]
+          .filter((cid) => sync.data.session_status[cid]?.type === "busy")
+          .map(findPending)
+          .find((m): m is Message => !!m)
         if (pending) {
           const start = pending.time.created
           const fmt = () => {

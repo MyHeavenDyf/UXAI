@@ -1702,7 +1702,8 @@ const stateStatus = state.status as string | undefined
                     错误
                   </span>
                 </Show>
-                <Show when={task.artifactOutputs.length > 0}>
+                {/* childInline 时产物由子会话 turn 完整展示,卡片头不再显示输出计数 */}
+                <Show when={task.artifactOutputs.length > 0 && !childInline()}>
                   <span class="text-[11px]" style={{ color: "var(--octo-text-disabled)" }}>
                     {task.artifactOutputs.length} 输出
                   </span>

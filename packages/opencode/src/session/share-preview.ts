@@ -160,7 +160,10 @@ export const previewSession = Effect.fn("SessionShare.preview")(function* (input
                 ? sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file', 'tool', 'reasoning')`
                 : row.role === "assistant"
                   ? sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file', 'reasoning')`
-                  : sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file')`,
+                  : sql`json_extract(${PartTable.data}, '$.type') in ('text', 'file')
+                      and not (json_extract(${PartTable.data}, '$.type') = 'text'
+                        and (coalesce(json_extract(${PartTable.data}, '$.metadata.compaction_continue'), 0) = 1
+                          or coalesce(json_extract(${PartTable.data}, '$.metadata.compaction_replay'), 0) = 1))`,
               row.role === "user" ? undefined : sql`coalesce(json_extract(${PartTable.data}, '$.ignored'), 0) != 1`,
               row.role === "user" ? undefined : sql`coalesce(json_extract(${PartTable.data}, '$.synthetic'), 0) != 1`,
             ),
