@@ -1,0 +1,96 @@
+.studio-entry-tabs {
+  display: flex;
+  gap: 28px;
+  align-items: center;
+  justify-content: center;
+  margin: -12px 0 24px;
+}
+.studio-entry-tabs button {
+  position: relative;
+  padding: 8px 4px 12px;
+  color: #858890;
+  background: transparent;
+  font-size: 15px;
+  cursor: pointer;
+}
+.studio-entry-tabs button[aria-selected="true"] {
+  color: #22242b;
+  font-weight: 600;
+}
+.studio-entry-tabs button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 3px;
+  bottom: 0;
+  left: calc(50% - 10px);
+  border-radius: 3px;
+  background: #0a59f7;
+}
+.studio-entry-tabs button:focus-visible,
+.studio-board-entry:focus-visible {
+  outline: 2px solid #0a59f7;
+  outline-offset: 4px;
+}
+.studio-entry-panel {
+  width: 100%;
+}
+.studio-board-entry {
+  width: 100%;
+  min-height: 188px;
+  padding: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  border: 1px dashed #cccfd8;
+  border-radius: 16px;
+  background: linear-gradient(110deg, #fafaff, #f6f8fc);
+  cursor: pointer;
+  text-align: left;
+  color: #303443;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+.studio-board-entry:hover {
+  border-color: #8b9bdb;
+  background: linear-gradient(110deg, #f5f3ff, #f0f5ff);
+}
+.studio-board-entry-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  border: 1px solid #e1ddf5;
+  border-radius: 17px;
+  background: #eeebfa;
+  color: #8e7ab9;
+}
+.studio-board-entry-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.studio-board-entry-copy strong {
+  font-size: 16px;
+  font-weight: 500;
+}
+.studio-board-entry-copy > span {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #818594;
+}
+.studio-board-entry-note {
+  font-size: 11px;
+  color: #a0a3ad;
+  text-align: center;
+  margin-top: 16px;
+}
+@media (max-width: 540px) {
+  .studio-board-entry {
+    padding: 24px 16px;
+    gap: 16px;
+  }
+}

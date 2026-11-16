@@ -1,10 +1,11 @@
 import "./studio/studio.css"
+import "./studio/board/studio-board-entry.css"
 import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSuccess, studioPermissionState } from "./studio/studio-permission-store"
 import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
 import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, lazy, on, onCleanup, onMount, Show, Suspense, untrack, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
@@ -139,6 +140,8 @@ import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from ".
 import { stopStudioThumbnailQueue } from "./studio/studio-thumbnail-generation"
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
 import { IconSettings, IconSettings1 } from "@/pages/_shell/icons"
+
+const StudioBoard = lazy(() => import("./studio/board/studio-board"))
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 type PendingScrollRequest = {
@@ -530,6 +533,8 @@ export default function StudioPage() {
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
   const [canvasView, setCanvasView] = createSignal<StudioCanvasView>("file-manager")
+  const [boardEntry, setBoardEntry] = createStore({ tab: "conversation" as "conversation" | "board", open: false })
+  createEffect(on(() => [routeSlug(), params.id], () => setBoardEntry({ tab: "conversation", open: false }), { defer: true }))
   const [templateWorkspaces, setTemplateWorkspaces] = createSignal<StudioTemplateWorkspace[]>([])
   const [activeTemplateWorkspaceKey, setActiveTemplateWorkspaceKey] = createSignal<string>()
   const templateCreatorTabOpen = () => templateWorkspaces().length > 0
@@ -2920,6 +2925,7 @@ export default function StudioPage() {
   }
 
   function startNewStudioConversation() {
+    setBoardEntry({ tab: "conversation", open: false })
     expansionReview.dismiss()
     tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
@@ -5070,6 +5076,7 @@ export default function StudioPage() {
       onPointerMove={onPagePointerMove}
       onPointerUp={onPagePointerUp}
     >
+      <div style={{ display: boardEntry.open ? "none" : "contents" }}>
       <aside
         class="studio-left"
         classList={{ collapsed: studioLeftCollapsed() }}
@@ -5187,7 +5194,17 @@ export default function StudioPage() {
           <div class="studio-empty-stack">
             <div class="studio-empty-group">
               <StudioIntro />
-              <div class="relative size-full">
+              <div class="studio-entry-tabs" role="tablist" aria-label="创作方式" onKeyDown={(event) => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return
+                event.preventDefault()
+                const tab = event.key === "Home" ? "conversation" : event.key === "End" ? "board" : boardEntry.tab === "conversation" ? "board" : "conversation"
+                setBoardEntry("tab", tab)
+                event.currentTarget.querySelector<HTMLButtonElement>(`[aria-selected="true"]`)?.focus()
+              }}>
+                <button type="button" id="studio-conversation-tab" role="tab" aria-selected={boardEntry.tab === "conversation"} aria-controls="studio-conversation-entry" tabIndex={boardEntry.tab === "conversation" ? 0 : -1} onClick={() => setBoardEntry("tab", "conversation")}>对话</button>
+                <button type="button" id="studio-board-tab" role="tab" aria-selected={boardEntry.tab === "board"} aria-controls="studio-board-entry" tabIndex={boardEntry.tab === "board" ? 0 : -1} onClick={() => setBoardEntry("tab", "board")}>画布</button>
+              </div>
+              <div id="studio-conversation-entry" role="tabpanel" aria-labelledby="studio-conversation-tab" class="relative size-full" style={{ display: boardEntry.tab === "conversation" ? undefined : "none" }}>
 
                 <StudioComposer
                   prompt={prompt()}
@@ -5269,6 +5286,15 @@ export default function StudioPage() {
                   onReversePrompt={() => void handleReversePrompt()}
                 />
             </div>
+            <Show when={boardEntry.tab === "board"}>
+              <div id="studio-board-entry" class="studio-entry-panel" role="tabpanel" aria-labelledby="studio-board-tab">
+                <button type="button" class="studio-board-entry" onClick={() => setBoardEntry("open", true)}>
+                  <span class="studio-board-entry-icon"><svg width="30" height="30" viewBox="0 0 30 30" fill="none" aria-hidden="true"><rect x="4" y="4" width="22" height="22" rx="5" stroke="currentColor" stroke-width="1.5" /><path d="M15 9v12M9 15h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg></span>
+                  <span class="studio-board-entry-copy"><strong>新建画布</strong><span>自由摆放图片，连接灵感，探索更多创意</span></span>
+                </button>
+                <p class="studio-board-entry-note">演示模式 · 模拟图片生成 · 退出或刷新后不保留内容</p>
+              </div>
+            </Show>
           </div>
         </div>
         </main>
@@ -5871,6 +5897,15 @@ if (!headerTitle.pendingRename) return
             onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
           />
         </aside>
+      </Show>
+      </div>
+      <Show when={boardEntry.open}>
+        <Suspense fallback={<div style={{ position: "absolute", inset: "0", background: "#17181b", color: "#aaa", display: "grid", "place-items": "center" }}>正在准备画布…</div>}>
+          <StudioBoard onExit={() => {
+            setBoardEntry("open", false)
+            requestAnimationFrame(() => studioPageRef.querySelector<HTMLButtonElement>("#studio-board-tab")?.focus())
+          }} />
+        </Suspense>
       </Show>
     </div>
   )

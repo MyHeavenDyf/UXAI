@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800">
+  <defs>
+    <linearGradient id="wall" x2="1" y2="1"><stop stop-color="#e9dfd1"/><stop offset="1" stop-color="#bcae9f"/></linearGradient>
+    <linearGradient id="vase"><stop stop-color="#c37d57"/><stop offset=".4" stop-color="#e1a77c"/><stop offset="1" stop-color="#9b5b3d"/></linearGradient>
+    <linearGradient id="table" x2="0" y2="1"><stop stop-color="#d2b59b"/><stop offset="1" stop-color="#ae8a70"/></linearGradient>
+    <filter id="shadow"><feGaussianBlur stdDeviation="15"/></filter>
+  </defs>
+  <rect width="800" height="800" fill="url(#wall)"/>
+  <path d="M0 0h182L800 618V388L412 0ZM0 228v230l342 342h230Z" fill="#fff5df" opacity=".31"/>
+  <rect y="600" width="800" height="200" fill="url(#table)"/>
+  <ellipse cx="438" cy="669" rx="208" ry="29" fill="#5e4330" opacity=".25" filter="url(#shadow)"/>
+  <path d="M346 373h108l-15 83c5 35 66 64 67 126 2 72-35 93-105 93s-106-26-105-87c1-64 61-96 65-133Z" fill="url(#vase)"/>
+  <ellipse cx="400" cy="374" rx="54" ry="12" fill="#9e6044"/>
+  <ellipse cx="400" cy="374" rx="42" ry="7" fill="#6d4937"/>
+  <path d="M398 376c0-91-24-134-66-195m66 167c39-52 59-123 58-188m-57 188c-7-104 17-149 38-225m-40 203c-63-50-88-103-104-162" fill="none" stroke="#5b654b" stroke-width="5"/>
+  <g fill="#6f7a52"><ellipse cx="318" cy="199" rx="19" ry="43" transform="rotate(-35 318 199)"/><ellipse cx="351" cy="244" rx="17" ry="39" transform="rotate(31 351 244)"/><ellipse cx="431" cy="248" rx="17" ry="43" transform="rotate(38 431 248)"/><ellipse cx="462" cy="186" rx="17" ry="40" transform="rotate(18 462 186)"/></g>
+  <g fill="#92916a"><ellipse cx="424" cy="154" rx="16" ry="38" transform="rotate(-14 424 154)"/><ellipse cx="294" cy="248" rx="18" ry="37" transform="rotate(-47 294 248)"/><ellipse cx="374" cy="289" rx="16" ry="36" transform="rotate(-35 374 289)"/></g>
+  <ellipse cx="579" cy="655" rx="67" ry="23" fill="#776451" opacity=".25"/>
+  <path d="M515 604h128l-15 45c-5 19-93 19-98 0Z" fill="#e9dfca"/>
+  <ellipse cx="579" cy="604" rx="64" ry="17" fill="#f1eadc"/><ellipse cx="579" cy="604" rx="50" ry="10" fill="#b7a68e"/>
+</svg>

@@ -44,6 +44,7 @@
     "vite-plugin-solid": "catalog:"
   },
   "dependencies": {
+    "@antv/x6": "3.1.8",
     "@kobalte/core": "catalog:",
     "@opencode-ai/core": "workspace:*",
     "@opencode-ai/sdk": "workspace:*",
