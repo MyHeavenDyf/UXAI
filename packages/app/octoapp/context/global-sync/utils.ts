@@ -1,8 +1,14 @@
-import type { Agent, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import type { Agent, Config, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 export { pathKey as directoryKey, type PathKey as DirectoryKey } from "@/utils/path-key"
 
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
+
+export function replaceProviderConfig(current: Config | undefined, saved: Config, providerID: string): Config {
+  const provider = saved.provider?.[providerID]
+  if (!provider) throw new Error("Provider configuration missing from save response")
+  return { ...current, provider: { ...current?.provider, [providerID]: provider } }
+}
 
 function isAgent(input: unknown): input is Agent {
   if (!input || typeof input !== "object") return false
