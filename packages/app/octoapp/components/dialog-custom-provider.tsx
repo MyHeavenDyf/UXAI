@@ -1,4 +1,5 @@
 import { Button } from "@opencode-ai/ui/button"
+import { Checkbox } from "@opencode-ai/ui/checkbox"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -6,13 +7,21 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { useMutation } from "@tanstack/solid-query"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@opencode-ai/ui/toast"
-import { batch, For } from "solid-js"
+import { batch, For, Show } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { type FormState, headerRow, modalityRow, modelRow, validateCustomProvider } from "./dialog-custom-provider-form"
+import {
+  type FormState,
+  hasImageInput,
+  headerRow,
+  modalityRow,
+  modelRow,
+  setImageInput,
+  validateCustomProvider,
+} from "./dialog-custom-provider-form"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogSettings } from "./dialog-settings"
 
@@ -44,6 +53,11 @@ export function DialogCustomProvider(props: Props) {
             row: modelRow().row,
             id,
             name: model.name ?? id,
+            limit: {
+              context: model.limit?.context ? String(model.limit.context) : "",
+              input: model.limit?.input ? String(model.limit.input) : "",
+              output: model.limit?.output ? String(model.limit.output) : "",
+            },
             modalities: Object.entries(model.modalities ?? {}).map(([key, value]) =>
               modalityRow(key, JSON.stringify(value)),
             ),
@@ -116,35 +130,6 @@ export function DialogCustomProvider(props: Props) {
     })
   }
 
-  const addModality = (modelIndex: number) => {
-    setForm(
-      "models",
-      modelIndex,
-      "modalities",
-      produce((rows) => {
-        rows.push(modalityRow())
-      }),
-    )
-  }
-
-  const removeModality = (modelIndex: number, index: number) => {
-    setForm(
-      "models",
-      modelIndex,
-      "modalities",
-      produce((rows) => {
-        rows.splice(index, 1)
-      }),
-    )
-  }
-
-  const setModality = (modelIndex: number, index: number, key: "key" | "value", value: string) => {
-    batch(() => {
-      setForm("models", modelIndex, "modalities", index, key, value)
-      setForm("models", modelIndex, "modalities", index, "err", key, undefined)
-    })
-  }
-
   const setHeader = (index: number, key: "key" | "value", value: string) => {
     batch(() => {
       setForm("headers", index, key, value)
@@ -191,7 +176,7 @@ export function DialogCustomProvider(props: Props) {
       const existing = globalSync.data.config.provider?.[result.providerID]
       const models = Object.fromEntries(
         Object.entries(result.config.models).map(([id, model]) => {
-          const { modalities: _, ...before } = existing?.models?.[id] ?? {}
+          const { modalities: _, limit: __, ...before } = existing?.models?.[id] ?? {}
           return [id, { ...before, ...model }]
         }),
       )
@@ -253,13 +238,13 @@ export function DialogCustomProvider(props: Props) {
       }
       transition
     >
-      <div class="flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]">
-        <div class="px-2.5 flex gap-4 items-center">
+      <div class="relative min-h-0 flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]">
+        <div class="px-2.5 flex gap-4 items-center shrink-0">
           <ProviderIcon id="synthetic" class="size-5 shrink-0 icon-strong-base" />
           <div class="text-16-medium text-text-strong">{language.t("provider.custom.title")}</div>
         </div>
 
-        <form onSubmit={save} class="px-2.5 pb-6 flex flex-col gap-6">
+        <form onSubmit={save} class="px-2.5 pb-6 flex flex-col gap-6 shrink-0">
           <p class="text-14-regular text-text-base">
             {language.t("provider.custom.description.prefix")}
             <Link href="https://opencode.ai/docs/providers/#custom-provider" tabIndex={-1}>
@@ -347,56 +332,41 @@ export function DialogCustomProvider(props: Props) {
                       aria-label={language.t("provider.custom.models.remove")}
                     />
                   </div>
-                  <div class="flex flex-col gap-2">
-                    <label class="text-12-medium text-text-weak">
-                      {language.t("provider.custom.models.modalities.label")}
-                    </label>
-                    <For each={m.modalities}>
-                      {(item, modalityIndex) => (
-                        <div class="flex gap-2 items-start" data-row={item.row}>
-                          <div class="w-1/3">
-                            <TextField
-                              label={language.t("provider.custom.models.modalities.key.label")}
-                              hideLabel
-                              placeholder={language.t("provider.custom.models.modalities.key.placeholder")}
-                              value={item.key}
-                              onChange={(value) => setModality(i(), modalityIndex(), "key", value)}
-                              validationState={item.err.key ? "invalid" : undefined}
-                              error={item.err.key}
-                            />
-                          </div>
-                          <div class="flex-1">
-                            <TextField
-                              label={language.t("provider.custom.models.modalities.value.label")}
-                              hideLabel
-                              placeholder={language.t("provider.custom.models.modalities.value.placeholder")}
-                              value={item.value}
-                              onChange={(value) => setModality(i(), modalityIndex(), "value", value)}
-                              validationState={item.err.value ? "invalid" : undefined}
-                              error={item.err.value}
-                            />
-                          </div>
-                          <IconButton
-                            type="button"
-                            icon="trash"
-                            variant="ghost"
-                            class="mt-1.5"
-                            onClick={() => removeModality(i(), modalityIndex())}
-                            aria-label={language.t("provider.custom.models.modalities.remove")}
-                          />
-                        </div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <For each={["context", "input", "output"] as const}>
+                      {(key) => (
+                        <TextField
+                          class={key === "context" ? "col-span-2" : ""}
+                          label={language.t(`provider.custom.models.limit.${key}`)}
+                          placeholder={language.t("provider.custom.models.limit.placeholder")}
+                          value={m.limit?.[key] ?? ""}
+                          onChange={(value) => {
+                            setForm("models", i(), "limit", {
+                              context: "",
+                              input: "",
+                              output: "",
+                              ...m.limit,
+                              [key]: value,
+                            })
+                            setForm("models", i(), "err", "limit", undefined)
+                          }}
+                          validationState={m.err.limit ? "invalid" : undefined}
+                        />
                       )}
                     </For>
-                    <Button
-                      type="button"
-                      size="small"
-                      variant="ghost"
-                      icon="plus-small"
-                      onClick={() => addModality(i())}
-                      class="self-start"
+                    <Show when={m.err.limit}>
+                      <p class="col-span-2 text-12-regular text-text-error" role="alert">
+                        {m.err.limit}
+                      </p>
+                    </Show>
+                  </div>
+                  <div class="relative self-start shrink-0">
+                    <Checkbox
+                      checked={hasImageInput(m.modalities)}
+                      onChange={(checked) => setForm("models", i(), "modalities", setImageInput(m.modalities, checked))}
                     >
-                      {language.t("provider.custom.models.modalities.add")}
-                    </Button>
+                      {language.t("provider.custom.models.imageInput")}
+                    </Checkbox>
                   </div>
                 </div>
               )}

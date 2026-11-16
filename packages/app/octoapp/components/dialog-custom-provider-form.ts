@@ -10,6 +10,7 @@ type Translator = (key: string, vars?: Record<string, string | number | boolean>
 export type ModelErr = {
   id?: string
   name?: string
+  limit?: string
   modalities: ModalityErr[]
 }
 
@@ -34,6 +35,7 @@ export type ModelRow = {
   row: string
   id: string
   name: string
+  limit?: { context: string; input: string; output: string }
   modalities: ModalityRow[]
   err: ModelErr
 }
@@ -73,6 +75,26 @@ const parseModalities = (input: string) => {
   } catch {
     return
   }
+}
+
+export function hasImageInput(rows: ModalityRow[]) {
+  return rows.some((item) => {
+    const value = parseModalities(item.value)
+    return item.key.trim() === "input" && Array.isArray(value) && value.includes("image")
+  })
+}
+
+export function setImageInput(rows: ModalityRow[], checked: boolean) {
+  if (!checked) return []
+  const input = rows.find((item) => item.key.trim() === "input")
+  const parsed = input ? parseModalities(input.value) : undefined
+  const values = Array.isArray(parsed) ? parsed : ["text"]
+  const next = [...new Set([...values, "image"])]
+  return [
+    ...rows.filter((item) => item.key.trim() !== "input"),
+    modalityRow("input", JSON.stringify(next.length ? next : ["text"])),
+    ...(!rows.some((item) => item.key.trim() === "output") ? [modalityRow("output", '["text"]')] : []),
+  ]
 }
 
 export function validateCustomProvider(input: ValidateArgs) {
@@ -151,9 +173,19 @@ export function validateCustomProvider(input: ValidateArgs) {
     if (missingModalities) {
       modalities[0] = { ...modalities[0], key: missingModalities }
     }
-    return { id: idError, name: nameError, modalities }
+    const limitError = Object.entries(m.limit ?? {}).some(
+      ([, value]) => value.trim() && (!Number.isSafeInteger(Number(value)) || Number(value) <= 0),
+    )
+      ? input.t("provider.custom.error.limit.number")
+      : m.limit?.context.trim() &&
+          [m.limit.input, m.limit.output].some((value) => value.trim() && Number(value) > Number(m.limit!.context))
+        ? input.t("provider.custom.error.limit.context")
+        : undefined
+    return { id: idError, name: nameError, modalities, ...(limitError ? { limit: limitError } : {}) }
   })
-  const modelsValid = models.every((m) => !m.id && !m.name && m.modalities.every((item) => !item.key && !item.value))
+  const modelsValid = models.every(
+    (m) => !m.id && !m.name && !m.limit && m.modalities.every((item) => !item.key && !item.value),
+  )
   const modelConfig = Object.fromEntries(
     input.form.models.map((m) => {
       const modalities = Object.fromEntries(
@@ -163,6 +195,15 @@ export function validateCustomProvider(input: ValidateArgs) {
         m.id.trim(),
         {
           name: m.name.trim(),
+          ...(Object.values(m.limit ?? {}).some((value) => value.trim())
+            ? {
+                limit: Object.fromEntries(
+                  Object.entries(m.limit ?? {})
+                    .filter(([, value]) => value.trim())
+                    .map(([key, value]) => [key, Number(value)]),
+                ),
+              }
+            : {}),
           ...(m.modalities.length > 0 ? { modalities } : {}),
         },
       ]
