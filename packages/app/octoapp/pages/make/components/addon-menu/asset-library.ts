@@ -244,12 +244,17 @@ export function hasAssetParseSource(file: Pick<AssetFile, "parseS3BaseUrl" | "pa
   return !!(file.parseS3BaseUrl && file.parseDocPath)
 }
 
+/** 压缩包不走 md 转换*/
+export function isAssetArchiveDocPath(docPath?: string): boolean {
+  return /\.(zip|rar)$/i.test(docPath ?? "")
+}
+
 /**
  * 资产的展示/保存文件名。type 40 带 parse 字段时下载的是 md 源文件,
- * fileName 的后缀名改为 md;其余场景原样返回 fileName。
+ * fileName 的后缀名改为 md;压缩包(docPath 为 zip/rar)除外,其余场景原样返回 fileName。
  */
 export function getAssetDisplayName(file: AssetFile): string {
-  if (file.type === 40 && hasAssetParseSource(file)) {
+  if (file.type === 40 && hasAssetParseSource(file) && !isAssetArchiveDocPath(file.docPath)) {
     const dot = file.fileName.lastIndexOf(".")
     const base = dot > 0 ? file.fileName.slice(0, dot) : file.fileName
     return `${base}.md`

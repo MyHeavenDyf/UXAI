@@ -433,10 +433,10 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
           <Show when={tab() === "product"}>
             <div class="library-dialog-footer">
               <div class="asset-dialog-footer-actions">
-                <button type="button" class="asset-dialog-btn" onClick={props.onCancel}>取消</button>
+                <button type="button" class="library-dialog-btn library-dialog-btn--cancel" onClick={props.onCancel}>取消</button>
                 <button
                   type="button"
-                  class="asset-dialog-btn asset-dialog-btn-primary"
+                  class="library-dialog-btn library-dialog-btn--confirm"
                   onClick={() => {
                     const selected = collectUndownloaded()
                     tracker.interaction({ module: props.trackerModule ?? "design", name: "addon-confirm-library-asset", extend: JSON.stringify({ count: selected.length }) })

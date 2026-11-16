@@ -5,7 +5,7 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, docFromJSON, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { DesignStrategyIcon } from "./components/addon-menu/icons"
-import { encodeAssetUrl, getAssetDisplayName, hasAssetParseSource, joinUrl } from "./components/addon-menu/asset-library"
+import { encodeAssetUrl, getAssetDisplayName, hasAssetParseSource, isAssetArchiveDocPath, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import { type PanelSkill, type SkillConfig, lookupDisplayName } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
@@ -115,7 +115,7 @@ import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, ty
 import { setAssessmentContext, harvestAssessmentReview, pauseAssessment, pendingAssessment } from "./utils/assessment-state"
 import { processMentions } from "./utils/mention-processor"
 import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
-import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
+import { autoSaveArtifact, inferArtifactFilePath, sanitizeFilename } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
 import { saveSessionTabs, loadSessionTabs } from "./utils/tab-state-store"
@@ -5123,8 +5123,8 @@ const sessionMessagesLoaded = createMemo(() => {
     let buffer: ArrayBuffer
     let downloadName: string
     if (file.type === 40) {
-      // type 40: 下载路径 = s3BaseUrl + '/' + docPath;带 parse 字段时改用 parse 源文件
-      const useParse = hasAssetParseSource(file)
+      // type 40: 下载路径 = s3BaseUrl + '/' + docPath;带 parse 字段时改用 parse 源文件。
+      const useParse = hasAssetParseSource(file) && !isAssetArchiveDocPath(file.docPath)
       const remotePath = useParse ? file.parseDocPath! : file.docPath
       if (!remotePath) throw new Error("缺少 docPath,无法下载")
       downloadName = remotePath
@@ -5163,16 +5163,17 @@ const sessionMessagesLoaded = createMemo(() => {
 
     if (isZip) {
       try {
-        // Extract into uploads/<file.fileName> (dedup with (N) suffix via dirExists); archive not kept
+        // Extract into uploads/<sanitized file.fileName> (dedup with (N) suffix via dirExists); archive not kept
         const JSZip = (await import("jszip")).default
         const zip = await JSZip.loadAsync(buffer)
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
-        let folderName = file.fileName
+        const safeBaseName = sanitizeFilename(file.fileName)
+        let folderName = safeBaseName
         let counter = 1
         if (api.dirExists) {
           while (await api.dirExists([dir, folderName].join(sep))) {
-            folderName = `${file.fileName} (${counter})`
+            folderName = `${safeBaseName} (${counter})`
             counter++
           }
         }
@@ -5180,7 +5181,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
         for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
           if (zipEntry.dir) continue
-          const normalized = relativePath.replace(/\//g, sep)
+          const normalized = relativePath
+            .split("/")
+            .map((seg) => seg.replace(/[\\/:*?"<>|#%]/g, "_"))
+            .join(sep)
           const content = await zipEntry.async("uint8array")
           await api.writeFileBuffer([folderPath, normalized].join(sep), content.buffer as ArrayBuffer)
         }
@@ -5198,11 +5202,11 @@ const sessionMessagesLoaded = createMemo(() => {
     // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77,带 parse 字段时后缀改 md),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
     let saveName: string
     if (file.type === 40) {
-      saveName = getAssetDisplayName(file)
+      saveName = sanitizeFilename(getAssetDisplayName(file))
     } else {
       const dot = downloadName.lastIndexOf(".")
       const ext = dot > 0 ? downloadName.slice(dot) : ""
-      saveName = `${file.fileName}${ext}`
+      saveName = sanitizeFilename(`${file.fileName}${ext}`)
     }
     const finalName = await resolveUniqueFilename(dir, saveName)
     const destPath = [dir, finalName].join(sep)

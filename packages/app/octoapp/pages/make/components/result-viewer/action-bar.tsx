@@ -29,6 +29,8 @@ import type { PanelSkill, SkillConfig } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
 import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
+import { isAssetLibraryLoggedIn } from "../../utils/asset-upload"
+import type { AssetUploadRequest } from "./asset-upload-dialog"
 import { DownloadCancelledError } from "../../subtype-handlers/default"
 import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
 import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
@@ -704,6 +706,15 @@ export function ActionBar(props: {
     commenting?: boolean
     archiving?: boolean
     focusMode?: boolean
+    /** 「保存到资产库(局部)」元素选择模式（按钮激活态 / 再次点击退出） */
+    assetPicking?: boolean
+    onAssetPickToggle?: () => void
+    /** 资产库上传弹窗打开中（按钮保持激活态） */
+    assetDialogOpen?: boolean
+    /** 上报「保存到资产库」上传请求（result-viewer 打开上传弹窗） */
+    onAssetUploadRequest?: (req: AssetUploadRequest) => void
+    /** 资产库保存进行中（全页面 / 局部共用），禁用下载按钮 + hover 显示「保存中」 */
+    assetSaving?: boolean
     onRefresh?: () => void
     onModeChange?: () => void
     onViewportChange?: (vp: ViewportPreset) => void
@@ -857,9 +868,7 @@ export function ActionBar(props: {
   // 获取自定义按钮配置
   const handler = getSubtypeHandler(props.tab.subtype)
   const uiConfig = createMemo(() => handler?.components?.actionBar)
-  
-  const downloadOptions = createMemo(() => handler?.downloadOptions ?? [])
-  
+
   const shouldReplaceDefaultButtons = () => uiConfig()?.replaceDefaultButtons ?? false
   
   const customButtons = createMemo(() => {
@@ -1077,8 +1086,15 @@ export function ActionBar(props: {
             <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
           </Show>
           <Show when={showDownload() && props.tab.type === "html"}>
-            <DownloadButton
-              options={downloadOptions()}
+            <AssetDownloadButton
+              tab={props.tab}
+              mode={currentMode()}
+              observedUrls={props.observedResourceUrls}
+              assetPicking={props.assetPicking}
+              assetDialogOpen={props.assetDialogOpen}
+              onAssetUploadRequest={props.onAssetUploadRequest}
+              onAssetPickToggle={props.onAssetPickToggle}
+              saving={props.assetSaving}
               onDownload={(option?: string) => handleDownload(option)}
             />
           </Show>
@@ -1308,8 +1324,27 @@ function ExportButton(props: {
   )
 }
 
-function DownloadButton(props: {
-  options: { value: string; label: string }[]
+/**
+ * HTML tab 下载按钮：点击进入激活态并展开下拉（样式同评估下拉，仅 hover 无激活态）。
+ *
+ * 三项：
+ *  - 下载到本地：原下载流程（handleDownload，含 TaskStore）
+ *  - 保存到资产库(全页面)：上报上传请求 → result-viewer 打开上传弹窗（内嵌
+ *    agentPage/asset-upload iframe，确认时上传原下载 ZIP；uiplusToken 登录态限定）
+ *  - 保存到资产库(局部)：进入元素选择模式（onAssetPickToggle，仅预览模式显示）
+ *
+ * 局部选择模式 / 上传弹窗打开时按钮保持激活态，再次点击退出选择模式；
+ * 保存进行中按钮禁用 + hover「保存中」。
+ */
+function AssetDownloadButton(props: {
+  tab: ResultTab
+  mode: "preview" | "edit"
+  observedUrls?: () => string[]
+  assetPicking?: boolean
+  assetDialogOpen?: boolean
+  onAssetUploadRequest?: (req: AssetUploadRequest) => void
+  onAssetPickToggle?: () => void
+  saving?: boolean
   onDownload: (option?: string) => Promise<void>
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
@@ -1335,75 +1370,109 @@ function DownloadButton(props: {
     })
   })
 
-  const hasMultiple = () => props.options.length > 1
-
-  const handlePick = async (value?: string) => {
-    setOpen(false)
-    await props.onDownload(value)
+  const handleTriggerClick = () => {
+    // 局部选择模式：点击下载按钮退出
+    if (props.assetPicking) {
+      setOpen(false)
+      props.onAssetPickToggle?.()
+      return
+    }
+    setOpen(!open())
   }
 
+  /** 全页面保存请求：ZIP 在上传弹窗确认时构建（createHtmlAssetsZip 同原下载参数） */
+  const buildFullPageRequest = (): AssetUploadRequest => ({
+    variant: "full",
+    title: "保存到资产库(全页面)",
+    name: `${stripExtension(props.tab.title, "html")}.zip`,
+    buildZip: () => {
+      tracker.interaction({ module: "design", name: "save-to-asset-full" })
+      return createHtmlAssetsZip({
+        htmlContent: extractDownloadContent(props.tab),
+        htmlFilePath: props.tab.filePath || "",
+        htmlFileNameInZip: `${stripExtension(props.tab.title, "html")}.html`,
+        observedUrls: props.observedUrls?.() || [],
+      })
+    },
+  })
+
+  const handlePick = async (kind: "local" | "full" | "partial") => {
+    setOpen(false)
+    if (kind === "local") {
+      await props.onDownload()
+      return
+    }
+    if (kind === "partial") {
+      props.onAssetPickToggle?.()
+      return
+    }
+    props.onAssetUploadRequest?.(buildFullPageRequest())
+  }
+
+  const assetDisabled = () => !isAssetLibraryLoggedIn()
+
   return (
-    <Show
-      when={hasMultiple()}
-      fallback={
-        <Tooltip placement="top" value="下载">
-          <button type="button" class="octo-action-btn octo-action-btn-download" onClick={() => handlePick()}>
-            <IconDownloadNew size={16} />
-            <span>下载</span>
-          </button>
-        </Tooltip>
-      }
-    >
-      <div class="octo-dropdown">
-        <Tooltip placement="top" value="下载" inactive={open()}>
-          <button
-            ref={btnRef}
-            type="button"
-            class="octo-action-btn octo-action-btn-download"
-            classList={{ "octo-dropdown-open": open() }}
-            style={{ width: "auto" }}
-            onClick={() => setOpen(!open())}
-          >
-            <IconDownloadNew size={16} />
-            <span>下载</span>
-            <IconDropdownChevron size={16} style={{ transform: open() ? "rotate(-180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }} />
-          </button>
-        </Tooltip>
-        <Show when={open()}>
-          <Portal mount={document.body}>
-            {(() => {
-              const rect = btnRef?.getBoundingClientRect()
-              return (
-                <div
-                  ref={menuRef}
-                  class="octo-dropdown-menu"
-                  style={{
-                    top: `${(rect?.bottom ?? 0) + 4}px`,
-                    left: `${rect?.left ?? 0}px`,
-                  }}
-                  onClick={(e) => {
-                    const target = e.target as HTMLElement
-                    if (!target.closest("button")) setOpen(false)
-                  }}
+    <div class="octo-dropdown">
+      <Tooltip placement="top" value={props.saving ? "保存中" : "下载"} inactive={open()}>
+        <button
+          ref={btnRef}
+          type="button"
+          class="octo-action-btn octo-action-btn-download"
+          classList={{
+            "octo-viewport-btn-active": open() || !!props.assetPicking || !!props.assetDialogOpen,
+            "octo-action-btn-disabled": !!props.saving,
+          }}
+          disabled={!!props.saving}
+          onClick={handleTriggerClick}
+        >
+          <IconDownloadNew size={16} />
+          <span>下载</span>
+        </button>
+      </Tooltip>
+      <Show when={open()}>
+        <Portal mount={document.body}>
+          {(() => {
+            const rect = btnRef?.getBoundingClientRect()
+            return (
+              <div
+                ref={menuRef}
+                class="octo-assessment-menu"
+                style={{
+                  top: `${(rect?.bottom ?? 0) + 4}px`,
+                  left: `${rect?.left ?? 0}px`,
+                }}
+              >
+                <button
+                  type="button"
+                  class="octo-assessment-item"
+                  disabled={!!props.saving}
+                  onClick={() => void handlePick("local")}
                 >
-                  <For each={props.options}>
-                    {(opt) => (
-                      <button
-                        type="button"
-                        class="octo-dropdown-item"
-                        style={{ "justify-content": "flex-start", "text-align": "left" }}
-                        onClick={() => handlePick(opt.value)}
-                      >
-                        <span>{opt.label}</span>
-                      </button>
-                    )}
-                  </For>
-                </div>
-              )
-            })()}
-          </Portal>
-        </Show>
-      </div>
-    </Show>
+                  <span class="octo-assessment-item-text">下载到本地</span>
+                </button>
+                <button
+                  type="button"
+                  class="octo-assessment-item"
+                  disabled={assetDisabled() || !!props.saving}
+                  onClick={() => void handlePick("full")}
+                >
+                  <span class="octo-assessment-item-text">保存到资产库(全页面)</span>
+                </button>
+                <Show when={props.mode === "preview"}>
+                  <button
+                    type="button"
+                    class="octo-assessment-item"
+                    disabled={assetDisabled() || !!props.saving}
+                    onClick={() => void handlePick("partial")}
+                  >
+                    <span class="octo-assessment-item-text">保存到资产库(局部)</span>
+                  </button>
+                </Show>
+              </div>
+            )
+          })()}
+        </Portal>
+      </Show>
+    </div>
   )
 }

@@ -95,6 +95,8 @@ export interface ManualEditTarget {
   attributes: Record<string, string>
   styles: ManualEditStyles
   selector: string
+  xpath: string
+  cssSelector: string
   htmlHint: string
   isLayoutContainer: boolean
   outerHtml: string
