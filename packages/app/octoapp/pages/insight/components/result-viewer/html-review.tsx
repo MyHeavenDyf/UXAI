@@ -187,16 +187,16 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
         <svg aria-hidden="true" viewBox="0 0 20 20" width={iconSize()} height={iconSize()} fill="none"><path d="M2 18V10a8 8 0 1 1 8 8H2Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" /></svg><span>标注</span>
       </button>
     </Tooltip>
-    <Tooltip value={!review?.history() ? "历史版本需要本地 HTML 和桌面端支持" : "历史版本"} placement="top">
+    <Tooltip value={!review?.history() ? "历史版本需要本地 HTML 和桌面端支持" : "历史"} placement="top">
       <button ref={button} type="button" class={buttonClass()}
         disabled={!review?.history() || review?.state.busy || review?.state.editing || props.working}
         classList={{ "opacity-40": !review?.history() || review?.state.busy || props.working }}
-        aria-label="历史版本" aria-expanded={state.open}
+        aria-label="历史" aria-expanded={state.open}
         onClick={() => {
           setState({ open: !state.open, anchor: button?.getBoundingClientRect() ?? null })
           if (state.open) void review?.refresh()
         }}>
-        <svg aria-hidden="true" viewBox="0 0 16 16" width={iconSize()} height={iconSize()} fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" /></svg><span>{review?.state.busy ? "处理中..." : "历史版本"}</span>
+        <svg aria-hidden="true" viewBox="0 0 16 16" width={iconSize()} height={iconSize()} fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" /></svg><span>{review?.state.busy ? "处理中..." : "历史"}</span>
       </button>
     </Tooltip>
     <Show when={state.open && state.anchor}>
