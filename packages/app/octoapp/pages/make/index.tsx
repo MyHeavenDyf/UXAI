@@ -6380,7 +6380,7 @@ onPreview={(url) => {
                           onChange={handleFileInputChange}
                         />
                         <AddonMenu
-                          items={["skills", "assetLibrary", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                          items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                           slots={[
                             {
                               key: "designStrategy",
@@ -6834,7 +6834,7 @@ onPreview={(url) => {
                         onChange={handleFileInputChange}
                       />
                       <AddonMenu
-                        items={["skills", "assetLibrary", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                        items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                         slots={[
                           {
                             key: "designStrategy",
