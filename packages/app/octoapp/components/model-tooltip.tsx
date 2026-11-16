@@ -9,7 +9,11 @@ type ModelInfo = {
   name: string
   provider: {
     name: string
+    source?: string
+    env?: string[]
+    options?: Record<string, unknown>
   }
+  api?: { npm: string }
   capabilities?: {
     reasoning: boolean
     input: InputMap
@@ -19,7 +23,8 @@ type ModelInfo = {
   }
   reasoning?: boolean
   limit: {
-    context: number
+    context?: number
+    input?: number
   }
 }
 
@@ -66,7 +71,25 @@ export const ModelTooltip: Component<{ model: ModelInfo }> = (props) => {
       ? language.t("model.tooltip.reasoning.allowed")
       : language.t("model.tooltip.reasoning.none")
   }
-  const context = () => language.t("model.tooltip.context", { limit: props.model.limit.context.toLocaleString() })
+  const isCustom = () => {
+    const provider = props.model.provider
+    if (provider.source === "remote") return false
+    if (provider.source === "custom") return true
+    return (
+      provider.source === "config" &&
+      (provider.options?.__octo_custom_provider === true ||
+        (props.model.api?.npm === "@ai-sdk/openai-compatible" && provider.env?.length === 0))
+    )
+  }
+  const context = () =>
+    language.t("model.tooltip.context", {
+      limit: (isCustom()
+        ? props.model.limit.context && props.model.limit.context > 0
+          ? props.model.limit.context
+          : 128_000
+        : (props.model.limit.input ?? props.model.limit.context ?? 0)
+      ).toLocaleString(),
+    })
 
   return (
     <div class="flex flex-col gap-1 py-1">
