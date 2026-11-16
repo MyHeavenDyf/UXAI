@@ -52,6 +52,12 @@ const TOOL_OUTPUT_MAX_CHARS = 2_000
 const PRUNE_PROTECTED_TOOLS = ["skill"]
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 15_000
+// 摘要请求体积治理:prompt 需放进摘要模型输入上限并预留输出;降级仍放不下时按
+// SHRINK_STEPS 对被 provider 拒绝的体积逐级收缩重试(参考 opencode v2 的做法)。
+const SUMMARY_RESERVE_MIN = 16_000
+const SUMMARY_RESERVE_SHARE = 0.15
+const SUMMARY_SHRINK_STEPS = [0.85, 0.7, 0.5, 0.35]
+const TRANSCRIPT_CLIP = 2_000
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -108,11 +114,18 @@ type CompletedCompaction = {
 const truncate = (value: string) =>
   value.length <= TOOL_OUTPUT_MAX_CHARS ? value : `${value.slice(0, TOOL_OUTPUT_MAX_CHARS)}\n[truncated]`
 
-const serialize = (message: MessageV2.WithParts) => {
+/** `value` cut to `TRANSCRIPT_CLIP` characters from its start and end. */
+const clip = (value: string) => {
+  if (value.length <= TRANSCRIPT_CLIP) return value
+  const half = TRANSCRIPT_CLIP / 2
+  return `${value.slice(0, half)}\n[… ${value.length - TRANSCRIPT_CLIP} characters omitted …]\n${value.slice(-half)}`
+}
+
+const serialize = (message: MessageV2.WithParts, level: "full" | "user-only" = "full") => {
   if (message.info.role === "user") {
     const text = message.parts
       .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.ignored)
-      .map((part) => part.text)
+      .map((part) => (level === "user-only" ? clip(part.text) : part.text))
       .filter(Boolean)
       .join("\n")
     const files = message.parts.flatMap((part) =>
@@ -120,6 +133,7 @@ const serialize = (message: MessageV2.WithParts) => {
     )
     return [...(text ? [`[User]: ${text}`] : []), ...files].join("\n")
   }
+  if (level === "user-only") return ""
   return message.parts
     .flatMap((part) => {
       if (part.type === "text") return part.text ? [`[Assistant]: ${part.text}`] : []
@@ -233,6 +247,27 @@ function splitTurn(input: {
     }
     return undefined
   })
+}
+
+/**
+ * Serialize `head` into a transcript that fits `budget` tokens (undefined = no preflight).
+ * Ladder: full → user-only (user texts clipped to TRANSCRIPT_CLIP) → drop oldest turns at
+ * user-only. The newest turn is never dropped; text is undefined when even it cannot fit.
+ */
+export function conversationWithin(head: MessageV2.WithParts[], budget: number | undefined) {
+  const join = (level: "full" | "user-only", messages: MessageV2.WithParts[]) =>
+    messages.map((msg) => serialize(msg, level)).filter(Boolean).join("\n\n")
+  if (budget === undefined) return { text: join("full", head), degraded: false }
+  const full = join("full", head)
+  if (Token.estimate(full) <= budget) return { text: full, degraded: false }
+  const users = join("user-only", head)
+  if (Token.estimate(users) <= budget) return { text: users, degraded: true }
+  const all = turns(head)
+  for (let i = 1; i < all.length; i++) {
+    const text = join("user-only", head.slice(all[i]!.start))
+    if (Token.estimate(text) <= budget) return { text, degraded: true }
+  }
+  return { text: undefined, degraded: true }
 }
 
 export interface Interface {
@@ -450,19 +485,66 @@ export const layer: Layer.Layer<
       )
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-      const conversation = msgs.map(serialize).filter(Boolean).join("\n\n")
-      const nextPrompt =
-        compacting.prompt ??
-        [
-          buildPrompt({
-            previousSummary,
-            context: [conversation],
-          }),
-          ...compacting.context,
-        ]
-          .filter(Boolean)
-          .join("\n\n")
       const ctx = yield* InstanceState.context
+      const promptFor = (conversation: string) =>
+        compacting.prompt
+          ? [compacting.prompt, "The following is the conversation history:", conversation]
+              .filter(Boolean)
+              .join("\n\n")
+          : [buildPrompt({ previousSummary, context: [conversation] }), ...compacting.context]
+              .filter(Boolean)
+              .join("\n\n")
+      // 摘要请求体积预检:模板+锚定摘要+全文序列化必须放进摘要模型输入上限并预留输出。
+      // 放不下时按 full → user-only(文本裁剪) → 丢弃最旧轮次 降级,而不是盲发后被
+      // provider 拒绝重试数分钟(压不动的根因之一)。
+      const summaryLimit = model.limit.input ?? model.limit.context
+      const summaryBudget =
+        summaryLimit > 0
+          ? summaryLimit - Math.max(SUMMARY_RESERVE_MIN, Math.floor(summaryLimit * SUMMARY_RESERVE_SHARE))
+          : undefined
+      const fixedEstimate = Token.estimate(promptFor(""))
+      const built = conversationWithin(msgs, summaryBudget === undefined ? undefined : summaryBudget - fixedEstimate)
+
+      if (built.text === undefined) {
+        const minimal = Token.estimate(msgs.map((msg) => serialize(msg, "user-only")).filter(Boolean).join("\n\n"))
+        log.error("compaction transcript exceeds summary model limit", {
+          sessionID: input.sessionID,
+          modelID: model.id,
+          providerID: model.providerID,
+          limit: summaryLimit,
+          budget: summaryBudget,
+          minimal_transcript_tokens: minimal,
+        })
+        const fail: MessageV2.Assistant = {
+          id: MessageID.ascending(),
+          role: "assistant",
+          parentID: input.parentID,
+          sessionID: input.sessionID,
+          mode: "compaction",
+          agent: "compaction",
+          variant: userMessage.model.variant,
+          summary: true,
+          path: { cwd: ctx.directory, root: ctx.worktree },
+          cost: 0,
+          tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: model.id,
+          providerID: model.providerID,
+          time: { created: Date.now() },
+          finish: "error",
+          error: new MessageV2.ContextOverflowError({
+            message: `Session too large to compact - the minimal transcript (~${minimal} tokens) cannot fit the summary model budget (${summaryBudget} tokens of a ${summaryLimit}-token limit). Reduce the attached content or switch to a larger-context model.`,
+          }).toObject(),
+        }
+        yield* session.updateMessage(fail)
+        return "stop"
+      }
+      if (built.degraded)
+        log.warn("compaction transcript degraded to fit summary budget", {
+          sessionID: input.sessionID,
+          budget: summaryBudget,
+        })
+
+      let conversation = built.text
       const summarize = Effect.fnUntraced(function* (prompt: string) {
         const msg: MessageV2.Assistant = {
           id: MessageID.ascending(),
@@ -508,12 +590,7 @@ export const layer: Layer.Layer<
               content: [
                 {
                   type: "text",
-                  text: [
-                    prompt,
-                    ...(compacting.prompt ? ["The following is the conversation history:", conversation] : []),
-                  ]
-                    .filter(Boolean)
-                    .join("\n\n"),
+                  text: prompt,
                 },
               ],
             },
@@ -524,7 +601,25 @@ export const layer: Layer.Layer<
         return { msg, processor, result, stored, summary: stored ? summaryText(stored) : undefined }
       })
 
-      const first = yield* summarize(nextPrompt)
+      let first = yield* summarize(promptFor(conversation))
+      // provider 仍拒绝(估算偏差、模型实际上限更低)→ 按 SHRINK_STEPS 收缩目标体积,
+      // 重建更小的转写并重试;重建不出更小内容(仅剩最新一轮/已不可再降)则放弃。
+      if (first.result === "compact") {
+        for (const step of SUMMARY_SHRINK_STEPS) {
+          const target = Math.floor(Token.estimate(promptFor(conversation)) * step)
+          const rebuilt = conversationWithin(msgs, Math.max(0, target - fixedEstimate))
+          if (rebuilt.text === undefined || rebuilt.text === conversation) break
+          conversation = rebuilt.text
+          log.warn("compaction summary shrink retry", {
+            sessionID: input.sessionID,
+            step,
+            target,
+          })
+          yield* session.removeMessage({ sessionID: input.sessionID, messageID: first.msg.id })
+          first = yield* summarize(promptFor(conversation))
+          if (first.result !== "compact") break
+        }
+      }
       const firstValidation = CompactionSummary.validate(first.summary)
       const retry =
         first.result === "continue" &&
@@ -564,7 +659,7 @@ export const layer: Layer.Layer<
         processor.message.error = new MessageV2.ContextOverflowError({
           message: replay
             ? "Conversation history too large to compact - exceeds model context limit"
-            : "Session too large to compact - context exceeds model limit even after stripping media",
+            : `Session too large to compact - the summary request (~${Token.estimate(promptFor(conversation))} tokens) stays above the model context limit (${summaryLimit} tokens) even after transcript degradation`,
         }).toObject()
         processor.message.finish = "error"
         yield* session.updateMessage(processor.message)

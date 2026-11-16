@@ -2444,3 +2444,200 @@ describe("SessionNs.getUsage", () => {
     expect(result.tokens.cache.write).toBe(300)
   })
 })
+
+describe("session.compaction.conversationWithin", () => {
+  function withUserText(text: string): MessageV2.WithParts {
+    const id = MessageID.ascending()
+    const sessionID = SessionID.descending()
+    return {
+      info: {
+        id,
+        role: "user",
+        sessionID,
+        agent: "build",
+        model: ref,
+        time: { created: Date.now() },
+      },
+      parts: [{ id: PartID.ascending(), messageID: id, sessionID, type: "text", text }],
+    }
+  }
+
+  function withAssistantText(parentID: MessageID, text: string): MessageV2.WithParts {
+    const id = MessageID.ascending()
+    const sessionID = SessionID.descending()
+    return {
+      info: {
+        id,
+        role: "assistant",
+        sessionID,
+        mode: "build",
+        agent: "build",
+        path: { cwd: "/", root: "/" },
+        cost: 0,
+        tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        modelID: ref.modelID,
+        providerID: ref.providerID,
+        parentID,
+        time: { created: Date.now() },
+        finish: "end_turn",
+      },
+      parts: [{ id: PartID.ascending(), messageID: id, sessionID, type: "text", text }],
+    }
+  }
+
+  test("returns the full transcript when budget is undefined", () => {
+    const head = [withUserText("hello world")]
+    const built = SessionCompaction.conversationWithin(head, undefined)
+    expect(built.degraded).toBe(false)
+    expect(built.text).toContain("hello world")
+  })
+
+  test("keeps the full transcript when it fits the budget", () => {
+    const first = withUserText("hello world")
+    const head = [first, withAssistantText(first.info.id, "assistant reply")]
+    const built = SessionCompaction.conversationWithin(head, 10_000)
+    expect(built.degraded).toBe(false)
+    expect(built.text).toContain("hello world")
+    expect(built.text).toContain("assistant reply")
+  })
+
+  test("degrades to clipped user-only text when the full transcript exceeds the budget", () => {
+    const first = withUserText("x".repeat(50_000))
+    const head = [first, withAssistantText(first.info.id, "assistant reply")]
+    const built = SessionCompaction.conversationWithin(head, 4_000)
+    expect(built.degraded).toBe(true)
+    expect(built.text).toContain("characters omitted")
+    expect(built.text).not.toContain("assistant reply")
+    expect(built.text!.length).toBeLessThan(10_000)
+  })
+
+  test("drops the oldest turns when clipped user-only text still exceeds the budget", () => {
+    const head = []
+    for (let i = 0; i < 20; i++) head.push(withUserText(`marker-${String(i).padStart(3, "0")} ${"z".repeat(7_900)}`))
+    const built = SessionCompaction.conversationWithin(head, 4_000)
+    expect(built.degraded).toBe(true)
+    expect(built.text).toContain("marker-019")
+    expect(built.text).not.toContain("marker-000")
+  })
+
+  test("returns undefined when even the newest turn cannot fit", () => {
+    const head = [withUserText(`blob ${"x".repeat(10_000)}`)]
+    const built = SessionCompaction.conversationWithin(head, 10)
+    expect(built.text).toBeUndefined()
+    expect(built.degraded).toBe(true)
+  })
+})
+
+describe("session.compaction.summary sizing", () => {
+  test("fails fast when the minimal transcript cannot fit the summary model budget", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, "hello")
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const narrow = () => ProviderTest.fake({ model: createModel({ context: 10_000, output: 2_000 }) })
+        const rt = runtime("continue", Plugin.defaultLayer, narrow())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          expect(parent).toBeTruthy()
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: false }),
+            ),
+          )
+
+          expect(result).toBe("stop")
+          const summary = (await svc.messages({ sessionID: session.id })).find(
+            (msg) => msg.info.role === "assistant" && msg.info.summary,
+          )
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") {
+            expect(summary.info.finish).toBe("error")
+            expect(JSON.stringify(summary.info.error)).toContain("cannot fit the summary model budget")
+          }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("degrades the transcript and sends a clipped summary prompt", async () => {
+    const stub = llm()
+    let captured = ""
+    stub.push(
+      reply("summary", (input) => {
+        captured = JSON.stringify(input.messages)
+      }),
+    )
+    await using tmp = await tmpdir({ git: true })
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, `skill doc ${"x".repeat(400_000)}`)
+        await user(session.id, `skill doc again ${"y".repeat(400_000)}`)
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const rt = liveRuntime(stub.layer, wide(), cfg())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          expect(parent).toBeTruthy()
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: false }),
+            ),
+          )
+
+          expect(result).toBe("continue")
+          expect(captured).toContain("characters omitted")
+          expect(captured).not.toContain("x".repeat(1_500))
+          expect(captured).not.toContain("y".repeat(1_500))
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("shrinks the transcript on provider rejection and gives up after the steps", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, `old ${"x".repeat(80_000)}`)
+        await user(session.id, "latest question")
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const rt = runtime("compact", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          expect(parent).toBeTruthy()
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: false }),
+            ),
+          )
+
+          expect(result).toBe("stop")
+          const summaries = (await svc.messages({ sessionID: session.id })).filter(
+            (msg) => msg.info.role === "assistant" && msg.info.summary,
+          )
+          expect(summaries).toHaveLength(1)
+          const failed = summaries[0]?.info
+          expect(failed?.role).toBe("assistant")
+          if (failed?.role === "assistant") expect(JSON.stringify(failed.error)).toContain("even after transcript degradation")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+})
