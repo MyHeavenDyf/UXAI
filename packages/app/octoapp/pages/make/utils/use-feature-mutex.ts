@@ -7,6 +7,7 @@ export type FeatureState = {
   commenting: boolean
   archiving: boolean
   inspecting: boolean
+  assetPicking: boolean
 }
 
 export function useFeatureMutex(initialState?: Partial<FeatureState>) {
@@ -17,6 +18,7 @@ export function useFeatureMutex(initialState?: Partial<FeatureState>) {
     commenting: false,
     archiving: false,
     inspecting: false,
+    assetPicking: false,
     ...initialState,
   })
 
@@ -28,6 +30,7 @@ export function useFeatureMutex(initialState?: Partial<FeatureState>) {
       commenting: feature === 'commenting',
       archiving: feature === 'archiving',
       inspecting: feature === 'inspecting',
+      assetPicking: feature === 'assetPicking',
     })
   }
 
@@ -47,6 +50,7 @@ export function useFeatureMutex(initialState?: Partial<FeatureState>) {
       commenting: false,
       archiving: false,
       inspecting: false,
+      assetPicking: false,
     })
   }
 

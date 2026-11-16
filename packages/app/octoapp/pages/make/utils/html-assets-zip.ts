@@ -128,3 +128,57 @@ export async function createHtmlAssetsZip(options: CreateHtmlAssetsZipOptions): 
 
   return await zip.generateAsync({ type: "blob" })
 }
+
+export interface CreatePartialAssetsZipOptions {
+  /** 选中元素的 outerHTML（来自 iframe live DOM，经 od:get-element-html 拉取） */
+  fragmentHtml: string
+  /** 原页面文件路径：片段内相对引用按此目录解析；为空则不做资源收集 */
+  htmlFilePath: string
+  /** 片段文件在 ZIP 内的名字（含 .html） */
+  fileNameInZip: string
+}
+
+/**
+ * 局部保存 ZIP：最小 HTML 文档包裹选中元素 outerHTML，
+ */
+export async function createPartialAssetsZip(options: CreatePartialAssetsZipOptions): Promise<Blob> {
+  const zip = new JSZip()
+  const api = getDesktopApi()
+
+  const doc = `<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"></head>\n<body>\n${options.fragmentHtml}\n</body>\n</html>`
+  // 局部名称来自用户输入
+  const safeFileName =
+    options.fileNameInZip
+      .replace(/[\\/:*?"<>|#%]/g, "~")
+      .replace(/~{2,}/g, "~")
+      .replace(/^[~\s]+/, "")
+      .trim() || "untitled.html"
+  zip.file(safeFileName, doc)
+
+  if (!options.htmlFilePath || !api?.readFileBuffer) {
+    return await zip.generateAsync({ type: "blob" })
+  }
+
+  const htmlDir = dirname(options.htmlFilePath.replace(/\\/g, "/"))
+  const refs = await collectReferencedFiles({
+    rootContent: doc,
+    rootType: "html",
+    rootAbsPath: options.htmlFilePath,
+    readFileBuffer: (p) => api.readFileBuffer!(p),
+  })
+
+  const allAbs = [...refs]
+  const nca = findCommonAncestor([htmlDir, ...allAbs])
+  for (const abs of allAbs) {
+    const entryPath = relativeTo(nca, abs)
+    if (!entryPath) continue
+    try {
+      const buf = await api.readFileBuffer(abs)
+      if (buf) zip.file(entryPath, new Uint8Array(buf))
+    } catch (err) {
+      console.warn(`[PartialAssetsZip] Failed to read referenced file:`, abs, err)
+    }
+  }
+
+  return await zip.generateAsync({ type: "blob" })
+}
