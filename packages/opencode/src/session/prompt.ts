@@ -19,6 +19,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { CompactionDebug } from "./compaction-debug"
 import { MessageDebug } from "./message-debug"
+import { AutoCompactDebug } from "./auto-compact-debug"
 import { Bus } from "../bus"
 import { ProviderTransform } from "@/provider/transform"
 import { SystemPrompt } from "./system"
@@ -70,7 +71,7 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
-import { AUTOMATIC_COMPACTION_ENABLED } from "./overflow"
+import { AUTOMATIC_COMPACTION_ENABLED, usable as usableContext } from "./overflow"
 import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
 import { Token } from "@/util/token"
 
@@ -864,6 +865,88 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         sessionID: input.sessionID,
         phase: input.phase,
         outcome: input.outcome,
+        note: `request assembly failed: ${error instanceof Error ? error.message : String(error)}`,
+        model: `${input.model.providerID}/${input.model.id}`,
+        system: [],
+        modelMsgs: [],
+        activeTools: {},
+      })
+    })
+
+    // 自动压缩触发埋点:每次 compaction.create({ auto: true }) 前落盘一份完整请求快照,
+    // 用于排查压缩后上下文仍超阈值导致的循环压缩(auto-compact 目录下 auto_compact_*.txt)。
+    const dumpAutoCompactTrigger = Effect.fn("SessionPrompt.dumpAutoCompactTrigger")(function* (input: {
+      sessionID: SessionID
+      session: Session.Info
+      model: Provider.Model
+      trigger: string
+      tokens?: MessageV2.Assistant["tokens"]
+      overflow?: boolean
+    }) {
+      const exit = yield* Effect.gen(function* () {
+        const modelLabel = `${input.model.providerID}/${input.model.id}`
+        const cfg = yield* config.get()
+        const usable = usableContext({ cfg, model: input.model })
+        const limit = input.model.limit.input ?? input.model.limit.context
+        const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
+        const compactions = messages.reduce(
+          (count, msg) => count + msg.parts.filter((part) => part.type === "compaction").length,
+          0,
+        )
+        const lastUser = messages.findLast((message) => message.info.role === "user")?.info
+        const lastAssistant = messages.findLast((message) => message.info.role === "assistant")?.info
+        const agent = lastUser?.role === "user" ? yield* agents.get(lastUser.agent) : undefined
+        if (!lastUser || lastUser.role !== "user" || !lastAssistant || lastAssistant.role !== "assistant" || !agent) {
+          yield* AutoCompactDebug.dump({
+            sessionID: input.sessionID,
+            trigger: input.trigger,
+            tokens: input.tokens,
+            limit,
+            usable,
+            compactions,
+            overflow: input.overflow,
+            note: `context not assemblable (lastUser=${lastUser?.role ?? "none"}, lastAssistant=${lastAssistant?.role ?? "none"}, agent=${agent?.name ?? "missing"})`,
+            model: modelLabel,
+            system: [],
+            modelMsgs: [],
+            activeTools: {},
+          })
+          return
+        }
+        const request = yield* prepareRequest({
+          messages,
+          lastUser,
+          agent,
+          session: input.session,
+          model: input.model,
+          processor: {
+            message: lastAssistant,
+            updateToolCall: () => Effect.succeed(undefined),
+            completeToolCall: () => Effect.succeed(undefined),
+          },
+          onStructuredOutput: () => {},
+        })
+        yield* AutoCompactDebug.dump({
+          sessionID: input.sessionID,
+          trigger: input.trigger,
+          tokens: input.tokens,
+          limit,
+          usable,
+          compactions,
+          overflow: input.overflow,
+          model: modelLabel,
+          system: [...(agent.prompt ? [agent.prompt] : SystemPrompt.provider(input.model)), ...request.system],
+          modelMsgs: request.modelMsgs,
+          activeTools: request.activeTools,
+        })
+      }).pipe(Effect.exit)
+      if (Exit.isSuccess(exit)) return
+      const error = Cause.squash(exit.cause)
+      yield* elog.warn("auto compact trigger dump failed", { error })
+      yield* AutoCompactDebug.dump({
+        sessionID: input.sessionID,
+        trigger: input.trigger,
+        overflow: input.overflow,
         note: `request assembly failed: ${error instanceof Error ? error.message : String(error)}`,
         model: `${input.model.providerID}/${input.model.id}`,
         system: [],
@@ -1929,6 +2012,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             lastFinished.modelID === model.id &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
+            yield* dumpAutoCompactTrigger({
+              sessionID,
+              session,
+              model,
+              trigger: "loop-overflow-check",
+              tokens: lastFinished.tokens,
+            })
             yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
             continue
           }
@@ -2089,6 +2179,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             if (result === "stop") return "break" as const
             if (result === "compact") {
               if (!AUTOMATIC_COMPACTION_ENABLED) return "break" as const
+              const overflowTokens =
+                handle.message.tokens.input + handle.message.tokens.cache.read + handle.message.tokens.cache.write
+              yield* dumpAutoCompactTrigger({
+                sessionID,
+                session,
+                model,
+                trigger: handle.message.finish
+                  ? "processor-post-step"
+                  : overflowTokens > 0
+                    ? "processor-halt-overflow"
+                    : "processor-preflight",
+                tokens: handle.message.tokens,
+                overflow: !handle.message.finish,
+              })
               yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,
