@@ -17,10 +17,12 @@ import { getDesktopApi } from "../../lib/electron-api"
 import { attachPanelDrag } from "../../utils/panel-drag"
 import "./html-local-editor.css"
 import { useHtmlReview } from "./html-review"
+import { resolvePreviewStyles } from "../../utils/html-preview-resources"
+import { isElectronDesktop } from "../../utils/insight-file-api"
 
 const directStyleGroups = new Set(["od_effects", "od_bgImage", "od_padding", "od_margin", "od_size", "od_layout"])
 
-export function HtmlLocalEditor(props: { content: string; onReady?: () => void }) {
+export function HtmlLocalEditor(props: { content: string; filePath?: string; onReady?: () => void }) {
   const review = useHtmlReview()!
   let original = props.content
   const lifetime = new AbortController()
@@ -63,7 +65,7 @@ export function HtmlLocalEditor(props: { content: string; onReady?: () => void }
     source = annotateElementsWithIdsBrowser(stripCodeFence(original))
     failedStyles.clear()
     const html = injectEditBridgeStyle(injectModelEditBridge(injectEditBridge(injectInspectStyleBridge(source))))
-    const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }))
+    const url = URL.createObjectURL(new Blob([resolvePreviewStyles(html, isElectronDesktop() ? props.filePath : undefined)], { type: "text/html;charset=utf-8" }))
     setState("url", url)
     onCleanup(() => URL.revokeObjectURL(url))
   })
