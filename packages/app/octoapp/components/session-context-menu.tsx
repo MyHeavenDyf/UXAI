@@ -18,6 +18,8 @@ import squareAndPencilPng from "@/pages/_shell/icons/square_and_pencil.png"
 import folderLineClosePng from "@/pages/_shell/icons/Folder_line_close.png"
 import checkmarkPng from "@/pages/_shell/icons/checkmark.png"
 import sharePng from "@/pages/_shell/icons/share.png"
+import sessionExportIcon from "@/pages/_shell/icons/session_export.svg"
+import sessionImportIcon from "@/pages/_shell/icons/session_import.svg"
 
 export type SessionGroupMapping = Record<string, { groupId: string; position: number }>
 
@@ -261,7 +263,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
               onClick={() => void portable.exportSession()}
               >
                 <span class="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
-                  <Icon name="download" size="small" style={{ width: "14px", height: "14px" }} />
+                  <img src={sessionExportIcon} width={14} height={14} alt="" draggable={false} />
                 </span>
                 <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
                   {language.t("session.portable.export") || "导出"}
@@ -274,7 +276,7 @@ export function SessionContextMenu(props: SessionContextMenuProps) {
                 onClick={() => void portable.importSession()}
               >
                 <span class="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
-                  <Icon name="upload" size="small" style={{ width: "14px", height: "14px" }} />
+                  <img src={sessionImportIcon} width={14} height={14} alt="" draggable={false} />
                 </span>
                 <span data-slot="dropdown-menu-item-label" class="flex-1 whitespace-nowrap">
                   {language.t("session.portable.import") || "导入"}
