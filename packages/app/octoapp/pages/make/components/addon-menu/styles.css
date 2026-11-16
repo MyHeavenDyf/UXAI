@@ -1106,3 +1106,10 @@
   border: none;
   display: block;
 }
+
+.library-dialog-iframe-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: transparent;
+}

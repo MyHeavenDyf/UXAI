@@ -421,6 +421,12 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
                 onLoad={scheduleIniSelection}
               />
             </Show>
+            <Show when={platformPanelOpen() || productPanelOpen()}>
+              <div
+                class="library-dialog-iframe-shield"
+                onMouseDown={() => { setPlatformPanelOpen(false); setProductPanelOpen(false) }}
+              />
+            </Show>
           </div>
 
           {/* 底部取消/确认:只产品资产 tab 有,右下角) */}
