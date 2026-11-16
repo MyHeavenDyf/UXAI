@@ -8,6 +8,8 @@ import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
 import { Plugin } from "../../src/plugin/index"
 import { ModelsDev } from "@/provider/models"
+import { Auth } from "@/auth"
+import { generateText } from "ai"
 import { Provider } from "@/provider/provider"
 import { configureModelsApi } from "../../src/plugin/model-headers"
 import { ProviderID, ModelID } from "../../src/provider/schema"
@@ -1796,10 +1798,13 @@ test("custom provider model context defaults to 128k when not specified", async 
       expect(providers[ProviderID.make("custom")].models["model"].limit.context).toBe(128_000)
       expect(providers[ProviderID.make("custom")].models["limited"].limit.context).toBe(64_000)
       expect(providers[ProviderID.make("custom")].models["input-only"].limit).toEqual({
-        context: 128_000, input: 64_000, output: 0,
+        context: 128_000,
+        input: 64_000,
+        output: 0,
       })
       expect(providers[ProviderID.make("custom")].models["output-only"].limit).toEqual({
-        context: 128_000, output: 8_000,
+        context: 128_000,
+        output: 8_000,
       })
     },
   })
@@ -2050,6 +2055,64 @@ test("models.dev normalization fills required response fields", () => {
   expect(model.capabilities.attachment).toBe(false)
   expect(model.capabilities.toolcall).toBe(true)
   expect(model.release_date).toBe("")
+})
+
+test("remote providers require a local API key and react to key removal without restarting", async () => {
+  const remote = {
+    id: "key-required-test",
+    name: "Key Required",
+    env: [],
+    requires_api_key: true,
+    npm: "@ai-sdk/openai-compatible",
+    api: "https://example.com/v1",
+    models: { selected: { id: "selected", name: "Selected", limit: { context: 128000, output: 16000 } } },
+  }
+  const requestKeys: (string | null)[] = []
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      if (request.method !== "POST") return Response.json({ [remote.id]: remote })
+      requestKeys.push(request.headers.get("authorization"))
+      return Response.json({
+        id: "test-completion",
+        model: "selected",
+        object: "chat.completion",
+        created: 1,
+        choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      })
+    },
+  })
+  remote.api = new URL("v1", server.url).toString()
+  await using tmp = await tmpdir()
+  const providerID = ProviderID.make(remote.id)
+  const credentials = makeRuntime(Auth.Service, Auth.defaultLayer)
+  try {
+    configureModelsApi({ url: server.url.toString(), token: "login-token-is-not-an-api-key" })
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const before = await list()
+        expect(before[providerID].options.requires_api_key).toBe(true)
+        expect(before[providerID].options.api_key_configured).toBe(false)
+        const model = await getModel(providerID, ModelID.make("selected"))
+        await expect(getLanguage(model)).rejects.toThrow("配置 API Key")
+        await credentials.runPromise((svc) => svc.set(providerID, new Auth.Api({ type: "api", key: "test-key" })))
+        expect((await list())[providerID].options.api_key_configured).toBe(true)
+        expect((await generateText({ model: await getLanguage(model), prompt: "hello" })).text).toBe("ok")
+        expect(requestKeys).toEqual(["Bearer test-key"])
+        configureModelsApi({ url: server.url.toString(), token: "refreshed-login-token" })
+        expect((await list())[providerID].options.api_key_configured).toBe(true)
+        await credentials.runPromise((svc) => svc.remove(providerID))
+        expect((await list())[providerID].options.api_key_configured).toBe(false)
+        await expect(getLanguage(model)).rejects.toThrow("配置 API Key")
+      },
+    })
+  } finally {
+    await credentials.runPromise((svc) => svc.remove(providerID))
+    configureModelsApi({ source: "local" })
+    await server.stop(true)
+  }
 })
 
 test("remote title models synchronize independently for each project and refresh", async () => {

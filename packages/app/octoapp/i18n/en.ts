@@ -219,6 +219,8 @@ export const dict = {
   "provider.custom.field.apiKey.editDescription": "Optional. Leave empty to keep the existing API key.",
   "provider.custom.models.label": "Models",
   "provider.custom.models.imageInput": "Image input",
+  "provider.apiKey.missing": "Configure an API Key in provider settings first",
+  "provider.apiKey.configure": "Configure API Key",
   "provider.custom.models.limit.context": "Context limit (tokens)",
   "provider.custom.models.limit.input": "Input limit (tokens)",
   "provider.custom.models.limit.output": "Output limit (tokens)",

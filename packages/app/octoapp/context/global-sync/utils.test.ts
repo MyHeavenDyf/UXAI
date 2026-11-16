@@ -52,6 +52,20 @@ describe("directoryKey", () => {
 })
 
 describe("replaceProviderList", () => {
+  test("preserves local key readiness during remote catalog replacement", () => {
+    const provider = {
+      id: "paid",
+      name: "Paid",
+      source: "remote",
+      env: [],
+      models: {},
+      options: { requires_api_key: true, api_key_configured: true },
+    } as Provider
+    const current = { all: [provider], connected: ["paid"], default: {} }
+    const incoming = { ...provider, options: { requires_api_key: true, api_key_configured: false } }
+    expect(replaceProviderList(current, [incoming]).all[0].options.api_key_configured).toBe(true)
+    expect(replaceProviderList({ ...current, all: [] }, [incoming]).all[0].options.api_key_configured).toBe(false)
+  })
   test("replaces snapshot providers and keeps unrelated configured providers", () => {
     const provider = (id: string, models: Provider["models"] = {}) =>
       ({ id, name: id, source: "api", env: [], options: {}, models }) as Provider

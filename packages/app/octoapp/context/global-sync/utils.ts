@@ -33,7 +33,13 @@ export function normalizeProviderList(input: ProviderListResponse): ProviderList
 }
 
 export function replaceProviderList(current: ProviderListResponse, incoming: Provider[]): ProviderListResponse {
-  const remote = incoming.filter((provider) => !REMOVED_PROVIDER_IDS.has(provider.id))
+  const remote = incoming
+    .filter((provider) => !REMOVED_PROVIDER_IDS.has(provider.id))
+    .map((provider) => {
+      const existing = current.all.find((item) => item.id === provider.id)
+      if (provider.options.requires_api_key !== true || existing?.options.api_key_configured !== true) return provider
+      return { ...provider, options: { ...provider.options, api_key_configured: true } }
+    })
   const remoteIDs = new Set(remote.map((provider) => provider.id))
   const custom = current.all.filter(
     (provider) => provider.source === "config" && !remoteIDs.has(provider.id) && !REMOVED_PROVIDER_IDS.has(provider.id),
