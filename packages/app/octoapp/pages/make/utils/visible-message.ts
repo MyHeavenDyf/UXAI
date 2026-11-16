@@ -15,3 +15,23 @@ export function isVisibleUserMessage(message: Message, parts: Part[] | undefined
   if (list.some((part) => part.type === "compaction")) return list.some((part) => part.type === "text")
   return true
 }
+
+type TextLikePart = { type: string; synthetic?: boolean; metadata?: Record<string, unknown> }
+
+/**
+ * 自动压缩续跑注入消息(无 compaction part):overflow 回放(compaction_replay)与
+ * "Continue if you have next steps..."(compaction_continue),均为 synthetic text。
+ * turn 必须保留渲染(否则续跑 assistant 输出丢失),但用户气泡/锚点不显示。
+ */
+export function isCompactionInjectedMessage(parts: Array<TextLikePart> | undefined): boolean {
+  const list = parts ?? []
+  if (list.length === 0) return false
+  const injected = list.some((part) => part.type === "text" && isCompactionInjectedPart(part))
+  return injected && !list.some((part) => part.type === "text" && !part.synthetic)
+}
+
+function isCompactionInjectedPart(part: TextLikePart): boolean {
+  if (part.type !== "text") return false
+  const metadata = part.metadata
+  return metadata?.compaction_replay === true || metadata?.compaction_continue === true
+}

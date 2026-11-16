@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { isVisibleUserMessage } from "./visible-message"
+import { isCompactionInjectedMessage, isVisibleUserMessage } from "./visible-message"
 
 const sessionID = "ses_1"
 
@@ -87,5 +87,52 @@ describe("isVisibleUserMessage", () => {
     expect(
       isVisibleUserMessage(userMessage("msg_1"), [compactionPart("prt_1", "msg_1"), textPart("prt_2", "msg_1")]),
     ).toBe(true)
+  })
+})
+
+describe("isCompactionInjectedMessage", () => {
+  const injectedTextPart = (id: string, metadata: Record<string, unknown>): Part => ({
+    id,
+    sessionID,
+    messageID: "msg_1",
+    type: "text",
+    text: "Continue if you have next steps...",
+    synthetic: true,
+    metadata,
+  })
+
+  test("Continue 提示注入消息(compaction_continue)判定为注入", () => {
+    expect(isCompactionInjectedMessage([injectedTextPart("prt_1", { compaction_continue: true })])).toBe(true)
+  })
+
+  test("overflow 回放消息(compaction_replay)判定为注入", () => {
+    expect(isCompactionInjectedMessage([injectedTextPart("prt_1", { compaction_replay: true })])).toBe(true)
+  })
+
+  test("[附件] synthetic 清单(无注入标记)不是注入消息", () => {
+    const part: Part = {
+      id: "prt_1",
+      sessionID,
+      messageID: "msg_1",
+      type: "text",
+      text: "[附件]\nfile a.png",
+      synthetic: true,
+    }
+    expect(isCompactionInjectedMessage([part])).toBe(false)
+  })
+
+  test("普通用户消息不是注入消息", () => {
+    expect(isCompactionInjectedMessage([textPart("prt_1", "msg_1")])).toBe(false)
+  })
+
+  test("真实 text 与注入标记 part 并存时不是注入消息", () => {
+    expect(
+      isCompactionInjectedMessage([injectedTextPart("prt_1", { compaction_continue: true }), textPart("prt_2", "msg_1")]),
+    ).toBe(false)
+  })
+
+  test("undefined / 空数组不是注入消息", () => {
+    expect(isCompactionInjectedMessage(undefined)).toBe(false)
+    expect(isCompactionInjectedMessage([])).toBe(false)
   })
 })

@@ -184,3 +184,18 @@ index.tsx 两处 InsightTurn 调用自动合并，dev 的 `canRevert` 以 `sessi
 2. **glm-5.3 reasoning 膨胀**：octo_code 首次派发 5 分钟纯 reasoning 无 tool call 空产出，路由按 prompt 规则自动重试（新子会话）。与 make-router 主 E2E 的 reasoning 爆炸同源。
 
 **验证方法**：CDP Runtime.evaluate（ProseMirror insertText + Enter 发消息、DOM 断言）+ bun:sqlite 直查 opencode-local.db（注意 part 表 session_id 直查、数据 JSON 字段在顶层无 part 包装层）+ 文件系统核对。
+
+## 修复:压缩续跑注入文本显示为用户气泡（2026-11-16）
+
+打包版使用中发现:消息界面偶尔多出用户气泡显示 "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."(有时两段)。
+
+**根因**:auto-compaction 完成后后端注入续跑 user 消息(`packages/opencode/src/session/compaction.ts`):overflow 路径注入回放消息(`metadata.compaction_replay`,用户原话副本)+"Continue..." 消息(`metadata.compaction_continue`),均为 synthetic text、**无 compaction part**。make 页 InsightTurn 自实现的 `userText()` 取首个 text part 不看 synthetic(上游 message-part.tsx 有 `!synthetic` 过滤,故 insight 页走 SessionTurn 不受影响)→ 注入文本被当用户输入渲染。`isVisibleUserMessage` 的 compaction 过滤分支对"无 compaction part"的消息不设防。主会话(octo_make 路由,agent 不在 hideUserBubble 子代理名单)压缩时注入消息直接显示;overflow 时 replay+continue 各一条="两段"。make-router 子会话上下文大(五段式 task prompt+方案+迭代 resume),频繁撞 context 上限,故此分支打包后才明显。
+
+**修复(packages/app,turn 保留渲染防止续跑 assistant 输出丢失,只隐藏气泡/锚点)**:
+
+- `octoapp/pages/make/utils/visible-message.ts`:新增导出 `isCompactionInjectedMessage(parts)`——parts 含 compaction_continue/compaction_replay 标记的 text 且无非 synthetic text;`isVisibleUserMessage` 原样不动(手动 /compact 回显、[附件] 清单等不受影响)
+- `octoapp/pages/make/components/insight-turn.tsx`:`userText()` 开头对注入消息返回空 → 气泡 Show 条件不成立,turn 与续跑 assistant 输出照常渲染;isCompactionTurn 注释修正
+- `octoapp/pages/make/utils/turn-anchor-text.ts`:`turnAnchorText()` 对注入消息返回空(无锚点)
+- 测试:visible-message.test.ts 加 `isCompactionInjectedMessage` 6 例、turn-anchor-text.test.ts 加注入消息无锚点 2 例;两文件 24 pass;packages/app typecheck 过
+
+**注意**:该过滤为显示层,消息仍在 userMessages 列表(续跑输出依赖 turn 存在);Fix 8/9 校验口径未动。后端 compaction_continue 标记注释声明"不稳定契约",若上游改标记名需同步此处。

@@ -72,4 +72,34 @@ describe("turnAnchorText", () => {
   test("空数组返回空串", () => {
     expect(turnAnchorText([])).toBe("")
   })
+
+  test("自动压缩续跑注入消息(Continue 提示)无锚点", () => {
+    const parts: Part[] = [
+      {
+        id: "prt_4",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        type: "text",
+        text: "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed.",
+        synthetic: true,
+        metadata: { compaction_continue: true },
+      },
+    ]
+    expect(turnAnchorText(parts)).toBe("")
+  })
+
+  test("自动压缩 overflow 回放消息(用户原话副本)无锚点", () => {
+    const parts: Part[] = [
+      {
+        id: "prt_5",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        type: "text",
+        text: "用户上一轮的原话",
+        synthetic: true,
+        metadata: { compaction_replay: true },
+      },
+    ]
+    expect(turnAnchorText(parts)).toBe("")
+  })
 })

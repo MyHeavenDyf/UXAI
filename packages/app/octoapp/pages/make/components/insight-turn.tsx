@@ -9,6 +9,7 @@ import { createEffect, createMemo, createResource, createSignal, on, onCleanup, 
 import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram, IconUndo, IconTrash, IconEdit, IconWarn, IconCopy, IconCheckmark, IconRedo } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
+import { isCompactionInjectedMessage } from "../utils/visible-message"
 import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
 import { collectRevertedFiles, buildRevertDraft, revertSkillsFromConfig, revertDocToClipboard, writeRichClipboard, type RevertDraftPart } from "../utils/restore-draft"
 import { ARTIFACT_TYPE_MAP, parseAllArtifactsFromText } from "../utils/artifact-cards"
@@ -550,7 +551,10 @@ export function InsightTurn(props: {
 
   const userText = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
-    
+
+    // 自动压缩续跑注入(overflow 回放 / "Continue..." 提示):非用户输入,不渲染气泡
+    if (isCompactionInjectedMessage(parts)) return ""
+
     // 优先查找带有 metadata.displayText 的 text part（用于 @mention 显示）
     const displayTextPart = parts.find(
       (p) => p.type === "text" && (p as { metadata?: { displayText?: string } }).metadata?.displayText
@@ -647,7 +651,8 @@ export function InsightTurn(props: {
   })
 
   // 手动 /compact 压缩 turn:用户消息带 compaction part(后端手动路径附带 synthetic text part 回显输入)。
-  // 自动压缩消息无 text part,不会进入 userMessages,不会渲染到这里。
+  // 自动压缩的 compaction 消息无 text part,不进入 userMessages;压缩后的续跑注入消息
+  // (compaction_continue/replay,有 text part)会进入,但 userText 判定后不渲染气泡。
   const isCompactionTurn = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
     return parts.some((p) => p.type === "compaction")

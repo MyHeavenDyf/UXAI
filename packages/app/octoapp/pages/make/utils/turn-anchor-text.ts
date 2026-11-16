@@ -1,3 +1,5 @@
+import { isCompactionInjectedMessage } from "./visible-message"
+
 /**
  * 锚点 hover 气泡文案提取,与 InsightTurn userText 的取词逻辑对齐:
  * 1. 优先 text part 的 metadata.displayText(@mention chip 的展示文本)
@@ -26,6 +28,8 @@ function toSingleLine(text: string): string {
 
 export function turnAnchorText(parts: AnchorPart[] | undefined): string {
   const list = parts ?? []
+  // 自动压缩续跑注入(overflow 回放 / "Continue..." 提示):无锚点
+  if (isCompactionInjectedMessage(list)) return ""
   const textParts = list.filter((p): p is AnchorPart & { type: "text"; text: string } => p.type === "text" && typeof p.text === "string")
 
   const display = textParts
