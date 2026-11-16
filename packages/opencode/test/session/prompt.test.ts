@@ -481,6 +481,60 @@ it.live("prompt publishes skill.used from extra.skills (SPEC-INS-029)", () =>
   ),
 )
 
+// 回归：@/斜杠调技能走 session.command，历史上 command 分支(0bdfa31206)与 extra.skills 入口
+// (e0bcfe253c)各自 publish 一次 SkillUsed——278550243f 给 command 路径补传 extra 后两处同时命中，
+// 一次调用双发事件。修复后只保留 extra.skills 入口的发布，此测试锁定「恰好一次」。
+it.live(
+  "command skill publishes skill.used exactly once",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ dir, llm }) {
+      yield* Effect.promise(() =>
+        Bun.write(
+          path.join(dir, ".opencode", "skill", "cmd-used-once", "SKILL.md"),
+          `---
+name: cmd-used-once
+description: Skill for the skill.used double-fire regression test.
+---
+
+# Cmd Used Once
+
+Instructions here.
+`,
+        ),
+      )
+
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const bus = yield* Bus.Service
+      const seen: string[] = []
+      const unsubscribe = yield* bus.subscribeCallback(Skill.SkillUsed, (evt) => {
+        seen.push(evt.properties.skillName)
+      })
+      const chat = yield* sessions.create({ title: "cmd-skill-once" })
+
+      yield* llm.text("done")
+      const result = yield* prompt.command({
+        sessionID: chat.id,
+        command: "cmd-used-once",
+        arguments: "",
+      })
+
+      expect(result.info.role).toBe("assistant")
+      yield* Effect.sleep("50 millis")
+      expect(seen.filter((name) => name === "cmd-used-once")).toEqual(["cmd-used-once"])
+      unsubscribe()
+      }),
+      {
+        git: true,
+        // 默认 agent(octo_ai)deny skill,prompt.ts 的 command 守卫会拒掉 skill 命令;
+        // 测试用 config agent 覆盖放开(merge 后的 allow 是最后一条规则,findLast 取胜)。
+        config: (url: string) => ({ ...providerCfg(url), agent: { build: { permission: { skill: "allow" } } } }),
+      },
+    ),
+  30_000,
+)
+
 it.live("static loop returns assistant text through local provider", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {

@@ -76,6 +76,17 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
+.mention-tab-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mention-tab-btn:disabled:hover {
+  color: rgba(0, 0, 0, 0.6);
+  background: transparent;
+  box-shadow: none;
+}
+
 /* Primary panel (skills categories / files) */
 .mention-primary-panel {
   display: flex;

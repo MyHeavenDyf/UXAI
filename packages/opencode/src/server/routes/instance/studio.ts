@@ -4,7 +4,7 @@ import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
 import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, deleteTemplate, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, refreshGeneration, searchTemplateUsers, updateTemplate } from "@/studio/studio-service"
-import { deleteStudioHistoryMedia, listStudioHistoryExcludedIds, listStudioHistoryMedia, snapshotSessionMedia, splitHistoryFilter, studioHistoryRevision } from "@/studio/studio-history-service"
+import { deleteStudioHistoryMedia, listStudioHistoryExcludedIds, listStudioHistoryMedia, rematerializeStudioSessionMedia, snapshotSessionMedia, splitHistoryFilter, studioHistoryRevision } from "@/studio/studio-history-service"
 import { Instance } from "@/project/instance"
 import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
@@ -510,7 +510,7 @@ export const StudioRoutes = lazy(() =>
     "/history/snapshot",
     describeRoute({
       summary: "Snapshot session media to history",
-      description: "Copies a session's media to the history table before session deletion.",
+      description: "Copies a session's media to the history table before session deletion, and re-materializes imported session parts so re-opening a share restores assets deleted from history.",
       operationId: "studio.history.snapshot",
       responses: {
         200: {
@@ -522,7 +522,11 @@ export const StudioRoutes = lazy(() =>
     }),
     validator("json", StudioHistorySnapshotInput),
     async (c) =>
-      c.json({ snapshotted: snapshotSessionMedia(Instance.directory, c.req.valid("json").sessionID) }),
+      c.json({
+        snapshotted:
+          snapshotSessionMedia(Instance.directory, c.req.valid("json").sessionID)
+          + rematerializeStudioSessionMedia(Instance.directory, c.req.valid("json").sessionID),
+      }),
   )
   .post(
     "/history/delete",

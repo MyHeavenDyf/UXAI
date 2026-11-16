@@ -5,7 +5,7 @@ import { Timestamps } from "../storage/schema.sql"
 import type { ProjectID } from "../project/schema"
 import type { SessionID } from "./schema"
 
-export type SessionGroupNamespace = "make" | "insight"
+export type SessionGroupNamespace = "make" | "insight" | "studio"
 
 export const SessionGroupTable = sqliteTable(
   "session_group",

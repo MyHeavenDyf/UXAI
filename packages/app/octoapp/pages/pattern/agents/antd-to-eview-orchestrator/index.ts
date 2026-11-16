@@ -1,6 +1,12 @@
 import { runChildSession } from '../run-child-session'
 
-const AGENT_NAME = "antd_to_eview_orchestrator"
+export type AntdToEviewTarget = 'eview-react' | 'eview-ui'
+
+/** target → 后端编排 agent（两条路线都先走 umd-to-antd-vite，之后接不同 skill） */
+const AGENT_NAMES: Record<AntdToEviewTarget, string> = {
+  'eview-react': "antd_to_eview_orchestrator",
+  'eview-ui': "antd_to_eviewui_orchestrator",
+}
 
 type AntdToEviewOrchestratorInput = {
   sdk: { client: any; directory: string; url: string }
@@ -8,6 +14,8 @@ type AntdToEviewOrchestratorInput = {
   modelKey: { providerID: string; modelID: string } | undefined
   rootSession: string
   srcDirectory: string
+  /** 目标组件库：eview-react（默认，antd→@nce/eview-react）/ eview-ui（antd→eview-ui，骨架换血路线） */
+  target?: AntdToEviewTarget
   onSessionCreated?: (childSessionID: string) => void
 }
 
@@ -21,24 +29,27 @@ export default async function antdToEviewOrchestrator(
   input: AntdToEviewOrchestratorInput,
 ): Promise<AntdToEviewOrchestratorResult> {
   const { sdk, sync, modelKey, rootSession, srcDirectory, onSessionCreated } = input
+  const target: AntdToEviewTarget = input.target ?? 'eview-react'
+  const agent = AGENT_NAMES[target]
 
-  const projectName = srcDirectory.split(/[/\\]/).pop() ?? "download-eview-react"
+  const projectName = srcDirectory.split(/[/\\]/).pop() ?? `download-${target}`
 
   const humanMessage = [
     `当前工作目录（SRC）：${srcDirectory}`,
     `源项目名：${projectName}`,
     `源项目标题：${projectName}`,
-    '请开始执行三阶段流水线。',
+    `目标组件库（TARGET）：${target}`,
+    '请开始执行编排流水线。',
   ].join('\n')
 
-  console.log("----- antd_to_eview_orchestrator 开始执行 -----")
+  console.log(`----- ${agent} 开始执行 -----`)
   const startTime = Date.now()
 
   const result = await runChildSession({
     client: sdk.client,
     directory: sdk.directory,
     parentSessionID: rootSession,
-    agent: AGENT_NAME,
+    agent,
     modelKey,
     prompt: humanMessage,
     sync,
@@ -46,7 +57,7 @@ export default async function antdToEviewOrchestrator(
   })
 
   console.log(
-    "----- antd_to_eview_orchestrator 运行结束，耗时：",
+    `----- ${agent} 运行结束，耗时：`,
     (Date.now() - startTime) / 1000,
     's -----',
   )

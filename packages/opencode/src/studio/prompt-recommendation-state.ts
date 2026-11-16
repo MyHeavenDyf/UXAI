@@ -32,6 +32,22 @@ const layer = Layer.effect(
 const runtime = makeRuntime(Submissions, layer)
 export const studioSubmissionState = () => runtime.runPromise((service) => service.get())
 
+export async function isStudioSessionGenerating(sessionID: string) {
+  if ((await studioSubmissionState()).sessions.has(sessionID)) return true
+  return !!Database.use((db) =>
+    db
+      .select({ id: StudioGenerationTable.id })
+      .from(StudioGenerationTable)
+      .where(
+        and(
+          eq(StudioGenerationTable.session_id, SessionID.make(sessionID)),
+          inArray(StudioGenerationTable.status, ["creating", "queued", "running"]),
+        ),
+      )
+      .get(),
+  )
+}
+
 export async function withStudioSubmission<A>(sessionID: string, work: () => Promise<A>) {
   const state = await studioSubmissionState()
   if (state.closing || state.sessions.has(sessionID)) throw new RecommendationError("SESSION_BUSY", 409)

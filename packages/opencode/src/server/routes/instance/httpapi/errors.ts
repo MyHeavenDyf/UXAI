@@ -5,6 +5,11 @@ export class ApiBadRequestError extends Schema.ErrorClass<ApiBadRequestError>("B
   { httpApiStatus: 400 },
 ) {}
 
+export class ApiInternalServerError extends Schema.ErrorClass<ApiInternalServerError>("InternalServerError")(
+  { message: Schema.String },
+  { httpApiStatus: 500 },
+) {}
+
 export class ApiNotFoundError extends Schema.ErrorClass<ApiNotFoundError>("NotFoundError")(
   {
     name: Schema.Literal("NotFoundError"),

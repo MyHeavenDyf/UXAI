@@ -1358,3 +1358,134 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 - 产品自动选中 effect 新增 `if (userClearedProduct) return` — 用户清除后不再自动选中
 - 领域/产品线/产品/搜索结果 onClick 中设置 `userClearedProduct = false` — 用户重新开始选择时恢复自动选中
 - 原因：点"不选择"后 `selectedProductId` 为 undefined，effect 条件 `!list.some(item => item.id === selectedProductId())` 恒为 true，会立即把 list[0] 重新暂存回来，与"不选择"的意图矛盾
+
+---
+
+## 第四十二轮改动（关联代码仓入口 + 弹窗 + 后端 git remote 接口）
+
+### 153. `dialog-project-onboarding.tsx` — "关联本地文件夹"标签右侧新增"关联代码仓"入口
+
+- "关联本地文件夹"标签行改为 `display: flex; justify-content: space-between`：左侧保持必填标题（红色 `*` + "关联本地文件夹"），右侧新增蓝色文字按钮"关联代码仓"
+- 按钮样式：`font-size: 14px, font-weight: 400, color: #0a59f7, background: transparent, border: none, cursor: pointer`
+- 点击 `setRepoDialogOpen(true)` 打开 `DialogRepoAssociate` 弹窗
+- 新增 `repoDialogOpen` / `repoUrl` 两个 signal — 控制弹窗显隐和暂存已关联的远程仓库地址
+- `<Show when={repoDialogOpen()}>` 渲染 `DialogRepoAssociate`，传入 `directory={directory()}`（当前选中的本地文件夹路径）
+- 确认回调 `setRepoUrl(url)` + `setRepoDialogOpen(false)` — 暂存 URL 并关闭弹窗
+- `handleConfirm` 中 tracker 埋点 `extend` JSON 新增 `repoUrl: repoUrl() || undefined` — 上报已关联的代码仓地址
+
+### 154. 新建 `dialog-repo-associate.tsx` — 关联代码仓弹窗组件
+
+- 弹窗容器：`width: 452px, box-sizing: border-box, padding: 20px 24px, border-radius: 8px`，与主弹窗一致的渐变背景和阴影
+- Props：`directory: string`（所选本地文件夹路径）、`onClose()`、`onConfirm(repoUrl: string)`
+- 检测逻辑（`onMount`）：通过 `globalSDK.client.project.getGitRemote({ directory })` 调用后端接口检测所选目录是否已配置 git remote origin
+  - `status === "loading"` — 显示"正在检测代码仓..."
+  - `status === "found"` — 只读展示当前远程仓库地址（灰色背景输入框，`font-family: monospace`）
+  - `status === "not-found"` — 显示必填输入框"关联代码仓地址"（红色 `*` + placeholder），用户输入 URL 后点击确定调用 `globalSDK.client.project.addGitRemote({ directory, url })` 完成关联
+  - `status === "no-directory"` — 显示"请先选择关联本地文件夹"
+- URL 格式校验正则 `GIT_REPO_REGEX`：支持 HTTPS（`https://host/path`）和 SSH（`git@host:path`）格式
+- 按钮：取消（88×32px、`border-radius: 20px`、白底灰边）+ 确定（88×32px、`border-radius: 20px`、蓝底白字），`justify-content: flex-end` 居右
+- 确定按钮在"已有远程"时直接回传 URL；在"未配置远程"时校验输入后调后端 `addGitRemote`，提交中显示"关联中..."
+
+### 155. 后端 `packages/opencode/src/project/project.ts` — Project Service 新增 `getGitRemote` / `addGitRemote`
+
+- `getGitRemote({ directory })` — 执行 `git remote get-url origin`，返回 `{ remoteUrl: string | null }`；未配置时返回 null
+- `addGitRemote({ directory, url })` — 完整关联流程：
+  1. 检测 git 是否已安装（`which("git")`）
+  2. 检测目录是否已初始化 git（`git rev-parse --git-dir`），未初始化则 `git init --quiet`
+  3. 检测 origin 是否已存在（`git remote get-url origin`）：已存在 → `git remote set-url origin <url>` 更新；不存在 → `git remote add origin <url>` 新增
+- 两个方法注册到 Project Service interface 和 return 对象
+
+### 156. 后端路由 — legacy Hono + HttpApi 双注册
+
+- `packages/opencode/src/server/routes/instance/project.ts` — 新增 `GET /project/git/remote`（查询远程仓库地址）和 `POST /project/git/remote`（关联/更新远程仓库地址）两个 Hono 路由
+  - `GitRemoteResponse` schema：`{ remoteUrl: z.string().nullable() }`
+  - `GitRemoteInput` schema：`{ url: z.string().min(1) }`
+  - 路由 handler 中 `directory` 优先从 `c.req.query("directory")` 读取，`Instance.directory` 仅作 fallback — 避免 onboarding 阶段实例尚未加载时 `Instance.directory` 抛 `NotFound`
+- `packages/opencode/src/server/routes/instance/httpapi/groups/project.ts` — HttpApi group 新增 `getGitRemote`（GET）和 `addGitRemote`（POST）endpoint，保持与 legacy 路由 parity
+- `packages/opencode/src/server/routes/instance/httpapi/handlers/project.ts` — HttpApi handler 新增 `getGitRemote` / `addGitRemote`，通过 `InstanceState.context` 获取 directory
+- `packages/opencode/src/server/routes/instance/index.ts` — 注册 `app.get("/project/git/remote")` 和 `app.post("/project/git/remote")` 路由
+
+### 157. SDK 重新生成
+
+- `./packages/sdk/js/script/build.ts` — 从 Effect HttpApi 契约重新生成 OpenAPI spec 和 SDK client
+- `packages/sdk/js/src/v2/gen/sdk.gen.ts` — 新增 `project.getGitRemote({ directory })` 和 `project.addGitRemote({ directory, url })` 方法
+- `packages/sdk/js/src/v2/gen/types.gen.ts` — 新增 `ProjectGetGitRemoteResponses` / `ProjectAddGitRemoteResponses` 等类型
+
+### 158. 修复：前端 SDK 调用从 `createClient` 改为 `globalSDK.client`
+
+- `dialog-repo-associate.tsx` — `onMount` 和 `handleConfirm` 中的 SDK 调用从 `globalSDK.createClient({ directory })` 改为 `globalSDK.client`
+- 原因：`globalSDK.createClient({ directory })` 创建的客户端**未配置** `throwOnError: true`，服务端返回非 2xx 时 SDK 静默返回 `{ data: undefined, error: ... }` 而非 throw，`.then((res) => res.data?.remoteUrl)` 得到 `undefined`，弹窗显示"未关联"而非真实错误
+- `globalSDK.client` 在 `GlobalSDK` 初始化时已配置 `throwOnError: true`，服务端错误会正确 throw 并被 `.catch()` 捕获
+- `directory` 通过方法参数显式传递（`.getGitRemote({ directory: props.directory })`），作为 query parameter 发送到服务端
+
+---
+
+## 第四十三轮改动（确定时数据看板上报新增 designOwner / designDl）
+
+### 159. `network/types.ts` — `Version` 类型新增 `ownerList` / `uxDlList`
+
+- 新增 `VersionMember` 类型：`{ nickName: string; account: string }`
+- `Version` 新增可选字段 `ownerList?: VersionMember[] | null`（设计组长列表）、`uxDlList?: VersionMember[] | null`（设计 DL 列表）— 接口可能返回 null
+- 数据来源：`/version/getVersionByProduct` 接口返回（`fetchVersions`，`network/pipelineRequest.ts:104`）
+- 设为可选：兼容 `lastProjectSelection` 持久化缓存中的旧 version 对象（无这两个字段）
+
+### 160. `network/pipelineRequest.ts` — `AddUserProjectBody` 新增 `designOwner` / `designDl`
+
+- 数据看板上报接口 `/userProject/addUserProject`（octoAiStatis 前缀）body 新增两个可选 string 字段：
+  - `designOwner?: string` — 设计组长（取 version.ownerList）
+  - `designDl?: string` — 设计 DL（取 version.uxDlList）
+
+### 161. `dialog-project-onboarding.tsx` — `handleConfirm` 上报 designOwner / designDl
+
+- `addUserProject` 调用新增两个字段：
+  - `designOwner: version?.ownerList?.map((m) => m.nickName.trim()).filter(Boolean).join(",") || undefined`
+  - `designDl: version?.uxDlList?.map((m) => m.nickName.trim()).filter(Boolean).join(",") || undefined`
+- 多人时取 `nickName` 以英文逗号拼接；列表为空或 nickName 全空时为 `undefined`（JSON body 中不上报该字段），与 `repoUrl() || undefined` 模式一致
+- 未选产品时 `version` 为 undefined（见 #148），两字段同步不上报
+
+### 162. `project-info-dialog-content.tsx` — 版本数据到达后以接口最新数据回填选中项
+
+- 原 effect（见 #128/#132）：`store.version` 存在且 id 匹配 → 保持原对象不 setStore；不匹配 → 清空
+- 改为：`const fresh = options.find((v) => v.id === current.id)` → 匹配时 `setStore("version", { ...fresh })` 回填，不匹配时清空
+- 原因：弹窗打开时 `store.version` 从 `server.projects.lastSelection()` 恢复的是**持久化缓存对象**，缺少后端新加的 `ownerList`/`uxDlList` 字段；若不回填，点确定时 `handleConfirm` 从 `selections.version` 取不到设计组长/设计 DL 数据，上报字段丢失。回填后选中对象始终携带接口返回的完整字段
+- 行为不变：无选中自动选第一项、id 不匹配清空逻辑保持；置顶重排（`mutateVersions`）后同样触发回填，isTop 更新语义与原手动 setStore 一致
+
+### 163. `mock/handlers/pipeline/data.ts` — MOCK_VERSIONS 补充 ownerList / uxDlList
+
+- 每条 mock 版本数据新增 `ownerList` / `uxDlList` 字段（`{ nickName, account }` 数组），覆盖三种验证场景：单人、多人（验证逗号拼接）、空数组（验证字段不上报）
+- 该文件为 Vite dev server 生效的 mock 链路（`vite.config.ts` → `mock/index.ts` → `mock/handlers/pipeline/index.ts` → `data.ts`）
+- 旧副本 `mock/octo-pipeline-mock.ts` / `mock/vite-mock-plugin.ts` / `mock/vite-mock-plugin.js` 未同步（未被当前构建引用）
+
+### 164. `packages/desktop/src/main/mock.ts` — MOCK_VERSIONS 同步补充 ownerList / uxDlList
+
+- 与 #163 相同的 mock 数据补充，保持打包后 Electron mock 模式（`windows.ts` → `protocol.handle` → `handleMockApi`，见 #87）与 dev mock 数据一致
+- 未选产品时字段为空数组，模拟真实接口"版本无设计组长/DL"的返回形态
+
+### 165. ownerList / uxDlList 可为 null 的适配（类型 + mock）
+
+- `types.ts` — `ownerList` / `uxDlList` 类型从 `VersionMember[] | undefined` 扩为 `VersionMember[] | null | undefined`（真实接口可能返回 null）
+- `dialog-project-onboarding.tsx` — 上报代码无需改动：`version?.ownerList?.map(...)` 可选链在字段为 null 时整条链短路为 `undefined`，`|| undefined` 后字段不上报（与空数组行为一致，TS 对 `| null` 类型也允许 `?.`）
+- mock（`app/mock/handlers/pipeline/data.ts` + `desktop/src/main/mock.ts`）— PYPTO v2501 的 `ownerList`/`uxDlList` 从 `[]` 改为 `null`，覆盖接口返回 null 的场景（其余空数组场景保留）
+
+### 166. "有打点无统计接口"问题修复（守卫跳过留痕 + 元素 nickName 为 null 的同步 throw 防御）
+
+- **问题现象**：有时点击确定 tracker 打点正常，但 `addUserProject` 统计接口未被调用
+- **根因 1（登录态守卫静默跳过）**：`handleConfirm` 中打点无条件执行，而统计上报被 `if (userName && userId)` 守卫拦截——`getUser()` 读 localStorage `userInfo`，登录未完成/`VITE_OCTO_LOGIN_REQUIRED !== "true"` 环境未写入/登录响应缺 `nickName` 或 `account` 字段/token 过期 `clearAuth()` 清除等场景下守卫失败，且跳过时无任何日志，表现为"偶发丢统计"
+- **根因 2（元素字段为 null 的同步 throw）**：`designOwner`/`designDl` 参数在 `addUserProject(...)` 调用前求值，`m.nickName.trim()` 在后端返回 `[{nickName: null, ...}]` 时抛 TypeError——打点已发出、统计接口未调用、且**中断后续 `layout.projects.open` / `props.onSelect`，弹窗卡死不关闭**
+- **修复**：
+  - `dialog-project-onboarding.tsx` — 守卫增加 `else console.warn("[onboarding] 数据看板上报跳过: 登录态缺失或 nickName/account 为空", { hasUser, hasNickName, hasAccount })`，跳过原因留痕可排查
+  - `dialog-project-onboarding.tsx` — `m.nickName.trim()` 改为 `(m.nickName ?? "").trim()`，元素字段为 null 时按空串处理（被 `.filter(Boolean)` 过滤，不出现在拼接结果中），杜绝同步 throw 中断主流程
+  - `types.ts` — `VersionMember.nickName` / `account` 从 `string` 放宽为 `string | null | undefined`（与后端实际返回对齐，`??` 兜底有类型依据）
+- 根因 3（跨域 CORS preflight 失败导致请求未发出）属环境/网络问题，`apiFetch` 已有 `console.error` 留痕，无需代码改动
+
+### 167. 评审修复：designOwner/designDl 同构表达式提取 `joinNickNames`
+
+- `dialog-project-onboarding.tsx` — 两行同构的 nickName 拼接表达式提取为模块级小函数：
+  - `const joinNickNames = (list?: VersionMember[] | null) => list?.map((m) => (m.nickName ?? "").trim()).filter(Boolean).join(",") || undefined`
+  - 上报处改为 `designOwner: joinNickNames(version?.ownerList)` / `designDl: joinNickNames(version?.uxDlList)`
+- nickName 拼接规则注释随逻辑移至 helper 处，`handleConfirm` 注释相应精简
+- `Version` 类型 import 追加 `VersionMember`
+
+
+
+

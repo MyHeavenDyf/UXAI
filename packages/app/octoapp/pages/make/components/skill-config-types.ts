@@ -15,6 +15,17 @@ export type SkillConfigEntry = {
   type?: string
 }
 
+export type DesignSystemSkillItem = {
+  label: string
+  id?: string
+  type?: string
+}
+
+export type DesignSystemSkills = {
+  selectedSkillName?: string
+  skillList?: DesignSystemSkillItem[]
+}
+
 export type SkillConfig = {
   skill?: Record<string, SkillConfigEntry>
   agent?: Record<string, string[]>
@@ -25,6 +36,7 @@ export type SkillConfig = {
     common?: PanelSkill[]
   }
   presetSkills?: PanelSkill[]
+  designSystemSkills?: DesignSystemSkills
 }
 
 /**

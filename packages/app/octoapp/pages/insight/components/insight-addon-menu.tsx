@@ -35,6 +35,8 @@ export function InsightAddonMenu(props: {
   mcpSelection: McpSelection | null
   onMcpSelect: (selection: McpSelection) => void
   onMcpClear: () => void
+  /** 设计文件 chip 插入后回调(超限图片自动压缩入口;产品资产走下载导入链路,不经过这里) */
+  onFileMentionInsert?: (selection: Extract<MenuSelection, { type: "file" }>) => void
 }) {
   const [state, setState] = createStore<{ pending: Record<string, Pending> }>({ pending: {} })
   const results = new Map<string, ImportedAsset>()
@@ -121,7 +123,10 @@ export function InsightAddonMenu(props: {
       controlledFiles transactionalFiles cancelOnDispose skillsLoading={props.skillsLoading} filesLoading={props.filesLoading}
       skillConfig={{ panel: { octo_make: props.skills.platform, common: props.skills.custom } }}
       onSkillsOpen={props.loadSkills} artifactFiles={files()} selections={selections()}
-      onSelect={selection => { if (selection.type !== "product-asset") props.editor()?.insertMentions([selection]) }}
+      onSelect={selection => {
+        if (selection.type !== "product-asset") props.editor()?.insertMentions([selection])
+        if (selection.type === "file" && !selection.isFolder) props.onFileMentionInsert?.(selection)
+      }}
       onDeselect={deselect}
       onAssetSelect={selection => {
         if (selection.type !== "file") return

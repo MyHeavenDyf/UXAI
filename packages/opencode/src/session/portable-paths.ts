@@ -144,6 +144,7 @@ export function planPortablePaths<T extends File>(input: {
     base = path.posix.dirname(from.original),
   ) => {
     if (!value || /^(?:https?:|data:|blob:|javascript:|mailto:|#|\/\/)/i.test(value)) return value
+    if (value.startsWith("file://") && !URL.canParse(value)) return value
     const fileURL = value.startsWith("file://") ? new URL(value) : undefined
     const offset = url ? value.search(/[?#]/) : -1
     const pathname = offset < 0 ? value : value.slice(0, offset)

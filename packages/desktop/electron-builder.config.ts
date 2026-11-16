@@ -30,9 +30,11 @@ const getBase = (): Configuration => ({
     buildResources: "resources",
   },
   releaseInfo: { releaseNotes },
+  // jk-j60099994-replace-with-dyf-bridge-builder-files-start
   // resources/plugin-sdk 排除出 asar：它经 extraResources 单独放入安装目录 resources/plugin-sdk，
   // 若不排除会双份打包（rg 二进制的老问题）
   files: ["out/**/*", "resources/**/*", "!resources/plugin-sdk/**"],
+  // jk-j60099994-replace-with-dyf-bridge-builder-files-end
   extraResources: [
     {
       from: "native/",
@@ -71,6 +73,8 @@ const getBase = (): Configuration => ({
       to: "hui-templates",
       filter: ["**/*"],
     },
+    // jk-j60099994-replace-with-dyf-bridge-builder-extra-start
+    // jk-j60099994-replace-with-dyf-bridge-builder-extra-end
   ],
   mac: {
     category: "public.app-category.developer-tools",

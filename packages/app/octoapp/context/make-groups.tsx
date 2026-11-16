@@ -69,14 +69,16 @@ function getExpandedGroupsSignal(namespace: string): [Accessor<Set<string>>, Set
   return s
 }
 
-export function MakeGroupsProvider(props: ParentProps<{ namespace?: string }>) {
+export function MakeGroupsProvider(props: ParentProps<{ namespace?: string; dir?: () => string | undefined }>) {
   const namespace = props.namespace ?? "make"
   const projectDir = useProjectDir()
   const globalSync = useGlobalSync()
 
   // Mirror GroupedSidebar's resolved-dir derivation so the fetch trigger is
-  // identical to what the sidebar previously used.
+  // identical to what the sidebar previously used. Callers with a non-project
+  // directory model (studio: config sessions dir) override it via props.dir.
   const [resolvedDir, setResolvedDir] = createSignal<string | undefined>()
+  const resolveDir = props.dir ?? (() => projectDir() || undefined)
 
   // Register the hooks BEFORE the dir-resolving effects. The hooks create
   // `on(dir, ..., { defer: true })` effects that must track dir()=undefined
@@ -87,12 +89,12 @@ export function MakeGroupsProvider(props: ParentProps<{ namespace?: string }>) {
   const sg = useSessionGroups(() => resolvedDir(), namespace)
 
   createEffect(() => {
-    const d = projectDir()
+    const d = resolveDir()
     if (d) setResolvedDir(d)
   })
   createEffect(() => {
     if (!globalSync.data.ready) {
-      const d = projectDir()
+      const d = resolveDir()
       if (d) setResolvedDir(d)
     }
   })

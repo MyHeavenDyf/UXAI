@@ -1,6 +1,8 @@
 import { createEffect, createMemo } from "solid-js"
 import type { StudioTurnData } from "./turns"
 import type { RecommendationImageSettings } from "./studio-recommendation-settings"
+import { referenceImageLimit } from "./data"
+import { isStudioCustomSizeValid } from "./studio-shared"
 
 export type ExpansionReview = {
   draft?: string
@@ -113,4 +115,30 @@ export function expansionGenerationInput(turn: StudioTurnData, text: string, set
       height: settings.isCustom && settings.customWidth > 0 && settings.customHeight > 0 ? settings.customHeight : 0,
     } : {}),
   }
+}
+
+export async function generateExpansion(input: {
+  turn: StudioTurnData
+  choice: "confirmed" | "ignored"
+  ready: boolean
+  review: ReturnType<typeof createExpansionReview>
+  styleModel: string
+  settings: RecommendationImageSettings
+  notify: (message: string) => void
+  generate: (request: ReturnType<typeof expansionGenerationInput> & { inputPolicy: "preserve"; styleModel: string }) => Promise<void>
+}) {
+  if (!input.ready || !input.review.editable(input.turn)) return
+  const text = (input.choice === "confirmed" ? input.review.text(input.turn) : input.turn.userText).trim()
+  if (!text) return
+  const request = expansionGenerationInput(input.turn, text, input.settings)
+  if (request.referenceImages.length > referenceImageLimit(input.styleModel)) {
+    input.notify("参考图数量超过当前模型上限，请调整模型后重试。")
+    return
+  }
+  if (request.width && request.height && !isStudioCustomSizeValid(input.styleModel, request.width, request.height)) {
+    input.notify("当前自定义尺寸不符合所选模型要求，请调整后重试。")
+    return
+  }
+  if (!input.review.choose(input.turn, input.choice)) return
+  await input.generate({ ...request, inputPolicy: "preserve", styleModel: input.styleModel })
 }

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show } from "solid-js"
+import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { MakeGroup } from "@/hooks/use-make-groups"
@@ -32,6 +32,20 @@ export function GroupContextMenu(props: GroupContextMenuProps) {
     visibility: "hidden",
   })
   const [contextMenuRef, setContextMenuRef] = createSignal<HTMLDivElement | undefined>(undefined)
+  const [backdropRef, setBackdropRef] = createSignal<HTMLDivElement | undefined>(undefined)
+
+  // Same above-backdrop dismiss as session-context-menu: elements stacked over
+  // the backdrop (e.g. studio-center-header kebab at z-60) otherwise never
+  // dismiss the menu.
+  createEffect(() => {
+    if (!(props.show && props.group)) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (backdropRef()?.contains(e.target as Node)) return
+      props.onClose()
+    }
+    document.addEventListener("pointerdown", onPointerDown, true)
+    onCleanup(() => document.removeEventListener("pointerdown", onPointerDown, true))
+  })
 
   createEffect(() => {
     if (!(props.show && props.group)) return
@@ -66,7 +80,7 @@ export function GroupContextMenu(props: GroupContextMenuProps) {
     <Show when={props.show && props.group}>
       <Portal>
         <div
-          class="fixed inset-0 z-50"
+          class="fixed inset-0 z-[120]"
           onContextMenu={(e) => {
             e.preventDefault()
             if (props.onContextMenuBackdrop) { props.onContextMenuBackdrop(e); return }
@@ -75,7 +89,7 @@ export function GroupContextMenu(props: GroupContextMenuProps) {
           onClick={props.onClose}
           onKeyDown={(e) => { if (e.key === "Escape") props.onClose() }}
           tabIndex={-1}
-          ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
+          ref={(el) => { setBackdropRef(el); requestAnimationFrame(() => el?.focus()) }}
         >
           <div
             ref={setContextMenuRef}

@@ -71,7 +71,7 @@ describe("queuedMentions", () => {
 })
 
 // 取文本时换行必须保留:丢了的话编辑器里看着是多行、发给模型的却是连排一行(内容失真且无从察觉)
-describe("getDocTextWithMentions 换行", () => {
+describe("getDocTextWithMentions", () => {
   const t = (s: string) => editorSchema.text(s)
   const p = (...content: ReturnType<typeof t>[]) => editorSchema.node("paragraph", null, content)
 
@@ -92,6 +92,13 @@ describe("getDocTextWithMentions 换行", () => {
     const m = editorSchema.nodes.mention.create({ id: "x", name: "访谈分析", type: "skill", label: "访谈分析", path: "" })
     const doc = editorSchema.node("doc", null, [editorSchema.node("paragraph", null, [m, t(" 看这个"), br, t("再看那个")])])
     expect(getDocTextWithMentions(doc)).toBe("@访谈分析 看这个\n再看那个")
+  })
+
+  test("贴在一起的技能和正文在发送文本中用一个空格隔开", () => {
+    const first = editorSchema.nodes.mention.create({ name: "访谈 分析", type: "skill" })
+    const second = editorSchema.nodes.mention.create({ name: "总结", type: "skill" })
+    const doc = editorSchema.node("doc", null, [p(t("正文@普通"), first, second, t("继续  分析"))])
+    expect(getDocTextWithMentions(doc)).toBe("正文@普通 @访谈 分析 @总结 继续  分析")
   })
 })
 

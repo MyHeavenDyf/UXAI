@@ -44,6 +44,7 @@ export function ModelEditAreaDialog(props: {
   productId?: number
   onDownloadProductAsset?: (file: import('../addon-menu/asset-library').AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onFilesTabOpen?: () => void
   assetConfig?: AssetConfig
   onClose: () => void
   onSubmitStart?: () => void
@@ -343,6 +344,7 @@ export function ModelEditAreaDialog(props: {
             productId={props.productId}
             onDownloadProductAsset={props.onDownloadProductAsset}
             onUpdateMentionPath={(id, path) => editorRef?.updateMentionPath(id, path)}
+            onFilesTabOpen={props.onFilesTabOpen}
           />
         </div>
         <div class="model-edit-area-footer">

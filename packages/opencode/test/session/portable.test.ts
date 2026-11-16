@@ -7,6 +7,8 @@ import JSZip from "jszip"
 import { Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
 import { AppRuntime } from "@/effect/app-runtime"
+import { eq } from "@/storage/db"
+import * as Database from "@/storage/db"
 import { MessageV2 } from "@/session/message-v2"
 import {
   exportPortableSession,
@@ -20,6 +22,9 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { Todo } from "@/session/todo"
+import { StudioGenerationTable } from "@/studio/studio-generation.sql"
+import { listStudioHistoryMedia } from "@/studio/studio-history-service"
+import { StudioHistoryExcludedTable, StudioHistoryTable } from "@/studio/studio-history.sql"
 import { provideTestInstance, tmpdir } from "../fixture/fixture"
 
 const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unknown>) =>
@@ -28,6 +33,32 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test.each([
+    ["octo_studio", 0],
+    ["octo_make", 9],
+  ] as const)("imports %s root session with sort_order %d", async (agent, expected) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const archive = await provideTestInstance({
+      directory: source.path,
+      fn: async () => {
+        const session = await runSession((service) => service.create({ title: "Portable order", agent }))
+        await runSession((service) => service.setSortOrder({ sessionID: session.id, sortOrder: 9 }))
+        return AppRuntime.runPromise(
+          exportPortableSession({ sessionID: session.id, output: path.join(source.path, `${agent}.zip`) }),
+        )
+      },
+    })
+    const imported = await provideTestInstance({
+      directory: target.path,
+      fn: async () => {
+        const result = await AppRuntime.runPromise(importPortableSession(archive.output))
+        return runSession((service) => service.get(result.sessionID))
+      },
+    })
+    expect(imported.sort_order).toBe(expected)
+  })
+
   test("exports and imports shared website-root references unchanged alongside project source files", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
@@ -69,6 +100,32 @@ describe("portable session", () => {
         output: path.join(source.path, "bundle.zip"),
       }))
       expect(await Bun.file(exported.output).exists()).toBe(true)
+    } })
+  })
+
+  test.each(["creating", "queued", "running"] as const)("rejects sharing a Studio session while generation is %s", async (status) => {
+    await using source = await tmpdir({ git: true })
+    await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((service) => service.create({ title: "Studio generation", agent: "octo_studio" }))
+      const now = Date.now()
+      Database.use((db) =>
+        db.insert(StudioGenerationTable).values({
+          id: `studio_gen_${status}`,
+          session_id: session.id,
+          directory: source.path,
+          assistant_message_id: MessageID.ascending(),
+          tool_part_id: PartID.ascending(),
+          provider: "internel",
+          capability: "image.generate",
+          status,
+          request: { input: { prompt: "test", capability: "image.generate" } },
+          next_poll_at: Number.MAX_SAFE_INTEGER,
+          time_created: now,
+          time_updated: now,
+        }).run(),
+      )
+      await expect(AppRuntime.runPromise(sharePortableSession({ sessionID: session.id })))
+        .rejects.toThrow("对话正在进行中，请等待结束后再分享")
     } })
   })
 
@@ -307,6 +364,38 @@ describe("portable session", () => {
       } })
     },
   )
+
+  test("does not inherit the source model for root or child sessions", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const root = await runSession((svc) => svc.create({ title: "Model root" }))
+      await runSession((svc) => svc.create({
+        parentID: root.id,
+        title: "Model child",
+      }))
+      return AppRuntime.runPromise(
+        exportPortableSession({ sessionID: root.id, output: path.join(source.path, "models.zip") }),
+      )
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as {
+      sessions: { info: { model?: { providerID: string; id: string } } }[]
+    }
+    manifest.sessions.forEach((entry, index) => {
+      entry.info.model = { providerID: "source", id: index ? "child" : "root" }
+    })
+    zip.file("manifest.json", JSON.stringify(manifest))
+    await Bun.write(exported.output, await zip.generateAsync({ type: "uint8array" }))
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const result = await AppRuntime.runPromise(importPortableSession(exported.output))
+      const root = await runSession((svc) => svc.get(result.sessionID))
+      const children = await runSession((svc) => svc.children(root.id))
+      expect(root.model).toBeUndefined()
+      expect(children).toHaveLength(1)
+      expect(children[0].model).toBeUndefined()
+    } })
+  })
 
   test("keeps the complete shared directory and HTML references unchanged despite missing resources in another page", async () => {
     await using source = await tmpdir({ git: true })
@@ -1012,4 +1101,94 @@ describe("portable session", () => {
     },
     { timeout: 30000 },
   )
+
+  // 分享/文件导入的 octo_studio 会话没有 studio_generation 行，
+  // 导入收尾必须把 tool parts 里的媒体物化进「我的资产」历史表。
+  test("materializes imported studio session media into history", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const archive = path.join(source.path, "studio-session.zip")
+    await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((service) => service.create({ title: "分享的 Studio 对话", agent: "octo_studio" }))
+      const messageID = MessageID.ascending()
+      await runSession((service) =>
+        service.updateMessage({
+          id: messageID,
+          sessionID: session.id,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "octo_studio",
+          model: { providerID: ProviderID.make("octo_studio"), modelID: ModelID.make("octo_studio") },
+        }),
+      )
+      await runSession((service) =>
+        service.updatePart({
+          id: PartID.ascending(),
+          messageID,
+          sessionID: session.id,
+          type: "tool",
+          callID: `studio_${messageID}`,
+          tool: "image-generation-tool",
+          state: {
+            status: "completed",
+            input: { effectivePrompt: "分享图片", displayPrompt: "分享图片" },
+            output: JSON.stringify({
+              ok: true,
+              provider: "internel",
+              capability: "image.generate",
+              model: "test-model",
+              media: [
+                {
+                  id: "img-shared-0",
+                  kind: "image",
+                  url: "https://example.com/shared.png",
+                  remoteUrl: "https://example.com/shared.png",
+                  width: 1024,
+                  height: 1024,
+                },
+              ],
+            }),
+            title: "图片生成",
+            metadata: { studio: { generationID: "gen-shared", status: "succeeded", progress: 100 } },
+            time: { start: 1_000, end: 2_000 },
+          },
+        }),
+      )
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: archive }))
+    } })
+    try {
+      await provideTestInstance({ directory: target.path, fn: async () => {
+        const before = Date.now()
+        const imported = await AppRuntime.runPromise(importPortableSession(archive))
+        const items = listStudioHistoryMedia(target.path).items
+        expect(items).toHaveLength(1)
+        expect(items[0]).toMatchObject({
+          id: "img-shared-0",
+          sessionID: imported.sessionID,
+          generationID: "gen-shared",
+          kind: "image",
+          url: "https://example.com/shared.png",
+          prompt: "分享图片",
+        })
+        // 分享导入的素材时间取导入成功时刻，不沿用包里 part 的原始生成时间。
+        expect(items[0]!.createdAt).toBeGreaterThanOrEqual(before)
+        expect(items[0]!.createdAt).toBeLessThanOrEqual(Date.now())
+
+        // 重复导入同一分享：媒体 id 幂等去重，时间刷新为本次导入时间。
+        Database.use((db) =>
+          db.update(StudioHistoryTable).set({ created_at: 1_000 }).where(eq(StudioHistoryTable.directory, target.path)).run()
+        )
+        const reimportedAt = Date.now()
+        await AppRuntime.runPromise(importPortableSession(archive))
+        const refreshed = listStudioHistoryMedia(target.path).items
+        expect(refreshed).toHaveLength(1)
+        expect(refreshed[0]!.createdAt).toBeGreaterThanOrEqual(reimportedAt)
+      } })
+    } finally {
+      Database.use((db) => {
+        db.delete(StudioHistoryTable).where(eq(StudioHistoryTable.directory, target.path)).run()
+        db.delete(StudioHistoryExcludedTable).where(eq(StudioHistoryExcludedTable.directory, target.path)).run()
+      })
+    }
+  }, { timeout: 30000 })
 })

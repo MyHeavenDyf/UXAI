@@ -26,6 +26,7 @@ export function PrototypePropertyEditor(props: {
   productId?: number
   onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
   onUpdateMentionPath?: (id: string, path: string) => void
+  onFilesTabOpen?: () => void
   /** 自定义资产库确认后发送的提示词（覆盖 default 的 onConfirm） */
   onAssetConfirm?: (args: AssetConfirmArgs) => string | Promise<string>
 }): JSX.Element {
@@ -181,6 +182,7 @@ export function PrototypePropertyEditor(props: {
           productId={props.productId}
           onDownloadProductAsset={props.onDownloadProductAsset}
           onUpdateMentionPath={props.onUpdateMentionPath}
+          onFilesTabOpen={props.onFilesTabOpen}
           assetConfig={isHost() ? effectiveAssetConfig() : undefined}
           fixedPosition
           maskBorderColor={isHost() ? '#fa8c16' : '#007bff'}

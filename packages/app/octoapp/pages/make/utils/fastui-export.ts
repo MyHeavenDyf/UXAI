@@ -3,12 +3,14 @@
  *
  * 打包本身由主进程调 skill 的 `export-zip.mjs` 完成(前端自己压缩会跟随工程根的
  * node_modules 链接把共享池那 1GB 打进去,也拿不到 ZIP 的 UTF-8 flag);这里只负责
- * 「这个 tab 该不该有导出按钮」和「拿到 zip 之后交给用户」。
+ * 「拿到 zip 之后交给用户」。入口是 action bar 的标准下载按钮(SPEC-DES-007 §8);
+ * 归档(SPEC-DES-007 §7,fastui-archive.ts)打的是同一个包,共用这里的打包锁。
  */
 import { createSignal } from "solid-js"
 
 import { type FastuiTarget, getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
+import { DownloadCancelledError } from "../subtype-handlers/default"
 
 // ── 预览卡片的身份(SPEC-DES-004)──────────────────────────────────
 // 卡片只记产物,不记端口:`fastui://<产物名>`。端口会过期(服务一停就还给系统,会被别的
@@ -60,60 +62,16 @@ export function fastuiTargetOf(workspaceDir?: string, sessionId?: string, name?:
   return { workspaceDir, sessionId, name: name || undefined }
 }
 
-const keyOf = (t: FastuiTarget) => `${t.workspaceDir}\u0000${t.sessionId}\u0000${t.name ?? ""}`
-
-// ── 判据:这张卡片背后有没有 fastui 工程 ───────────────────────────
-// 导出按钮挂在 subtype "fastui" 的 tab 上(SPEC-DES-005),但仍以磁盘事实为准,不只看 tab 形态:
-// 问主进程「按这个目标找不找得到工程」—— 与预览同一个查找函数,是确定的存在性判断,不是猜。
-// 旧版卡片转 fastui:// 时也用它判断(见 index.tsx)。
-const [fastuiTargets, setFastuiTargets] = createSignal<Record<string, boolean>>({})
-/** 已探测过的次数;肯定结果直接从 signal 走,不再进这里 */
-const probeCount = new Map<string, number>()
-
 /**
- * 否定结果重探几次再放弃。
- *
- * 正常时序下一次就够 —— URL tab 是 skill 输出 artifact 之后才创建的,而
- * `new-session` 远早于此,那时工程标记必然已经在磁盘上。留几次重探是
- * 防时序变化,**必须靠 setTimeout 自己驱动**:只把结果写回 signal 不会再触发探测
- * (重渲染时读到的仍是同一个否定值),那样"自愈"只是注释里的说法。
+ * 主进程按这个目标找不找得到工程 —— 与预览同一个查找函数,是确定的存在性判断,不是猜。
+ * 旧版卡片转 fastui:// 时用它判断这张卡片背后有没有 fastui 工程(见 index.tsx)。
  */
-const RENEGATIVE_PROBE_MS = 3000
-const MAX_NEGATIVE_PROBES = 3
-
-export function isFastuiProject(target: FastuiTarget): boolean {
-  const key = keyOf(target)
-  if (fastuiTargets()[key]) return true
-
-  const tried = probeCount.get(key) ?? 0
-  if (tried === 0) {
-    probeCount.set(key, 1)
-    void probeFastuiProject(target)
-  }
-  return false
-}
-
-/** 主进程按这个目标找不找得到工程;结果顺带写入缓存 */
 export async function hasFastuiProject(target: FastuiTarget): Promise<boolean> {
-  const api = getDesktopApi()
-  let exists = false
   try {
-    exists = !!(await api?.fastuiResolve?.(target))?.ok
+    return !!(await getDesktopApi()?.fastuiResolve?.(target))?.ok
   } catch {
-    /* 问不到就当不是 fastui 工程 */
+    return false // 问不到就当不是 fastui 工程
   }
-  const key = keyOf(target)
-  setFastuiTargets((prev) => (prev[key] === exists ? prev : { ...prev, [key]: exists }))
-  return exists
-}
-
-async function probeFastuiProject(target: FastuiTarget): Promise<void> {
-  if (await hasFastuiProject(target)) return
-  const key = keyOf(target)
-  const tried = probeCount.get(key) ?? 1
-  if (tried >= MAX_NEGATIVE_PROBES) return
-  probeCount.set(key, tried + 1)
-  setTimeout(() => void probeFastuiProject(target), RENEGATIVE_PROBE_MS)
 }
 
 /**
@@ -140,19 +98,14 @@ export async function fastuiProjectOfFile(target: FastuiTarget, filePath: string
 }
 
 // ── 导出 ─────────────────────────────────────────────────────────
-const [exportingKey, setExportingKey] = createSignal<string | null>(null)
-
-/** 这张卡片对应的工程正在导出(按钮显示「导出中…」) */
-export function isExporting(target: FastuiTarget | null): boolean {
-  return !!target && exportingKey() === keyOf(target)
-}
+const [exporting, setExporting] = createSignal(false)
 
 /**
- * 有任何工程正在导出。锁是全局的(一次只跑一个打包脚本),所以按钮的 disabled 也要按
- * 全局判 —— 只按自己那张卡片判的话,在另一个会话的 tab 上点导出会静默什么都不发生。
+ * 有工程正在打包(下载或归档)。锁是全局的(一次只跑一个打包脚本),所以 busy 也要按全局判 ——
+ * 只按自己那张卡片判的话,在另一个会话的 tab 上点下载会静默什么都不发生。
  */
 export function isExportingAny(): boolean {
-  return exportingKey() !== null
+  return exporting()
 }
 
 function formatBytes(bytes: number): string {
@@ -161,57 +114,57 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function baseNameOf(p: string): string {
+export function baseNameOf(p: string): string {
   return p.split(/[\\/]/).filter(Boolean).pop() ?? "project.zip"
+}
+
+type FastuiZip = { zipPath: string; bytes: number }
+
+/**
+ * 打包,并在锁内使用这个 zip。下载与归档都经过这里:主进程不加锁,同一工程的两个打包脚本
+ * 会同时写同一个 `export/<产物名>.zip`,所以锁必须在这一层共用。
+ * 锁被占用、环境不支持、打包失败都抛错,`error` 是可直接展示给用户的一句话。
+ */
+export async function withFastuiZip<T>(target: FastuiTarget, use: (zip: FastuiZip) => Promise<T>): Promise<T> {
+  if (exporting()) throw new Error("已有代码包正在打包，请稍后再试")
+  const api = getDesktopApi()
+  if (!api?.fastuiExportZip) throw new Error("当前环境不支持导出代码包")
+
+  setExporting(true)
+  try {
+    // 带产物名导出该工程:同一对话可以有多个工程
+    const result = await api.fastuiExportZip(target)
+    if (!result?.ok) throw new Error(result?.error || "未知原因")
+    return await use(result)
+  } finally {
+    setExporting(false)
+  }
 }
 
 /**
  * 打包 → 让用户选保存位置 → 拷过去。
  * zip 已经在磁盘上,不走 action-bar 里 `downloadBlob` 那套(那是给内容型 tab 用的)。
+ *
+ * 由 action bar 的 handleDownload 调用,失败与取消都抛给它统一处理:
+ * - 失败抛 Error,action bar 弹「下载失败」并带上原因,这里不再自己弹错误提示
+ * - 取消保存抛 DownloadCancelledError,action bar 删掉任务项;临时 zip 留在原处,与其他产物一致
  */
 export async function exportFastuiZip(target: FastuiTarget): Promise<void> {
-  if (exportingKey()) return
+  // 正常由 handler 的 isDownloadBusy 先挡住;这里兜底,不并发跑两个打包脚本
+  if (exporting()) return
   const api = getDesktopApi()
-  if (!api?.fastuiExportZip) {
-    showOctoToast({ title: "当前环境不支持导出代码包", variant: "error" })
-    return
+  if (!api?.fastuiExportZip || !api.saveFilePicker || !api.copyFileTo) {
+    throw new Error("当前环境不支持导出代码包")
   }
+  const { saveFilePicker, copyFileTo } = api
 
-  setExportingKey(keyOf(target))
-  try {
-    // 带产物名导出该工程:同一对话可以有多个工程
-    const result = await api.fastuiExportZip(target)
-    if (!result?.ok) {
-      showOctoToast({
-        title: "导出代码包失败",
-        description: result?.error || "未知原因",
-        variant: "error",
-      })
-      return
-    }
+  await withFastuiZip(target, async (zip) => {
+    const fileName = baseNameOf(zip.zipPath)
+    const dest = await saveFilePicker({ title: "保存代码包", defaultPath: fileName })
+    if (!dest) throw new DownloadCancelledError()
 
-    const fileName = baseNameOf(result.zipPath)
-    const size = formatBytes(result.bytes)
-    const dest = await api.saveFilePicker?.({ title: "保存代码包", defaultPath: fileName })
-    if (!dest) {
-      // 用户取消保存:包已经生成好了,告诉他在哪,不再打扰
-      showOctoToast({ title: "代码包已生成", description: result.zipPath })
-      return
-    }
-
-    if (!api.copyFileTo) {
-      showOctoToast({ title: "代码包已生成", description: result.zipPath })
-      return
-    }
-    await api.copyFileTo(result.zipPath, dest)
+    await copyFileTo(zip.zipPath, dest)
+    const size = formatBytes(zip.bytes)
     showOctoToast({ title: "已导出代码包", description: size ? `${fileName}（${size}）` : fileName })
-  } catch (error) {
-    showOctoToast({
-      title: "导出代码包失败",
-      description: error instanceof Error ? error.message : String(error),
-      variant: "error",
-    })
-  } finally {
-    setExportingKey(null)
-  }
+  })
 }

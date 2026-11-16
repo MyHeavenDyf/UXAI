@@ -41,6 +41,8 @@ function MarkdownRenderer(props: { content: string; onReady?: () => void }): JSX
 
 // ── 主容器 ────────────────────────────────────────────────────
 export function ResultViewer(props: {
+  productId?: number
+  onEditPrompt?: (sessionId: string, prompt: string, source: string) => Promise<void>
   tabs: ResultTab[]
   activeId: string | null
   onActivate: (id: string) => void
@@ -93,7 +95,7 @@ export function ResultViewer(props: {
   })
 
   return (
-    <HtmlReviewProvider tab={activeTab()} tabs={props.tabs} refreshKey={(props.refreshKey ?? 0) + diskVersion()} working={props.working}
+    <HtmlReviewProvider productId={props.productId} onEditPrompt={props.onEditPrompt} tab={activeTab()} tabs={props.tabs} refreshKey={(props.refreshKey ?? 0) + diskVersion()} working={props.working}
       onRestore={() => { setDiskVersion(value => value + 1); props.onFilesRefresh?.() }}>
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
@@ -135,8 +137,6 @@ export function ResultViewer(props: {
                 onRefresh={() => { setDiskVersion(v => v + 1); props.onRefresh?.() }}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => setFocusMode(f => !f)}
-                onFilesRefresh={props.onFilesRefresh}
-                refreshKey={(props.refreshKey ?? 0) + diskVersion()}
                 canvasLoadState={canvasPreview.key === canvasKey() ? canvasPreview.state : "loading"}
                 working={props.working}
               />

@@ -61,7 +61,7 @@ export function useMakeGroups(dir: () => string | undefined, namespace: string =
     const d = dir()
     if (!d) return
     const client = globalSDK.createClient({ directory: d })
-    const result = await client.sessionGroup.create({ namespace: namespace as "make" | "insight", name })
+    const result = await client.sessionGroup.create({ namespace: namespace as "make" | "insight" | "studio", name })
     const g = result.data
     if (!g) return
     const group: MakeGroup = { id: g.id, name: g.name, created_at: g.time_created as number }

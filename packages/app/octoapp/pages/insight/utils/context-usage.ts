@@ -16,9 +16,10 @@ export function insightContextTokens(
         total: number
       }
     | undefined,
+  estimate?: { tokens: number },
 ) {
   if (!context) return 0
-  if (isSuccessfulCompaction(context.message)) return context.output
+  if (isSuccessfulCompaction(context.message)) return estimate?.tokens
   return context.total
 }
 

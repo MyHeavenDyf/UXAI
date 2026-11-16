@@ -67,6 +67,8 @@ export async function inspectSharedSession(archive: string) {
         ? "insight"
         : agent === "proto_triage"
           ? "pattern"
+          : agent === "octo_studio"
+            ? "studio"
           : undefined
   if (!module) throw new Error(`无法识别分享所属模块：${agent ?? "未提供 Agent"}`)
   return { agent, module }

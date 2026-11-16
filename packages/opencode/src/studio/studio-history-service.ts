@@ -2,8 +2,9 @@ import * as Database from "@/storage/db"
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "@/storage/db"
 import { readdir, rm, stat } from "node:fs/promises"
 import path from "path"
-import type { SessionID } from "@/session/schema"
-import { SessionTable } from "@/session/session.sql"
+import { MessageV2 } from "@/session/message-v2"
+import { SessionID } from "@/session/schema"
+import { PartTable, SessionTable } from "@/session/session.sql"
 import { StudioGenerationTable } from "./studio-generation.sql"
 import { StudioHistoryExcludedTable, StudioHistoryTable } from "./studio-history.sql"
 import { resolveStudioVideoQualityMode } from "./image-provider"
@@ -270,6 +271,9 @@ function upsertMedia(directory: string, items: StudioHistoryMediaItem[]): number
         .onConflictDoUpdate({
           target: [StudioHistoryTable.directory, StudioHistoryTable.id],
           set: {
+            // 导入物化的 created_at 是导入时间，重导同一分享时刷新为最新导入时间；
+            // 生成路径的 created_at 源自 generation 完成时间，重写同值幂等。
+            created_at: sql`excluded.created_at`,
             url: sql`excluded.url`,
             thumbnail_url: sql`excluded.thumbnail_url`,
             thumbnail_status: sql`excluded.thumbnail_status`,
@@ -828,6 +832,116 @@ export function snapshotSessionMedia(directory: string, sessionID: string): numb
   )
 
   return upsertMedia(directory, items)
+}
+
+// 分享/导出文件导入的 octo_studio 会话没有 studio_generation 行（分享包只含消息与
+// parts），而历史表 backfill 只扫 studio_generation，导入会话的媒体因此永远进不了
+// 「我的资产」。从导入后已完成 tool part 的 output/input 物化媒体；素材时间取导入
+// 成功时刻——「我的资产」里视作刚刚生成，不沿用包里的原始生成时间；重复导入同一
+// 分享时按媒体 id 幂等去重，时间刷新为最新一次导入时间；导入前清掉这些媒体的删除
+// 墓碑——重新导入是显式恢复动作，删除后再次导入应回到「我的资产」。
+export function materializeStudioSessionParts(directory: string, sessionID: SessionID, parts: MessageV2.Part[]): number {
+  const importedAt = Date.now()
+  const items = parts.flatMap((part) => {
+    if (part.type !== "tool" || part.state.status !== "completed") return []
+    const output = parseToolOutput(part.state.output)
+    const images = importedToolImages(output, part.state.attachments)
+    if (images.length === 0) return []
+    const studio = part.state.metadata.studio as Record<string, unknown> | undefined
+    const input = importedToolInput(part.state.input)
+    const extra = input && typeof input.extra === "object" && !Array.isArray(input.extra) ? input.extra as Record<string, unknown> : undefined
+    return extractMediaFromResult(
+      {
+        ...output,
+        // 无 generation 元数据时的兜底 id 用 callID：导入会重映射 part.id（每次导入都不同，
+        // 据此派生会让重导产生重复历史行），callID 保留包内原值，跨导入稳定可去重。
+        id: typeof studio?.generationID === "string" ? studio.generationID : `studio_${part.callID}`,
+        images,
+        isCustom:
+          input && (Boolean(input.isCustom) || Boolean(extra?.isCustom) || (typeof input.width === "number" && typeof input.height === "number"))
+            || undefined,
+      },
+      sessionID,
+      importedAt,
+      input,
+    )
+  })
+  unexcludeMedia(directory, items.map((item) => item.id))
+  return upsertMedia(directory, items)
+}
+
+// 清除待导入媒体的删除墓碑：重新导入同一分享是用户显式恢复素材的动作。
+// 只作用于导入路径（materializeStudioSessionParts），backfill/snapshot 对本地
+// generation 的防复活语义不受影响。
+function unexcludeMedia(directory: string, mediaIds: string[]): number {
+  return chunked(mediaIds).reduce((removed, part) =>
+    removed + Database.use((db) =>
+      db
+        .delete(StudioHistoryExcludedTable)
+        .where(and(
+          eq(StudioHistoryExcludedTable.directory, directory),
+          inArray(StudioHistoryExcludedTable.media_id, part),
+        ))
+        .returning({ media_id: StudioHistoryExcludedTable.media_id })
+        .all()
+        .length,
+    ), 0)
+}
+
+// 重新打开已导入的分享对话时，app 侧分享缓存命中会跳过服务端导入，「我的资产」里
+// 已删除的素材因此没有恢复通路。按 session 从 part 存储重读 parts 再走一遍导入
+// 物化（清墓碑 + 幂等 upsert）；/studio/history/snapshot 端点在生成快照之外调用它。
+export function rematerializeStudioSessionMedia(directory: string, sessionID: string): number {
+  const parts = Database.use((db) =>
+    db.select().from(PartTable).where(eq(PartTable.session_id, SessionID.make(sessionID))).all(),
+  ).map((row) => ({ ...row.data, id: row.id, sessionID: row.session_id, messageID: row.message_id }) as MessageV2.Part)
+  return materializeStudioSessionParts(directory, SessionID.make(sessionID), parts)
+}
+
+function parseToolOutput(output: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(output) as unknown
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+// 旧格式 tool output 没有 media 数组时，与客户端 buildResult 的回退一致：
+// 附件 + images/videos URL 列表，按 URL 去重。
+function importedToolImages(
+  output: Record<string, unknown>,
+  attachments: MessageV2.FilePart[] | undefined,
+): Record<string, unknown>[] {
+  if (Array.isArray(output.media)) {
+    return output.media.flatMap((item) =>
+      item && typeof item === "object" && !Array.isArray(item) ? [item as Record<string, unknown>] : [],
+    )
+  }
+  const seen = new Set<string>()
+  const images: Record<string, unknown>[] = []
+  const push = (url: unknown, kind: "image" | "video") => {
+    if (typeof url !== "string" || !url || seen.has(url)) return
+    seen.add(url)
+    images.push({ url, kind })
+  }
+  for (const attachment of attachments ?? []) {
+    if (attachment.mime.startsWith("video/")) push(attachment.url, "video")
+    else if (attachment.mime.startsWith("image/")) push(attachment.url, "image")
+  }
+  for (const url of Array.isArray(output.images) ? output.images : []) push(url, "image")
+  for (const url of Array.isArray(output.videos) ? output.videos : []) push(url, "video")
+  return images
+}
+
+// historyTextFields 只读 input.prompt；工具入参里的有效提示词在 effectivePrompt/refinedPrompt。
+function importedToolInput(input: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const prompt = typeof input?.effectivePrompt === "string"
+    ? input.effectivePrompt
+    : typeof input?.refinedPrompt === "string"
+      ? input.refinedPrompt
+      : undefined
+  return prompt !== undefined ? { ...input, prompt } : input
 }
 
 // 真正删除历史记录：只移除 `studio_history` 行，绝不触碰 `studio_generation`

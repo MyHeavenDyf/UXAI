@@ -10,14 +10,14 @@ export const sessionGroupHandlers = HttpApiBuilder.group(InstanceHttpApi, "sessi
     const svc = yield* SessionGroup.Service
 
     const list = Effect.fn("SessionGroupHttpApi.list")(function* (ctx: {
-      query: { namespace: "make" | "insight" }
+      query: { namespace: "make" | "insight" | "studio" }
     }) {
       const directory = (yield* InstanceState.context).directory
       return yield* svc.list(directory, ctx.query.namespace)
     })
 
     const create = Effect.fn("SessionGroupHttpApi.create")(function* (ctx: {
-      payload: { namespace: "make" | "insight"; name: string }
+      payload: { namespace: "make" | "insight" | "studio"; name: string }
     }) {
       const instance = yield* InstanceState.context
       return yield* svc.create({

@@ -1,3 +1,4 @@
+import { HtmlLocalEditor } from "./html-local-editor"
 import { createMemo, createSignal, createEffect, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { stripCodeFence } from "../../utils/detect"
@@ -41,6 +42,7 @@ export function HtmlRenderer(props: { content: string; onReady?: () => void }): 
         </div>
       }
     >
+      <Show when={!review?.state.editing} fallback={<HtmlLocalEditor content={props.content} onReady={props.onReady} />}>
       <div class="relative w-full h-full">
       <iframe ref={element => setFrame("element", element)}
         src={blobUrl()}
@@ -59,6 +61,7 @@ export function HtmlRenderer(props: { content: string; onReady?: () => void }): 
         <HtmlCommentLayer frame={frame.element} content={html()} />
       </Show>
       </div>
+      </Show>
     </Show>
   )
 }

@@ -1,3 +1,4 @@
+import { saveHtmlEdit } from "../../utils/html-local-edit"
 import { createContext, createEffect, createMemo, onCleanup, Show, useContext, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
@@ -6,18 +7,19 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { HistoryPanel } from "../../../make/components/result-viewer/history-panel"
+import { IconLocalModify } from "../../../make/icons"
 import type { VersionEntry } from "../../../make/utils/history-store"
 import { getDesktopApi } from "../../lib/electron-api"
 import { createHtmlHistory } from "../../utils/html-history"
 import { createHtmlComments } from "../../utils/html-comments"
 import { tabLocalPath, type ResultTab } from "./tab-store"
 
-function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void }) {
+function createReview(props: { productId?: number; onEditPrompt?: (sessionId: string, prompt: string, source: string) => Promise<void>; tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void }) {
   const params = useParams()
   const sdk = useSDK()
   const directory = useProjectDir()
   const [state, setState] = createStore({
-    commenting: false, busy: false, entries: [] as VersionEntry[], current: null as string | null,
+    editing: false, commenting: false, busy: false, entries: [] as VersionEntry[], current: null as string | null,
   })
   const path = createMemo(() => props.tab ? tabLocalPath(props.tab) : undefined)
   const key = createMemo(() => JSON.stringify([directory(), params.id, props.tab?.id, path()]))
@@ -39,10 +41,10 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
   onCleanup(() => { disposed = true })
   createEffect(() => {
     key()
-    setState({ commenting: false, entries: [], current: null, busy: false })
+    setState({ editing: false, commenting: false, entries: [], current: null, busy: false })
   })
   createEffect(() => {
-    if (props.tab?.viewMode === "source") setState("commenting", false)
+    if (props.tab?.viewMode === "source" || props.working) setState({ commenting: false, editing: false })
   })
   createEffect(() => {
     props.refreshKey
@@ -82,10 +84,46 @@ function createReview(props: { tab: ResultTab | null; tabs: ResultTab[]; refresh
   }
   return {
     state, key, path, comments, history,
+    productId: () => props.productId,
+    directory,
+    sessionId: () => params.id,
+    editWithAgent: async (prompt: string, content: string, original: string, onSaved: (content: string) => void, source = "html-asset-replace") => {
+      const sessionId = params.id
+      const scope = key()
+      const file = path()
+      const api = getDesktopApi()
+      if (!sessionId || !file || !api || !props.onEditPrompt || state.busy || props.working) throw new Error("当前无法发起源码修改")
+      setState("busy", true)
+      try {
+        await saveHtmlEdit(file, original, content, api, () => scope === key() && !props.working)
+        if (scope !== key() || disposed) throw new Error("编辑页面已关闭")
+        onSaved(content)
+        await props.onEditPrompt(sessionId, prompt, source)
+        if (scope === key()) { setState("editing", false); props.onRestore() }
+      } finally {
+        if (scope === key()) setState("busy", false)
+      }
+    },
+    editDisabled: () => !eligible() || !history() || !getDesktopApi()?.writeFileBuffer || !!props.working || state.busy,
+    toggleEdit: () => setState({ editing: !state.editing, commenting: false }),
+    saveEdit: async (content: string, original: string) => {
+      const api = getDesktopApi()
+      const file = path()
+      const store = history()
+      const scope = key()
+      if (!file || !store || !api?.writeFileBuffer || props.working || state.busy) throw new Error("当前无法保存 HTML")
+      setState("busy", true)
+      try {
+        await saveHtmlEdit(file, original, content, api, () => scope === key() && !props.working)
+        if (scope === key()) { setState("editing", false); props.onRestore() }
+      } finally {
+        if (scope === key()) setState("busy", false)
+      }
+    },
     disabled: () => !eligible() ? "请先将 HTML 保存到本地并进入会话" : props.tab?.viewMode === "source" ? "请切换到预览视图" : "",
     toggle: () => {
       if (!localStorage.getItem("uiplusToken")) { showToast({ title: "请先登录" }); return }
-      setState("commenting", value => !value)
+      setState({ commenting: !state.commenting, editing: false })
     },
     refresh: () => run(async () => {
       const scope = key()
@@ -116,6 +154,7 @@ export const useHtmlReview = () => useContext(ReviewContext)
 const htmlReviewEnabled = true
 
 export function HtmlReviewProvider(props: {
+  productId?: number; onEditPrompt?: (sessionId: string, prompt: string, source: string) => Promise<void>;
   tab: ResultTab | null; tabs: ResultTab[]; refreshKey: number; working?: boolean; onRestore: () => void; children: JSX.Element
 }) {
   const review = htmlReviewEnabled ? createReview(props) : undefined
@@ -133,26 +172,32 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
     : "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
   const iconSize = () => props.tab.fromAttachment ? 16 : 14
   const disabled = () => review?.disabled() || (props.loadState === "loading" ? "HTML 内容加载中" : props.loadState === "error" ? "请先重新加载 HTML" : "")
+  const editLabel = () => review?.state.editing ? "退出修改" : "局部修改"
   createEffect(() => { review?.key(); props.tab.viewMode; setState("open", false) })
   return <Show when={props.tab.type === "html" && review}>
+    <Tooltip value={editLabel()} placement="top">
+      <button type="button" class={buttonClass()} disabled={!!disabled() || review?.editDisabled()}
+        aria-pressed={review?.state.editing} classList={{ "octo-viewport-btn-active": review?.state.editing }}
+        onClick={() => review?.toggleEdit()}><IconLocalModify size={iconSize()} /><span>{editLabel()}</span></button>
+    </Tooltip>
     <Tooltip value={disabled() || "标注"} placement="top">
-      <button type="button" class={buttonClass()} disabled={!!disabled()}
+      <button type="button" class={buttonClass()} disabled={!!disabled() || review?.state.busy}
         classList={{ "opacity-40": !!disabled(), "octo-viewport-btn-active": review?.state.commenting }}
         style={review?.state.commenting ? { color: "#0a59f7", background: "rgba(10,89,247,0.08)" } : undefined}
         aria-pressed={review?.state.commenting} onClick={() => review?.toggle()}>
         <svg aria-hidden="true" viewBox="0 0 20 20" width={iconSize()} height={iconSize()} fill="none"><path d="M2 18V10a8 8 0 1 1 8 8H2Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" /></svg><span>标注</span>
       </button>
     </Tooltip>
-    <Tooltip value={!review?.history() ? "历史版本需要本地 HTML 和桌面端支持" : "历史版本"} placement="top">
+    <Tooltip value={!review?.history() ? "历史版本需要本地 HTML 和桌面端支持" : "历史"} placement="top">
       <button ref={button} type="button" class={buttonClass()}
-        disabled={!review?.history() || review?.state.busy || props.working}
+        disabled={!review?.history() || review?.state.busy || review?.state.editing || props.working}
         classList={{ "opacity-40": !review?.history() || review?.state.busy || props.working }}
-        aria-label="历史版本" aria-expanded={state.open}
+        aria-label="历史" aria-expanded={state.open}
         onClick={() => {
           setState({ open: !state.open, anchor: button?.getBoundingClientRect() ?? null })
           if (state.open) void review?.refresh()
         }}>
-        <svg aria-hidden="true" viewBox="0 0 16 16" width={iconSize()} height={iconSize()} fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" /></svg><span>{review?.state.busy ? "处理中..." : "历史版本"}</span>
+        <svg aria-hidden="true" viewBox="0 0 16 16" width={iconSize()} height={iconSize()} fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" /></svg><span>{review?.state.busy ? "处理中..." : "历史"}</span>
       </button>
     </Tooltip>
     <Show when={state.open && state.anchor}>

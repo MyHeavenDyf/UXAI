@@ -4,6 +4,7 @@ function me_runBridge() {
   var me_enabled = false;
   var me_componentFlag = null;
   var me_htmlFlag = null;
+  var me_includeDocumentSelector = false;
   var me_annotateNextId = -1;
 
   var me_depth = 0;
@@ -99,6 +100,23 @@ function me_runBridge() {
     return parts.join(' > ').replace(/ > >>> > /g, ' >>> ');
   }
 
+  function me_documentSelector(el) {
+    var parts = [];
+    for (var cur = el; cur && cur !== document.body; cur = cur.parentElement) {
+      var tag = cur.localName;
+      if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(tag)) return;
+      if (/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(cur.id) && document.querySelectorAll('#' + cur.id).length === 1) {
+        return [tag + '#' + cur.id].concat(parts).join(' > ');
+      }
+      var index = 1;
+      for (var sibling = cur.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+        if (sibling.localName === tag && sibling.namespaceURI === cur.namespaceURI) index++;
+      }
+      parts.unshift(tag + ':nth-of-type(' + index + ')');
+    }
+    if (cur === document.body) return ['body'].concat(parts).join(' > ');
+  }
+
   function me_ensureAnnotatedId(el) {
     if (!el || !el.getAttribute) return null;
     var id = el.getAttribute('data-od-id');
@@ -156,6 +174,7 @@ function me_runBridge() {
     var styles = {};
     var styleProps = ['fontFamily','fontSize','fontWeight','color','textAlign','lineHeight','letterSpacing','width','height','minHeight','gap','flexDirection','justifyContent','alignItems','backgroundColor','opacity','padding','paddingTop','paddingRight','paddingBottom','paddingLeft','margin','marginTop','marginRight','marginBottom','marginLeft','border','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth','borderStyle','borderColor','borderRadius','boxShadow','filter','backdropFilter','backgroundImage','overflow','borderTopLeftRadius','borderTopRightRadius','borderBottomRightRadius','borderBottomLeftRadius','verticalAlign'];
     styleProps.forEach(function(p) { styles[p] = computed[p] || ''; });
+    if (me_includeDocumentSelector) styles.display = computed.display || '';
     var attributes = {};
     var attrNames = ['class','id','href','src','alt','title','data-od-label','aria-label','data-icon-name','data-icon-id','data-icon-custom','data-icon-src','data-icon-size','data-icon-style','data-icon-color'];
     if (me_htmlFlag) attrNames.push(me_htmlFlag);
@@ -167,7 +186,8 @@ function me_runBridge() {
       text: (elementKind === 'mixed' ? directText : allText).trim().slice(0, 200), selector: me_buildSelector(el),
       htmlHint: el.outerHTML.slice(0, Math.min(200, el.outerHTML.indexOf('>') + 1)),
       isLayoutContainer: el.children.length > 0, elementKind: elementKind, selectionKind: selectionKind,
-      componentType: componentType || undefined, htmlType: htmlType || undefined
+      componentType: componentType || undefined, htmlType: htmlType || undefined,
+      ...(me_includeDocumentSelector && window.parent === window.top ? { documentSelector: me_documentSelector(el) } : {})
     };
   }
 
@@ -278,6 +298,7 @@ function me_runBridge() {
     if (d.type === 'od:model-edit-mode') {
       me_componentFlag = d.componentFlag || null;
       me_htmlFlag = d.htmlFlag || null;
+      me_includeDocumentSelector = d.includeDocumentSelector === true;
       me_applyMode(d.enabled);
       me_forwardToNestedIframes(d);
       return;

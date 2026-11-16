@@ -2190,17 +2190,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         messageID: result.info.id,
       })
 
-      // 如果该命令是 skill，额外发布 skill.used 事件供前端消费
-      elog.info("skill.used-debug", {
-        command: input.command,
-        source: cmd.source,
-        agent: userAgent,
-        isSubtask,
-      })
-      if (cmd.source === "skill") {
-        yield* bus.publish(SkillUsed, { skillName: input.command })
-        elog.info("skill.used-debug", { action: "PUBLISHED", command: input.command })
-      }
+      // skill 命令的 skill.used 事件已由上面的 extra.skills 在 prompt() 公共入口统一发布；此处再发会双触发
+      // （2026-08-13 278550243f 给 command 路径补传 extra 后，两处发布开始同时命中同一轮调用）。
 
       return result
     })

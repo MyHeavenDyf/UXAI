@@ -31,49 +31,50 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
 
   const copyLink = async () => {
     if (state.sharing || shareBlockReason()) return
-    setState({ sharing: true, error: "" })
+    setState({
+      sharing: true,
+      error: "",
+    })
+    const operationID = state.url ? undefined : crypto.randomUUID()
+    const progress = operationID ? showSessionTransferProgress("正在生成分享链接") : undefined
+    const watcher = operationID ? new AbortController() : undefined
+    if (operationID && watcher) {
+      void watchSessionTransferProgress({
+        url: globalSDK.url,
+        operationID,
+        fetch: platform.fetch ?? fetch,
+        headers: directoryHeader(props.session.directory),
+        signal: watcher.signal,
+        update: progress!.update,
+      })
+    }
     await (async () => {
       const url = state.url || await (async () => {
-        const operationID = crypto.randomUUID()
-        const progress = showSessionTransferProgress("正在导出 Session")
-        const controller = new AbortController()
         const token = modelsApiToken()
         const cookie = localStorage.getItem("uiplusCookie")?.trim()
-        const headers = {
-          ...directoryHeader(props.session.directory),
-          ...(token ? { uiplustoken: token } : {}),
-          ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
-        }
-        void watchSessionTransferProgress({
-          url: globalSDK.url,
-          operationID,
-          fetch: platform.fetch ?? fetch,
-          headers: directoryHeader(props.session.directory),
-          signal: controller.signal,
-          update: progress.update,
+        const endpoint = new URL(
+          `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
+        )
+        if (workspaceKind() === "code") endpoint.searchParams.set("scope", "project")
+        if (operationID) endpoint.searchParams.set("operationID", operationID)
+        const response = await (platform.fetch ?? fetch)(endpoint, {
+          method: "POST",
+          headers: {
+            ...directoryHeader(props.session.directory),
+            ...(token ? { uiplustoken: token } : {}),
+            ...(cookie ? { "x-opencode-share-cookie": cookie } : {}),
+          },
         })
-        try {
-          const endpoint = new URL(
-            `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
-          )
-          if (workspaceKind() === "code") endpoint.searchParams.set("scope", "project")
-          endpoint.searchParams.set("operationID", operationID)
-          const response = await (platform.fetch ?? fetch)(endpoint, { method: "POST", headers })
-          const result: unknown = await response.json().catch(() => null)
-          if (!response.ok) {
-            throw new Error(result && typeof result === "object" && "message" in result && typeof result.message === "string"
-              ? result.message : `分享失败：${response.status}`)
-          }
-          if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
-            throw new Error("分享接口未返回链接")
-          }
-          progress.update({ type: "share", stage: "分享链接已生成", percent: 100 })
-          setState("url", result.url)
-          return result.url
-        } finally {
-          controller.abort()
-          progress.dismiss()
+        const result: unknown = await response.json().catch(() => null)
+        if (!response.ok) {
+          throw new Error(result && typeof result === "object" && "message" in result && typeof result.message === "string"
+            ? result.message : `分享失败：${response.status}`)
         }
+        if (!result || typeof result !== "object" || !("url" in result) || typeof result.url !== "string") {
+          throw new Error("分享接口未返回链接")
+        }
+        setState("url", result.url)
+        return result.url
       })()
       if (shareBlockReason()) {
         setState("url", "")
@@ -112,7 +113,11 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
       dialog.close()
     })().catch((error) => {
       setState("error", error instanceof Error ? error.message : String(error))
-    }).finally(() => setState("sharing", false))
+    }).finally(() => {
+      watcher?.abort()
+      progress?.dismiss()
+      setState("sharing", false)
+    })
   }
 
   return (

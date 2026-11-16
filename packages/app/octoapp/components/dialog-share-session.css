@@ -89,8 +89,16 @@
 .share-preview-text { font-size: 14px; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 .share-preview-message.is-user .share-preview-text { padding: 12px 16px; margin-left: 32px; background: #0a59f714; border-radius: 16px 16px 2px 16px; }
 .share-preview-message.is-user .share-preview-markdown { padding: 12px 16px; margin-left: 32px; background: #0a59f714; border-radius: 16px 16px 2px 16px; }
-.share-preview-files { display: flex; gap: 4px; flex-wrap: wrap; max-height: 64px; overflow: auto; margin-bottom: 6px; }
-.share-preview-files span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 8px; background: #0000000a; border-radius: 6px; font-size: 12px; }
+.share-preview-files { display: flex; gap: 4px; flex-wrap: wrap; max-height: 72px; overflow: auto; margin-bottom: 6px; }
+.share-preview-message.is-user .share-preview-files { justify-content: flex-end; }
+.share-preview-file { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 8px 12px; background: #0000000a; border-radius: 8px; font-size: 12px; }
+.share-preview-file-icon { width: 24px; height: 24px; flex-shrink: 0; }
+.share-preview-file span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-preview-reasoning { margin: 0 0 8px; }
+.share-preview-reasoning-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 0; border: 0; background: none; color: #0009; font-size: 14px; line-height: 22px; cursor: pointer; }
+.share-preview-reasoning-toggle > span:last-child { display: inline-block; font-size: 18px; line-height: 16px; transition: transform 120ms; }
+.share-preview-reasoning-toggle > span:last-child.is-expanded { transform: rotate(90deg); }
+.share-preview-reasoning-text { margin: 12px 0 0; font-size: 14px; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .share-preview-markdown { font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
 .share-preview-markdown pre { white-space: pre-wrap; padding: 8px; background: #00000005; }
 .share-preview-markdown :is(h1,h2,h3,h4) { font-size: 15px; margin: 8px 0; }

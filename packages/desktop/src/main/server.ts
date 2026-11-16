@@ -1,7 +1,11 @@
 import { dirname, join } from "node:path"
+// jk-j60099994-replace-with-dyf-bridge-server-import-url-start
 import { fileURLToPath } from "node:url"
+// jk-j60099994-replace-with-dyf-bridge-server-import-url-end
 import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
+// jk-j60099994-replace-with-dyf-bridge-server-import-fs-start
+// jk-j60099994-replace-with-dyf-bridge-server-import-fs-end
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { getUserShell, loadShellEnv, mergeShellEnv } from "./shell-env"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
@@ -303,7 +307,8 @@ function createSidecarEnv(): Record<string, string> {
   if (!env.OCTO_ARTIFACT_SUCCESS && import.meta.env.OCTO_ARTIFACT_SUCCESS) {
     env.OCTO_ARTIFACT_SUCCESS = import.meta.env.OCTO_ARTIFACT_SUCCESS
   }
-
+  // jk-j60099994-replace-with-dyf-bridge-server-env-start
+  // jk-j60099994-replace-with-dyf-bridge-server-env-end
   // 捆绑 rg 二进制的绝对路径。~/.cache/opencode/bin 不可写时(如曾用 sudo 跑 CLI 留下
   // root 属主目录),deployRipgrep 的预装拷贝与服务端 GitHub 兜底下载都会 EACCES 失败,
   // skill/glob/grep 全部不可用。显式告知路径让服务端跳过 which/缓存/下载三级解析。
@@ -314,8 +319,13 @@ function createSidecarEnv(): Record<string, string> {
   // (内网 registry 不可达时 npm 重试退避会卡 instance bootstrap ~5 分钟),直接本地拷贝。
   const bundledSdk = bundledPluginSdkPath()
   if (bundledSdk) env.OPENCODE_PLUGIN_SDK_DIR = bundledSdk
+
+  // jk-j60099994-replace-with-dyf-bridge-server-config-start
+  // jk-j60099994-replace-with-dyf-bridge-server-config-end
+
   return env
 }
+
 
 function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))

@@ -79,6 +79,21 @@ delete process.env["OPENCODE_SERVER_USERNAME"]
 // Use in-memory sqlite
 process.env["OPENCODE_DB"] = ":memory:"
 
+// rg 二进制:上面已把 XDG 重定向到空临时目录,ripgrep.ts 解析不到 Global.Path.bin 下的 rg,
+// 会走 GitHub 兜底下载,离线/内网环境直接挂死(表现为一切依赖 skill.files 的测试 timeout)。
+// 优先复用系统 PATH 或真实用户缓存里已存在的 rg(OPENCODE_RIPGREP_PATH 优先级最高)。
+const rgCandidates = [
+  Bun.which("rg"),
+  Bun.which("rg.exe"),
+  path.join(os.homedir(), ".cache", "opencode", "bin", process.platform === "win32" ? "rg.exe" : "rg"),
+].filter((candidate): candidate is string => Boolean(candidate))
+for (const candidate of rgCandidates) {
+  if (await Bun.file(candidate).exists()) {
+    process.env["OPENCODE_RIPGREP_PATH"] = candidate
+    break
+  }
+}
+
 // Now safe to import from src/
 const { Log } = await import("@opencode-ai/core/util/log")
 const { initProjectors } = await import("../src/server/projectors")

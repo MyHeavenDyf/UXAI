@@ -4,9 +4,6 @@ import { useGlobalSync } from "@/context/global-sync"
 import { createSessionQueueRunner } from "@/utils/session-queue-runner"
 import { allQueues, updateSessionQueue, type QueuedSend } from "./utils/send-queue"
 import { sendQueuedItem } from "./utils/queue-drain"
-import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
-import { isContextAtLimit } from "@/components/context-usage-warning"
-import { insightContextTokens } from "./utils/context-usage"
 
 /**
  * insight 排队 drain 运行器（headless，SPEC-INS-027）
@@ -39,21 +36,7 @@ export function InsightQueueRunner() {
     const [store] = globalSync.peek(dir, { bootstrap: true })
     if ((store.session_status[sid]?.type ?? "idle") === "busy") return true
 
-    const messages = [...(store.message[sid] ?? [])]
-    messages.sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
-    const providers = store.provider_ready ? store.provider.all : globalSync.data.provider.all
-    const context = getSessionContextMetrics(messages, providers).context
-    const model = head.model
-      ? providers.find((provider) => provider.id === head.model?.providerID)?.models[head.model.modelID]
-      : undefined
-    const limit = [
-      model?.limit.input,
-      model?.limit.context,
-      context?.model?.limit.input,
-      context?.model?.limit.context,
-      context?.limit,
-    ].find((value) => typeof value === "number" && value > 0)
-    return isContextAtLimit(insightContextTokens(context), limit, sid)
+    return false
   }
 
   createSessionQueueRunner<QueuedSend>({

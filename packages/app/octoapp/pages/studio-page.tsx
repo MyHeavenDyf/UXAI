@@ -12,9 +12,7 @@ import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { showToast, toaster } from "@opencode-ai/ui/toast"
@@ -30,6 +28,14 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
+import { setStudioSessionGenerating } from "@/hooks/use-session-share-busy"
+import { getMappingStore } from "@/hooks/use-session-groups"
+import { consumePendingGroup, clearPendingGroup } from "@/context/pending-group"
+import { MakeGroupsProvider, useMakeGroupsContext } from "@/context/make-groups"
+import { useSessionPin, peekRecentPositionBeforePin, orderRecentIds, recentAnchor, reinsertRecent } from "@/hooks/use-session-pin"
+import { SessionContextMenu } from "@/components/session-context-menu"
+import { useSharedSessionImportDirectory } from "@/components/shared-session-import-context"
+import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { authTokenFromCredentials } from "@/utils/server"
 import { directoryHeader } from "@/utils/headers"
@@ -39,6 +45,7 @@ import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
   capabilityLabel,
+  isSeedreamStyleModel,
   referenceImageLimit,
   styleModelId,
   styleModelLabel,
@@ -64,7 +71,7 @@ import {
   parseToolMedia,
   type StudioTurnData,
 } from "./studio/turns"
-import { StudioHistory } from "./studio/studio-history"
+import { StudioSidebar } from "./studio/sidebar"
 import { StudioHistoryGallery } from "./studio/studio-history-gallery"
 import { StudioTurnAnchorNav } from "./studio/studio-turn-anchor-nav"
 import { StudioComposer, StudioIntro, type StudioComposerInputApi, type StudioComposerMenu } from "./studio/studio-composer"
@@ -101,6 +108,7 @@ import {
   hasVideoFrameAssets,
   isVideoMedia,
   isStudioGenerationFailure,
+  isStudioCustomSizeValid,
   isStudioGenerationStatusRegression,
   isPromptExpansionGeneration,
   studioRegenerationExtra,
@@ -133,7 +141,7 @@ import { createRecommendationSettings, type RecommendationImageSettings } from "
 import { createRecommendationMode } from "./studio/studio-recommendation-mode"
 import { createStudioDraftCapture, restoreStudioDraft } from "./studio/studio-draft-restore"
 import { createPromptRecommendation } from "./studio/studio-prompt-recommendation"
-import { createExpansionReview, expansionGenerationInput, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
+import { createExpansionReview, generateExpansion, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
 import { createStudioSessionData } from "./studio/studio-session-data"
 import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./studio/session-thumbnail"
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
@@ -302,7 +310,19 @@ type StudioGenerationOverrides = {
   inputPolicy?: "consume" | "preserve"
 }
 
+/** 外层：挂 "studio" namespace 的共享分组上下文（侧栏 + 会话区头部菜单共享
+ *  groups/mapping/expandedGroups）。studio 的分组与会话都落在 config sessions
+ *  目录（~/.config/octo/sessions），故用 dir 覆盖默认的项目目录解析。 */
 export default function StudioPage() {
+  const projectDir = useProjectDir({ mode: "config" })
+  return (
+    <MakeGroupsProvider namespace="studio" dir={() => projectDir() || undefined}>
+      <StudioPageContent />
+    </MakeGroupsProvider>
+  )
+}
+
+function StudioPageContent() {
   const params = useParams<{ id?: string; dir?: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -339,6 +359,7 @@ export default function StudioPage() {
   const studioPermissionStatus = () => studioPermissionState.status === "idle" ? "loading" : studioPermissionState.status
   const [studioColdStartReleased, setStudioColdStartReleased] = createSignal(false)
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
+  useSharedSessionImportDirectory("studio", projectDir, () => syncStore.status === "complete")
   if (syncStore.limit < 100) setSyncStore("limit", 100)
   onMount(() => {
     const timer = setTimeout(() => setStudioColdStartReleased(true), STUDIO_PERMISSION_PRIORITY_WINDOW_MS)
@@ -353,30 +374,10 @@ export default function StudioPage() {
     if (!directory || !studioColdStartReleased()) return
     globalSync.child(directory, { bootstrap: true })
   })
-  const studioSessions = createMemo(() =>
-    syncStore.session
-      .filter((session) => session.agent === "octo_studio" && !session.parentID && !session.time.archived)
-      .slice()
-      .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0)),
-  )
-  const studioSessionsLoading = createMemo(() => syncStore.status !== "complete" && studioSessions().length === 0)
-  const updateStudioHistorySession = (session: Session) => {
-    setSyncStore(
-      produce((draft) => {
-        const index = draft.session.findIndex((item) => item.id === session.id)
-        if (index !== -1) draft.session[index] = session
-      }),
-    )
-  }
-  const removeStudioHistorySession = (sessionID: string) => {
-    setSyncStore("deleted", sessionID, true)
-    setSyncStore(
-      produce((draft) => {
-        const index = draft.session.findIndex((item) => item.id === sessionID)
-        if (index !== -1) draft.session.splice(index, 1)
-      }),
-    )
-  }
+  // 与左侧 StudioSidebar 共享同一 "studio" namespace 分组单例 store（经
+  // MakeGroupsProvider）：分组右键「新建对话」写入的 pendingGroup 在
+  // createStudioSession 中消费，头部三点菜单的移动/移出分组也走这里。
+  const groupsCtx = useMakeGroupsContext()
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false
@@ -516,6 +517,9 @@ export default function StudioPage() {
   const setVideoQualityMode = (v: StudioVideoQualityMode) => setVideoSettingStore("videoQualityMode", v)
   const videoMode = () => videoSettingStore.videoMode
   const setVideoMode = (v: StudioVideoMode) => setVideoSettingStore("videoMode", v)
+  createEffect(() => {
+    if (capability() === "video.generate" && videoQualityMode() === "4k" && count() !== 1) setCount(1)
+  })
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [mentionImagesMap, setMentionImagesMap] = createSignal<Record<string, string>>({})
@@ -696,6 +700,9 @@ export default function StudioPage() {
     reload: loadSessionMessages,
     navigate: (id, preserveDraft) => {
       if (params.id === id) return
+      // 空白页（分组右键「新建对话」入口）点击 AI 推荐时服务端会新建会话：
+      // 同样消费 pendingGroup，让会话落入对应分组而不是「最近」。
+      if (!params.id) assignSessionToPendingGroup(id)
       if (preserveDraft) pendingRecommendationSessionID = id
       navigate(`/${routeSlug()}/studio/${id}`)
     },
@@ -861,11 +868,24 @@ export default function StudioPage() {
   const [conversationNavigation, setConversationNavigation] = createStore({ browsing: false, navigating: false })
   createEffect(on(() => params.id, () => setConversationNavigation({ browsing: false, navigating: false })))
   const resumeConversationScroll = () => setConversationNavigation("navigating", false)
+  const handleConversationWheel = (event: WheelEvent) => {
+    resumeConversationScroll()
+    if (event.deltaY >= 0 || event.ctrlKey) return
+    if (!conversationScrollRef || conversationScrollRef.scrollHeight <= conversationScrollRef.clientHeight) return
+    const target = event.target instanceof Element ? event.target : undefined
+    if (target?.closest("[data-scrollable], textarea")) return
+    cancelAnimationFrame(scrollFrame)
+    setPendingScrollRequest(undefined)
+    setConversationNavigation("browsing", true)
+    setStickToBottom(false)
+  }
   const STUDIO_SCROLL_BOTTOM_THRESHOLD = 200
   const handleConversationScroll = () => {
     const el = conversationScrollRef
     if (!el || conversationNavigation.navigating) return
-    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - STUDIO_SCROLL_BOTTOM_THRESHOLD
+    // 手动浏览后必须回到实际底部才恢复跟随，不能被贴底阈值重新拉回。
+    const threshold = conversationNavigation.browsing ? 2 : STUDIO_SCROLL_BOTTOM_THRESHOLD
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - threshold
     setStickToBottom(atBottom)
     if (atBottom) setConversationNavigation("browsing", false)
   }
@@ -879,6 +899,7 @@ export default function StudioPage() {
       if (!conversationScrollRef || !stickToBottom()) return
       cancelAnimationFrame(scrollFrame)
       scrollFrame = requestAnimationFrame(() => {
+        if (!stickToBottom() || conversationNavigation.browsing) return
         conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
       })
     })
@@ -1218,6 +1239,19 @@ export default function StudioPage() {
     pendingResult()?.status === "queued" ||
     pendingResult()?.status === "running"
   )
+  let sharedBusySessionID: string | undefined
+  createEffect(() => {
+    const sessionID = pendingResult()?.sessionID ?? params.id
+    const busy = isBusy()
+    if (sharedBusySessionID && (!busy || sharedBusySessionID !== sessionID)) {
+      setStudioSessionGenerating(sharedBusySessionID, false)
+    }
+    if (sessionID && busy) setStudioSessionGenerating(sessionID, true)
+    sharedBusySessionID = busy ? sessionID : undefined
+  })
+  onCleanup(() => {
+    if (sharedBusySessionID) setStudioSessionGenerating(sharedBusySessionID, false)
+  })
   const isActionBusy = createMemo(() =>
     recommendation.busy() || isBusy() || rebootingGenerationIDs().size > 0 || refreshingGenerationIDs().size > 0
   )
@@ -1821,6 +1855,9 @@ export default function StudioPage() {
     on(
       () => params.id,
       (id) => {
+        // 从分组「新建对话」的空白页直接点开已有会话 = 放弃归组意图；发送消息 /
+        // AI 推荐等创建流程在导航到新会话前已消费 pendingGroup，此清理不会误伤。
+        if (id) clearPendingGroup(groupsCtx?.namespace ?? "studio")
         setOpenMenu(null)
         setTemplateWorkspaces([])
         setActiveTemplateWorkspaceKey(undefined)
@@ -1980,7 +2017,6 @@ export default function StudioPage() {
     draft: "",
     editing: false,
     menuOpen: false,
-    pendingRename: false,
     saving: false,
   })
   let headerTitleRef: HTMLInputElement | undefined
@@ -2116,6 +2152,137 @@ export default function StudioPage() {
     return true
   }
 
+  // ── 会话区顶部三点菜单（与 design 页/左侧栏 session 右键菜单一致）──
+  const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
+  const [menuTriggerEl, setMenuTriggerEl] = createSignal<HTMLElement | undefined>(undefined)
+  // syncStore 冷启动引导延迟（深链/刷新/新建会话后）时当前会话可能尚未同步进来，
+  // 用本页直连 session.get 的记录兜底，否则菜单会静默不渲染。
+  const menuSession = () => activeStudioSession() ?? dataStore.session.find((s) => s.id === params.id)
+  const menuHasMessages = () => {
+    const s = menuSession()
+    return !!s && s.time.updated > s.time.created
+  }
+
+  function closeMenu() {
+    setHeaderTitle("menuOpen", false)
+    setMenuTriggerEl(undefined)
+  }
+
+  // menuOpen 为 true 但会话数据仍缺失时立即复位：按钮不会卡在高亮态，
+  // 也避免数据到达后菜单未经点击自行弹出。
+  createEffect(() => {
+    if (headerTitle.menuOpen && !menuSession()) closeMenu()
+  })
+
+  // 切换会话（如分享链接打开新对话）时关闭三点菜单：原触发按钮随头部重建/移除，
+  // menuOpen 若保持 true，菜单会按已脱离 DOM 的旧按钮定位而落到屏幕左上角。
+  createEffect(on(() => params.id, () => closeMenu()))
+
+  const { togglePin: togglePinSession } = useSessionPin()
+
+  /** 置顶/取消置顶当前会话，逻辑与 design 页 togglePinCurrent 一致（update + reorder） */
+  async function togglePinCurrent(session: Session) {
+    const newPinned = !session.pinned
+    const isGrouped = (id: string) => !!groupsCtx?.mapping[id]
+    const recentIds = () => orderRecentIds(syncStore.session.filter((s) => s.agent === "octo_studio"), isGrouped)
+    // Remember where it sits in "最近" so unpin can drop it back: sort_order
+    // alone can't pin the slot because sessions sharing sort_order 0 are then
+    // ordered by the activity time that pin/unpin itself bumps.
+    const anchor = recentAnchor(recentIds(), session.id)
+    const remembered = peekRecentPositionBeforePin(session.id)
+    const restore = remembered?.order ?? 0
+    setSyncStore(produce((draft) => {
+      const index = draft.session.findIndex((item) => item.id === session.id)
+      if (index !== -1) {
+        draft.session[index].pinned = newPinned
+        draft.session[index].sort_order = newPinned ? -1 : restore
+      }
+    }))
+    try {
+      await togglePinSession(
+        session.id,
+        newPinned,
+        projectDir(),
+        newPinned
+          ? { rememberRecentOrder: Number(session.sort_order), rememberNextId: anchor.nextId, rememberAtEnd: anchor.atEnd }
+          : { restoreRecentOrder: restore },
+      )
+    } catch (err) {
+      setSyncStore(produce((draft) => {
+        const index = draft.session.findIndex((item) => item.id === session.id)
+        if (index !== -1) {
+          draft.session[index].pinned = session.pinned
+          draft.session[index].sort_order = session.sort_order
+        }
+      }))
+      throw err
+    }
+    // Cosmetic follow-up: a failure here must not revert an unpin that already
+    // succeeded server-side.
+    if (!newPinned) {
+      try {
+        const ids = reinsertRecent(recentIds(), session.id, remembered ?? { atEnd: false })
+        if (ids) await globalSDK.createClient({ directory: projectDir() }).session.reorder({ ids, directory: projectDir() })
+      } catch (err) {
+        console.error("[studio] restore unpinned session position failed", { id: session.id, error: String(err) })
+      }
+    }
+  }
+
+  function handleMenuRename() {
+    closeMenu()
+    tracker.interaction({ module: "studio", name: "header-rename-trigger" })
+    openHeaderTitleEditor()
+  }
+
+  function handleMenuTogglePin(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "studio", name: session.pinned ? "unpin-session" : "pin-session" })
+    void togglePinCurrent(session)
+  }
+
+  function handleMenuDelete(session: Session) {
+    closeMenu()
+    dialog.show(() => (
+      <DialogDeleteSession
+        name={sessionTitle(session.title) ?? language.t("command.session.new")}
+        onDelete={() => deleteHeaderSession(session)}
+      />
+    ))
+  }
+
+  function handleMenuMoveToGroup(session: Session, groupId: string) {
+    closeMenu()
+    tracker.interaction({ module: "studio", name: "move-session-to-group" })
+    if (session.pinned) void togglePinCurrent(session)
+    void groupsCtx?.moveSessionToGroup(session.id, groupId)
+    groupsCtx?.expandGroup(groupId)
+  }
+
+  function handleMenuRemoveFromGroup(session: Session) {
+    closeMenu()
+    tracker.interaction({ module: "studio", name: "remove-session-from-group" })
+    void groupsCtx?.removeSessionFromGroup(session.id)
+  }
+
+  function handleMenuCreateGroupForSession(session: Session) {
+    closeMenu()
+    if (session.pinned) void togglePinCurrent(session)
+    dialog.show(() => (
+      <DialogCreateGroup
+        existingNames={groupsCtx?.groups.map((g) => g.name) ?? []}
+        onCreate={async (name) => {
+          tracker.interaction({ module: "studio", name: "create-group-for-session" })
+          const id = await groupsCtx?.addGroup(name)
+          if (id) {
+            await groupsCtx?.moveSessionToGroup(session.id, id)
+            groupsCtx?.expandGroup(id)
+          }
+        }}
+      />
+    ))
+  }
+
   const currentImageLabel = createMemo(() => {
     const image = selectedImage()
     if (!image) return "studio-image.png"
@@ -2162,6 +2329,7 @@ export default function StudioPage() {
         if (!sessionChanged && !stickToBottom()) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
+          if (!sessionChanged && (!stickToBottom() || conversationNavigation.browsing)) return
           conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
         })
       },
@@ -2181,6 +2349,7 @@ export default function StudioPage() {
         if (conversationNavigation.browsing) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
+          if (conversationNavigation.browsing) return
           conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
         })
       },
@@ -2355,25 +2524,26 @@ export default function StudioPage() {
       currentTemplate &&
         !options?.preserveStyleTemplate &&
         value !== styleModel() &&
-        nextStyleModelID !== "seedream-5-lite" &&
+        !isSeedreamStyleModel(value) &&
         nextStyleModelID !== "qwen",
     )
-    // 切换 Seedream 与其他模型时清空自定义尺寸（校验规则不同）
+    // 规则变化时清空不兼容尺寸，Lite/Pro 间保留仍然有效的自定义尺寸。
     const prevIsSeedream = styleModelRequiresSeedreamPermission(styleModel())
     const nextIsSeedream = styleModelRequiresSeedreamPermission(value)
-    if (prevIsSeedream !== nextIsSeedream) {
+    const resetCustomSize = prevIsSeedream !== nextIsSeedream || (
+      isCustomStore() &&
+      isSeedreamStyleModel(styleModel()) &&
+      isSeedreamStyleModel(value) &&
+      !isStudioCustomSizeValid(value, customWidth(), customHeight())
+    )
+    if (resetCustomSize) {
       setIsCustomStore(false)
       setCustomWidth(0)
       setCustomHeight(0)
-    } else if (isCustomStore()) {
-      // 非 Seedream 模型间切换时，根据新模型的临界值钳位自定义尺寸
-      const prevIsQwen = styleModel() === "qwen"
-      const nextIsQwen = value === "qwen"
-      if (!prevIsQwen && nextIsQwen) {
-        // 从其他模型切到千问：钳位到千问上限 1664
-        setCustomWidth(Math.min(customWidth(), 1664))
-        setCustomHeight(Math.min(customHeight(), 1664))
-      }
+    }
+    if (!resetCustomSize && isCustomStore() && styleModelId(styleModel()) !== "qwen" && nextStyleModelID === "qwen") {
+      setCustomWidth(Math.min(customWidth(), 1664))
+      setCustomHeight(Math.min(customHeight(), 1664))
     }
     if (recommendationActive()) {
       setStyleModel(value)
@@ -2924,10 +3094,10 @@ export default function StudioPage() {
       })
   }
 
-  function startNewStudioConversation() {
+  /** 新建对话（顶部按钮 / 分组右键菜单 / hint 空白页进入）共用的生成态与草稿复位。 */
+  function resetStudioConversationState() {
     setBoardEntry({ tab: "conversation", open: false })
     expansionReview.dismiss()
-    tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
     seedreamAtSnapshot = undefined
     pendingEditorSessionID = undefined
@@ -2952,7 +3122,29 @@ export default function StudioPage() {
     setPrompt("")
     setAssets([])
     clearVideoFrames()
+  }
+
+  function startNewStudioConversation() {
+    tracker.interaction({ module: "studio", name: "new-session" })
+    resetStudioConversationState()
     navigate(`/${routeSlug()}/studio?hint=${Date.now()}`)
+  }
+
+  /** 分组右键「新建对话」：把之后创建的新会话自动归入对应分组（与 design 页
+   * 行为一致）。发送消息（createStudioSession）与空白页点击 AI 推荐（推荐
+   * 初始化新建的会话）都经过这里；非分组入口的新会话没有 pendingGroup，
+   * 正常留在「最近」列表。 */
+  function assignSessionToPendingGroup(sessionID: string) {
+    const dir = projectDir()
+    if (!dir) return
+    const pendingGroupId = consumePendingGroup(groupsCtx?.namespace ?? "studio", dir, groupsCtx?.groups ?? [])
+    if (!pendingGroupId) return
+    const ns = groupsCtx?.namespace ?? "studio"
+    const { setMapping } = getMappingStore(ns)
+    setMapping(produce((draft) => { draft[sessionID] = { groupId: pendingGroupId, position: 0 } }))
+    const groupClient = globalSDK.createClient({ directory: dir })
+    void groupClient.sessionGroup.mapSession({ sessionId: sessionID, groupId: pendingGroupId })
+    groupsCtx?.expandGroup(pendingGroupId)
   }
 
   async function createStudioSession(title?: string) {
@@ -2965,6 +3157,7 @@ export default function StudioPage() {
     })
     const session = result.data as Session | undefined
     if (!session) return
+    assignSessionToPendingGroup(session.id)
     return session.id
   }
 
@@ -4147,9 +4340,13 @@ export default function StudioPage() {
     const nextWidth = overrides?.width ?? customWidth()
     const nextHeight = overrides?.height ?? customHeight()
     const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
-    const nextCount = overrides?.count ?? count()
+    if (nextCapability === "image.generate" && nextIsCustom && !isStudioCustomSizeValid(nextStyleModel, nextWidth, nextHeight)) {
+      showFloatingNotice("info", "当前自定义尺寸不符合所选模型要求，请调整后重试。")
+      return
+    }
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
+    const nextCount = nextCapability === "video.generate" && nextVideoQualityMode === "4k" ? 1 : overrides?.count ?? count()
     const restoredVideoFrames = overrides?.videoFrames
     const nextVideoFrames = restoredVideoFrames
       ? restoredVideoFrames
@@ -5010,22 +5207,16 @@ export default function StudioPage() {
     (studioPermissionStatus() !== "loading" || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel()))
 
-  async function generateFromExpansion(turn: StudioTurnData, choice: "confirmed" | "ignored") {
-    if (!canGenerateExpansion() || !expansionReview.editable(turn)) return
-    const text = (choice === "confirmed" ? expansionReview.text(turn) : turn.userText).trim()
-    if (!text) return
-    if ((turn.inputImages?.length ?? 0) > referenceImageLimit(styleModel())) {
-      showFloatingNotice("info", "参考图数量超过当前模型上限，请调整模型后重试。")
-      return
-    }
-    if (!expansionReview.choose(turn, choice)) return
-    await runGeneration({
-      ...expansionGenerationInput(turn, text, recommendationSettings.image()),
-      inputPolicy: "preserve",
-      styleModel: styleModel(),
-      detailTitle: buildStudioDisplayPrompt(text),
-    })
-  }
+  const generateFromExpansion = (turn: StudioTurnData, choice: "confirmed" | "ignored") => generateExpansion({
+    turn,
+    choice,
+    ready: canGenerateExpansion(),
+    review: expansionReview,
+    styleModel: styleModel(),
+    settings: recommendationSettings.image(),
+    notify: (message) => showFloatingNotice("info", message),
+    generate: (request) => runGeneration({ ...request, detailTitle: buildStudioDisplayPrompt(request.prompt) }),
+  })
 
   function exitRecommendation() {
     setDraftAction("revision", (value) => value + 1)
@@ -5068,6 +5259,20 @@ export default function StudioPage() {
     onCleanup(() => clearTimeout(timer))
   })
 
+  // 分组右键「新建对话」经 GroupedSidebar.handleNewSessionInGroup 直接 navigate
+  // 到 `?hint=` 空白页，不经过 startNewStudioConversation 的复位：上个会话处于
+  // 创建/生成中时，残留的 pendingResult/sending 会把空白页继续渲染成旧会话
+  // （表现为没有跳转到新建对话页）。这里对进入 hint 空白页统一补一次复位。
+  createEffect(
+    on(
+      () => [params.id, new URLSearchParams(location.search).has("hint")] as const,
+      ([id, hinted]) => {
+        if (id || !hinted) return
+        resetStudioConversationState()
+      },
+    ),
+  )
+
   return (
     <div
       ref={studioPageRef!}
@@ -5084,6 +5289,7 @@ export default function StudioPage() {
           width: studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
           "flex-basis": studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
           "min-width": studioLeftCollapsed() ? "68px" : undefined,
+          "--sidebar-width": `${studioLeftWidth()}px`,
           transition: resizingLeft() ? "none" : "width 200ms ease, flex-basis 200ms ease",
         }}
       >
@@ -5163,16 +5369,11 @@ export default function StudioPage() {
             </div>
           }
         >
-          <StudioHistory
+          <StudioSidebar
             directory={projectDir()}
             routeSlug={routeSlug()}
-            activeSessionID={params.id}
             historyActive={historyOpen()}
             onOpenHistory={openStudioHistory}
-            sessions={studioSessions()}
-            loading={studioSessionsLoading()}
-            onSessionUpdated={updateStudioHistorySession}
-            onSessionRemoved={removeStudioHistorySession}
             onNewConversation={startNewStudioConversation}
             toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
             thumbnails={studioThumbnails.thumbnails}
@@ -5372,58 +5573,39 @@ export default function StudioPage() {
             </div>
             <div class="flex items-center gap-1 relative" style={{ "z-index": "60" }}>
               <Show when={params.id && (showStudioWorkspace() || !studioWorkspaceOverlayOpen())}>
-                <DropdownMenu
-                  gutter={4}
-                  placement="bottom-end"
-                  open={headerTitle.menuOpen}
-                  onOpenChange={(open) => {
-                    if (open) tracker.interaction({ module: "studio", name: "header-more-menu-open" })
-                    setHeaderTitle("menuOpen", open)
+                <button
+                  type="button"
+                  class="studio-center-action size-7 rounded-md flex items-center justify-center transition-colors hover:bg-surface-base-active"
+                  classList={{ "bg-surface-base-active": headerTitle.menuOpen }}
+                  aria-label={language.t("common.moreOptions")}
+                  aria-expanded={headerTitle.menuOpen}
+                  onClick={(e) => {
+                    if (!headerTitle.menuOpen) tracker.interaction({ module: "studio", name: "header-more-menu-open" })
+                    setMenuTriggerEl(e.currentTarget as HTMLElement)
+                    setMenuPos({ x: e.clientX, y: e.clientY })
+                    setHeaderTitle("menuOpen", !headerTitle.menuOpen)
                   }}
                 >
-                  <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="ellipsis"
-                    variant="ghost"
-                    class="studio-center-action size-7 rounded-md data-[expanded]:bg-surface-base-active" style={{"z-index": "150", position: "relative"}}
-                    aria-label={language.t("common.moreOptions")}
-                    aria-expanded={headerTitle.menuOpen}
-                  />
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content
-                      style={{ "min-width": "104px", "z-index": "1000" }}
-                      onCloseAutoFocus={(event) => {
-if (!headerTitle.pendingRename) return
-                        event.preventDefault()
-                        setHeaderTitle("pendingRename", false)
-                        openHeaderTitleEditor()
-                      }}
-                    >
-                      <DropdownMenu.Item
-                        onSelect={() => {
-                          tracker.interaction({ module: "studio", name: "header-rename-trigger" })
-                          setHeaderTitle({ pendingRename: true, menuOpen: false })
-                        }}
-                      >
-                        <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Separator />
-                      <DropdownMenu.Item
-                        onSelect={() => {
-                          const session = activeStudioSession() ?? { id: params.id!, title: currentTitle(), agent: "octo_studio" } as Session
-                          dialog.show(() => (
-                            <DialogDeleteSession
-                              name={sessionTitle(session.title) ?? language.t("command.session.new")}
-                              onDelete={() => deleteHeaderSession(session)}
-                            />
-                          ))
-                        }}
-                      >
-                        <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu>
+                  <Icon name="ellipsis" class="size-4" />
+                </button>
+                <SessionContextMenu
+                  show={headerTitle.menuOpen && !!menuSession()}
+                  x={menuPos().x}
+                  y={menuPos().y}
+                  triggerEl={menuTriggerEl}
+                  session={menuSession() ?? null}
+                  hasMessages={menuHasMessages()}
+                  groups={groupsCtx?.groups}
+                  sessionGroupMapping={groupsCtx?.mapping}
+                  trackerModule="studio"
+                  onClose={closeMenu}
+                  onRename={handleMenuRename}
+                  onTogglePin={handleMenuTogglePin}
+                  onDelete={handleMenuDelete}
+                  onMoveToGroup={handleMenuMoveToGroup}
+                  onRemoveFromGroup={handleMenuRemoveFromGroup}
+                  onCreateGroupForSession={handleMenuCreateGroupForSession}
+                />
             </Show>
             <Show when={!showStudioWorkspace()}>
               <button
@@ -5451,7 +5633,7 @@ if (!headerTitle.pendingRename) return
               })
             }}
             onScroll={handleConversationScroll}
-            onWheel={resumeConversationScroll}
+            onWheel={handleConversationWheel}
             onPointerDown={resumeConversationScroll}
             onKeyDown={resumeConversationScroll}
             onTouchStart={resumeConversationScroll}
@@ -5868,6 +6050,7 @@ if (!headerTitle.pendingRename) return
             left: "0",
             bottom: "0",
             width: "296px",
+            "--sidebar-width": "296px",
             "z-index": "101",
             background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
             "border-right": "1px solid var(--border-weak-base)",
@@ -5875,19 +6058,14 @@ if (!headerTitle.pendingRename) return
             overflow: "hidden",
           }}
         >
-          <StudioHistory
+          <StudioSidebar
             directory={projectDir()}
             routeSlug={routeSlug()}
-            activeSessionID={params.id}
             historyActive={historyOpen()}
             onOpenHistory={() => {
               setStudioLeftOverlayOpen(false)
               openStudioHistory()
             }}
-            sessions={studioSessions()}
-            loading={studioSessionsLoading()}
-            onSessionUpdated={updateStudioHistorySession}
-            onSessionRemoved={removeStudioHistorySession}
             onNewConversation={() => {
               setStudioLeftOverlayOpen(false)
               startNewStudioConversation()

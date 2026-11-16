@@ -6,7 +6,7 @@ import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
 import { described } from "./metadata"
 
-const NamespaceSchema = Schema.Literals(["make", "insight"])
+const NamespaceSchema = Schema.Literals(["make", "insight", "studio"])
 
 const GroupSchema = Schema.Struct({
   id: Schema.String,

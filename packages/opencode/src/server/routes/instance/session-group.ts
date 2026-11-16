@@ -9,7 +9,7 @@ import { lazy } from "@/util/lazy"
 import { jsonRequest } from "./trace"
 import { errors } from "../../error"
 
-const NamespaceSchema = z.enum(["make", "insight"])
+const NamespaceSchema = z.enum(["make", "insight", "studio"])
 
 const GroupSchema = z.object({
   id: z.string(),
@@ -53,7 +53,7 @@ export const SessionGroupRoutes = lazy(() =>
       validator(
         "query",
         z.object({
-          namespace: NamespaceSchema.meta({ description: "Group namespace (make/insight)" }),
+          namespace: NamespaceSchema.meta({ description: "Group namespace (make/insight/studio)" }),
         }),
       ),
       async (c) => {

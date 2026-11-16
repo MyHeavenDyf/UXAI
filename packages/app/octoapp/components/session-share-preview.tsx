@@ -10,9 +10,9 @@ import {
   type SharePreviewMessage,
 } from "./session-share-preview-utils"
 
-function PreviewMessage(props: { message: SharePreviewMessage; top: number; resize: (height: number) => void }) {
+function PreviewMessage(props: { message: SharePreviewMessage; assistantLabel: string; top: number; resize: (height: number) => void }) {
   const content = createMemo(() => previewMessageContent(props.message))
-  const [state, setState] = createStore({ expanded: false })
+  const [state, setState] = createStore({ expanded: false, reasoningExpanded: true })
   let root!: HTMLElement
   onMount(() => {
     const observer = new ResizeObserver(() => props.resize(root.getBoundingClientRect().height))
@@ -26,10 +26,31 @@ function PreviewMessage(props: { message: SharePreviewMessage; top: number; resi
       classList={{ "is-user": props.message.role === "user" }}
       style={{ top: `${props.top}px` }}
     >
-      <div class="share-preview-role">{props.message.role === "user" ? "用户" : "Octo Agent"}</div>
+      <div class="share-preview-role">{props.message.role === "user" ? "用户" : props.assistantLabel}</div>
       <Show when={content().files.length}>
         <div class="share-preview-files">
-          <For each={content().files}>{(file) => <span title={file.name}>▧ {file.name}</span>}</For>
+          <For each={content().files}>{(file) => (
+            <div class="share-preview-file" title={file.name}>
+              <img src="/AI_doc_plaintext.svg" class="share-preview-file-icon" alt="" />
+              <span>{file.name}</span>
+            </div>
+          )}</For>
+        </div>
+      </Show>
+      <Show when={content().reasoning}>
+        <div class="share-preview-reasoning">
+          <button
+            type="button"
+            class="share-preview-reasoning-toggle"
+            aria-expanded={state.reasoningExpanded}
+            onClick={() => setState("reasoningExpanded", (value) => !value)}
+          >
+            <span>思考过程</span>
+            <span classList={{ "is-expanded": state.reasoningExpanded }} aria-hidden="true">›</span>
+          </button>
+          <Show when={state.reasoningExpanded}>
+            <p class="share-preview-reasoning-text">{content().reasoning}</p>
+          </Show>
         </div>
       </Show>
       <Show when={content().text}>
@@ -211,6 +232,7 @@ export function SessionSharePreview(props: { session: Session }) {
                 {(message) => (
                   <PreviewMessage
                     message={message}
+                    assistantLabel={props.session.agent === "octo_studio" ? "Octo Studio" : "Octo Agent"}
                     top={layout().offsets[message.id]}
                     resize={(height) => {
                       if (Math.abs((state.heights[message.id] ?? 144) - height) < 1) return
@@ -231,7 +253,9 @@ export function SessionSharePreview(props: { session: Session }) {
       </div>
       <p class="share-preview-muted">{props.session.agent === "octo_insight"
         ? "预览正文、附件名称及工具摘要；分享网页可查看引用和任务结果。任务状态为分享时的快照。"
-        : "仅预览正文和附件名称，不执行产物；工具详情及完整产物仍包含在分享文件中。"}</p>
+        : props.session.agent === "octo_studio"
+          ? "预览用户输入、Studio 回复及生成状态；完整图片、视频和生成参数仍包含在分享文件中。"
+          : "仅预览正文和附件名称，不执行产物；工具详情及完整产物仍包含在分享文件中。"}</p>
     </div>
   )
 }

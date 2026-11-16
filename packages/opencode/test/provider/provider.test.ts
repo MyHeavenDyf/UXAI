@@ -1773,6 +1773,14 @@ test("custom provider model context defaults to 128k when not specified", async 
                   name: "Limited Model",
                   limit: { context: 64_000, output: 8_000 },
                 },
+                "input-only": {
+                  name: "Input Only",
+                  limit: { input: 64_000 },
+                },
+                "output-only": {
+                  name: "Output Only",
+                  limit: { output: 8_000 },
+                },
               },
               options: { apiKey: "test", __octo_custom_provider: true },
             },
@@ -1787,6 +1795,12 @@ test("custom provider model context defaults to 128k when not specified", async 
       const providers = await list()
       expect(providers[ProviderID.make("custom")].models["model"].limit.context).toBe(128_000)
       expect(providers[ProviderID.make("custom")].models["limited"].limit.context).toBe(64_000)
+      expect(providers[ProviderID.make("custom")].models["input-only"].limit).toEqual({
+        context: 128_000, input: 64_000, output: 0,
+      })
+      expect(providers[ProviderID.make("custom")].models["output-only"].limit).toEqual({
+        context: 128_000, output: 8_000,
+      })
     },
   })
 })

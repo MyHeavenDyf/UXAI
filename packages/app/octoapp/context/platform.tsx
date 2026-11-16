@@ -10,7 +10,8 @@ type SaveFilePickerOptions = { title?: string; defaultPath?: string }
 type UpdateInfo = { updateAvailable: boolean; version?: string; releaseNotes?: string }
 
 export type Platform = {
-  prepareSharedSession?(uniqueId: string, operationID?: string): Promise<{ token: string; agent?: string; module: "design" | "insight" | "pattern" }>
+  prepareSharedSession?(uniqueId: string, operationID?: string): Promise<{ token: string; agent?: string; module: "design" | "insight" | "pattern" | "studio" }>
+  inspectPortableSession?(archive: string): Promise<{ agent?: string; module: "design" | "insight" | "pattern" | "studio" }>
   releaseSharedSession?(token: string): Promise<void>
   onSessionTransferProgress?(callback: (progress: {
     operationID: string

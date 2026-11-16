@@ -178,6 +178,8 @@ export type SessionListItemProps = {
   onDragOver?: (e: DragEvent) => void
   onDragLeave?: (e: DragEvent) => void
   onDrop?: (e: DragEvent) => void
+  /** Leading content rendered in the row's left slot (e.g. studio thumbnails). Replaces the status indicator when provided. */
+  leading?: JSX.Element
 }
 
 export function SessionListItem(props: SessionListItemProps) {
@@ -314,7 +316,14 @@ export function SessionListItem(props: SessionListItemProps) {
             }}
           />
         </Show>
-        <SessionStatusIndicator session={props.session} />
+        <Show
+          when={props.leading}
+          fallback={<SessionStatusIndicator session={props.session} />}
+        >
+          <div class="shrink-0 size-6 flex items-center justify-center absolute left-[12px]">
+            {props.leading}
+          </div>
+        </Show>
         <div
           ref={(el) => {
             titleRef = el
@@ -449,6 +458,8 @@ export type SessionListProps = {
   plainEmptyDropZone?: boolean
   /** When true, use Index instead of For (fixes prepend flicker for pinned list) */
   useIndex?: boolean
+  /** Leading content renderer for each row's left slot (e.g. studio thumbnails). Replaces the status indicator when provided. */
+  leading?: (session: Session) => JSX.Element
 }
 
 /**
@@ -536,6 +547,7 @@ export function SessionList(props: SessionListProps) {
                     isDragging={props.draggingSessionId === session.id}
                     isDropTarget={props.dragOverSessionId === session.id}
                     dropIndicator={props.dragOverSessionId === session.id ? props.sessionDropPosition : null}
+                    leading={props.leading?.(session)}
                     onDragStart={(e) => {
                       if (e.dataTransfer) {
                         e.dataTransfer.effectAllowed = "move"
@@ -576,6 +588,7 @@ export function SessionList(props: SessionListProps) {
                     isDragging={props.draggingSessionId === session().id}
                     isDropTarget={props.dragOverSessionId === session().id}
                     dropIndicator={props.dragOverSessionId === session().id ? props.sessionDropPosition : null}
+                    leading={props.leading?.(session())}
                     onDragStart={(e) => {
                       const s = session()
                       if (e.dataTransfer) {

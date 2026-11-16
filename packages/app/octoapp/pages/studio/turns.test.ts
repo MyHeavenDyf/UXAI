@@ -67,6 +67,12 @@ describe("Studio result-card status", () => {
 })
 
 describe("Studio model resolution mapping", () => {
+  test.each(["seedream-5-pro", "Seedream 5.0 Pro"])("recognizes %s", (model) => {
+    expect(getModelResolutionKey(model)).toBe("2k")
+    expect(getDefaultDimensions(model, "3:4")).toEqual({ width: 1728, height: 2304 })
+    expect(getDefaultDimensions(model, "16:9")).toEqual({ width: 2848, height: 1600 })
+  })
+
   test("recognizes the persisted Seedream display name", () => {
     expect(getModelResolutionKey("Seedream 5.0 Lite")).toBe("2k")
     expect(getDefaultDimensions("Seedream 5.0 Lite", "3:4")).toEqual({ width: 1728, height: 2304 })
@@ -493,6 +499,38 @@ describe("buildStudioTurns", () => {
     expect(turns[0].toolTitle).toBe("视频生成中")
     expect(turns[0].toolRunning).toBe(true)
     expect(turns[0].result?.capability).toBe("video.generate")
+  })
+
+  test("rejects a fallback scoped to a different session", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: { ...pendingResult("running"), sessionID: "ses_other" },
+      currentSessionID: "ses_current",
+    })
+
+    expect(turns).toHaveLength(0)
+  })
+
+  test("rejects a session-scoped fallback on the blank new-conversation page", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: { ...pendingResult("running"), sessionID: "ses_previous" },
+    })
+
+    expect(turns).toHaveLength(0)
+  })
+
+  test("keeps an unscoped fallback on the blank new-conversation page", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: { ...pendingResult("creating") },
+    })
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0].toolRunning).toBe(true)
   })
 
   test("restores queued generation progress from running tool metadata", () => {

@@ -410,7 +410,7 @@ function ProducedFilesList(props: { files: Array<{ path: string; name: string }>
           {(file) => (
             <button
               type="button"
-              title="点击预览"
+              title={file.path}
               onClick={() => props.onOpenFile?.(file.path)}
               class="flex items-center gap-1.5 text-xs"
               style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", "text-align": "left" }}
