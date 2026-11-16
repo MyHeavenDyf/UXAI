@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs"
 import os from "os"
 import path from "path"
 import { Cause, Effect, Exit } from "effect"
@@ -16,6 +16,19 @@ const stamp = () => {
   const now = new Date()
   const pad = (value: number) => String(value).padStart(2, "0")
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+}
+
+// 一个 session 一个文件夹:<sessionID>_<首次落盘时间戳>;进程重启后按 sessionID 前缀复用已有文件夹。
+const sessionDirs = new Map<SessionID, string>()
+
+const sessionDir = (sessionID: SessionID) => {
+  const cached = sessionDirs.get(sessionID)
+  if (cached) return cached
+  mkdirSync(ANALYSIS_DIR, { recursive: true })
+  const existing = readdirSync(ANALYSIS_DIR).find((entry) => entry.startsWith(`${sessionID}_`))
+  const dir = existing ?? `${sessionID}_${stamp()}`
+  sessionDirs.set(sessionID, dir)
+  return dir
 }
 
 const binaryReplacer = (_key: string, value: unknown) =>
@@ -92,8 +105,9 @@ const write = Effect.fn("SessionCompactionDebug.write")(function* (input: DumpIn
     "",
   ].join("\n")
 
-  mkdirSync(ANALYSIS_DIR, { recursive: true })
-  writeFileSync(path.join(ANALYSIS_DIR, `compact_${trigger.stamp}_no${trigger.index}_${input.phase}.txt`), content)
+  const dir = path.join(ANALYSIS_DIR, sessionDir(input.sessionID))
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(path.join(dir, `compact_${trigger.stamp}_no${trigger.index}_${input.phase}.txt`), content)
 })
 
 export const dump = Effect.fn("SessionCompactionDebug.dump")(function* (input: DumpInput) {
