@@ -203,7 +203,9 @@ md-edit-open 只表示进入编辑，不能当作保存成功或 artifact-file-e
 | artifact-file-edit | edit completed 且有目标路径；或 Shell 成功后已有文件字节发生变化 | edit / script |
 | artifact-mcp-return | MCP 成功返回具有可确定身份的资源；异步任务须用户查询到 completed 和产物 | mcp |
 
-公共 extend：`files:[{type,count:1,tool?}]`、eventId、sessionId、messageId、toolCallId、taskId（可用时）、source、occurredAt、version（可用时）。服务端 userAgent 为 octo-artifact-server。
+公共 extend：`files:[{type,count:1,fileName?,extension?,tool?}]`、eventId、sessionId、messageId、toolCallId、taskId（可用时）、source、occurredAt、version（可用时）。服务端 userAgent 为 octo-artifact-server。
+
+2026-11-17 增补：write/edit/Shell 从路径取文件名，MCP 从 resource_link.name 取文件名；只保留末段，不上传目录。fileName 保留中文和大小写，extension 为最后扩展名的小写、不带点（例如 `报告.XLSX` → `xlsx`）；无扩展名为空串。MCP 名称缺失或为 URL 时省略两字段，不从签名 URI 推断。名称不参与去重，沿用首次入队值，历史已入队/已发送事件不回填。事件总数仍为 103。
 
 - 去重键：根会话 + 根用户轮次 + name + 资源身份。同轮同文件的同名事件只入队一次；重复 edit 次数不能用该事件数统计。同一个文件的 write 和 edit 名称不同，可以各有一条。
 - 同一事件命中多个来源时保留首次入队 source。跨子任务沿用根轮次归属。
