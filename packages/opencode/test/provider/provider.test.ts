@@ -22,6 +22,24 @@ import { makeRuntime } from "../../src/effect/run-service"
 const env = makeRuntime(Env.Service, Env.defaultLayer)
 const set = (k: string, v: string) => env.runSync((svc) => svc.set(k, v))
 
+test("default model IDs tolerate empty providers alongside numeric custom model IDs", () => {
+  expect(
+    Provider.defaultModelIDs({
+      empty: { models: {} },
+      custom: { models: { "222": { id: "222" } } },
+    }),
+  ).toEqual({ custom: "222" })
+  expect(Provider.defaultModelIDs({ empty: { models: {} } })).toEqual({})
+  expect(Provider.defaultModelIDs({})).toEqual({})
+})
+
+test("default model IDs retain the existing sorting priority", () => {
+  const models = { old: { id: "other" }, selected: { id: "MiniMax-M2.5" } }
+  expect(Provider.defaultModelIDs({ custom: { models } })).toEqual({
+    custom: Provider.sort(Object.values(models))[0].id,
+  })
+})
+
 async function run<A, E>(fn: (provider: Provider.Interface) => Effect.Effect<A, E, never>) {
   return AppRuntime.runPromise(
     Effect.gen(function* () {
