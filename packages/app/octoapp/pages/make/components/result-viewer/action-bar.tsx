@@ -873,6 +873,9 @@ export function ActionBar(props: {
   const handler = getSubtypeHandler(props.tab.subtype)
   const uiConfig = createMemo(() => handler?.components?.actionBar)
 
+  // 自定义下载 subtype 的选项（prototype 双路线等）；仅旧 DownloadButton 使用
+  const downloadOptions = createMemo(() => handler?.downloadOptions ?? [])
+
   const shouldReplaceDefaultButtons = () => uiConfig()?.replaceDefaultButtons ?? false
   
   const customButtons = createMemo(() => {
@@ -1103,17 +1106,29 @@ export function ActionBar(props: {
             <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
           </Show>
           <Show when={showDownload() && props.tab.type === "html"}>
-            <AssetDownloadButton
-              tab={props.tab}
-              mode={currentMode()}
-              observedUrls={props.observedResourceUrls}
-              assetPicking={props.assetPicking}
-              assetDialogOpen={props.assetDialogOpen}
-              onAssetUploadRequest={props.onAssetUploadRequest}
-              onAssetPickToggle={props.onAssetPickToggle}
-              saving={props.assetSaving}
-              onDownload={(option?: string) => handleDownload(option)}
-            />
+            {/* downloadUI: "legacy"（自定义下载 subtype：prototype/page/gts/gts-ep/components/fastui）
+                用原下载按钮；"default"（缺省：_default/shadcn/demo/demoedit/3d）用「保存到资产库」新下拉 */}
+            <Show
+              when={config().features.downloadUI === "legacy"}
+              fallback={
+                <AssetDownloadButton
+                  tab={props.tab}
+                  mode={currentMode()}
+                  observedUrls={props.observedResourceUrls}
+                  assetPicking={props.assetPicking}
+                  assetDialogOpen={props.assetDialogOpen}
+                  onAssetUploadRequest={props.onAssetUploadRequest}
+                  onAssetPickToggle={props.onAssetPickToggle}
+                  saving={props.assetSaving}
+                  onDownload={(option?: string) => handleDownload(option)}
+                />
+              }
+            >
+              <DownloadButton
+                options={downloadOptions()}
+                onDownload={(option?: string) => handleDownload(option)}
+              />
+            </Show>
           </Show>
           {renderButtonsAtPosition('after-download')}
         </div>
@@ -1491,5 +1506,111 @@ function AssetDownloadButton(props: {
         </Portal>
       </Show>
     </div>
+  )
+}
+
+/**
+ * 自定义下载 subtype（hasCustomDownload = true）的原版下载按钮：
+ * downloadOptions > 1 项 → 带箭头选项下拉（如 prototype 的 Eview-React / Eview UI）；
+ * 否则普通按钮直接 handleDownload()（gts/components/fastui/page 等）。
+ * 与「保存到资产库」新下拉互斥——本次改造仅针对 default 分支的下载。
+ */
+function DownloadButton(props: {
+  options: { value: string; label: string }[]
+  onDownload: (option?: string) => Promise<void>
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  let btnRef: HTMLButtonElement | undefined
+  let menuRef: HTMLDivElement | undefined
+
+  /** 点击下载按钮与气泡以外的区域时关闭（气泡挂载在 body 门户，需同时校验气泡自身）。
+   *  点击落在预览 iframe 内时父文档收不到 mousedown，用 window blur 兜底（焦点切入 iframe 即触发）；
+   *  mousedown 走捕获阶段，避免被中间容器的 stopPropagation 挡住 */
+  createEffect(() => {
+    if (!open()) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (btnRef?.contains(t) || menuRef?.contains(t)) return
+      setOpen(false)
+    }
+    const onBlur = () => setOpen(false)
+    document.addEventListener('mousedown', onDocMouseDown, true)
+    window.addEventListener('blur', onBlur)
+    onCleanup(() => {
+      document.removeEventListener('mousedown', onDocMouseDown, true)
+      window.removeEventListener('blur', onBlur)
+    })
+  })
+
+  const hasMultiple = () => props.options.length > 1
+
+  const handlePick = async (value?: string) => {
+    setOpen(false)
+    await props.onDownload(value)
+  }
+
+  return (
+    <Show
+      when={hasMultiple()}
+      fallback={
+        <Tooltip placement="top" value="下载">
+          <button type="button" class="octo-action-btn octo-action-btn-download" onClick={() => handlePick()}>
+            <IconDownloadNew size={16} />
+            <span>下载</span>
+          </button>
+        </Tooltip>
+      }
+    >
+      <div class="octo-dropdown">
+        <Tooltip placement="top" value="下载" inactive={open()}>
+          <button
+            ref={btnRef}
+            type="button"
+            class="octo-action-btn octo-action-btn-download"
+            classList={{ "octo-dropdown-open": open() }}
+            style={{ width: "auto" }}
+            onClick={() => setOpen(!open())}
+          >
+            <IconDownloadNew size={16} />
+            <span>下载</span>
+            <IconDropdownChevron size={16} style={{ transform: open() ? "rotate(-180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }} />
+          </button>
+        </Tooltip>
+        <Show when={open()}>
+          <Portal mount={document.body}>
+            {(() => {
+              const rect = btnRef?.getBoundingClientRect()
+              return (
+                <div
+                  ref={menuRef}
+                  class="octo-dropdown-menu"
+                  style={{
+                    top: `${(rect?.bottom ?? 0) + 4}px`,
+                    left: `${rect?.left ?? 0}px`,
+                  }}
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement
+                    if (!target.closest("button")) setOpen(false)
+                  }}
+                >
+                  <For each={props.options}>
+                    {(opt) => (
+                      <button
+                        type="button"
+                        class="octo-dropdown-item"
+                        style={{ "justify-content": "flex-start", "text-align": "left" }}
+                        onClick={() => handlePick(opt.value)}
+                      >
+                        <span>{opt.label}</span>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              )
+            })()}
+          </Portal>
+        </Show>
+      </div>
+    </Show>
   )
 }
