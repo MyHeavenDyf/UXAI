@@ -147,7 +147,43 @@ function reportPortableProgress(operationID: string | undefined, progress: Porta
   portableProgressTimers.set(operationID, next)
 }
 
-const decodeManifest = (input: unknown) => Schema.decodeUnknownSync(Manifest)(input) as unknown as Manifest
+const asRecord = (input: unknown) =>
+  input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : undefined
+
+function clampLegacyTokenCounts(input: unknown) {
+  const tokens = asRecord(input)
+  if (!tokens) return
+  ;["total", "input", "output", "reasoning"].forEach((key) => {
+    if (typeof tokens[key] === "number" && tokens[key] < 0) tokens[key] = 0
+  })
+  const cache = asRecord(tokens.cache)
+  if (!cache) return
+  ;["read", "write"].forEach((key) => {
+    if (typeof cache[key] === "number" && cache[key] < 0) cache[key] = 0
+  })
+}
+
+function normalizeLegacyTokenCounts(input: unknown) {
+  const sessions = asRecord(input)?.sessions
+  if (!Array.isArray(sessions)) return input
+  sessions.forEach((session) => {
+    const messages = asRecord(session)?.messages
+    if (!Array.isArray(messages)) return
+    messages.forEach((message) => {
+      const value = asRecord(message)
+      clampLegacyTokenCounts(asRecord(value?.info)?.tokens)
+      if (!Array.isArray(value?.parts)) return
+      value.parts.forEach((part) => {
+        const value = asRecord(part)
+        if (value?.type === "step-finish") clampLegacyTokenCounts(value.tokens)
+      })
+    })
+  })
+  return input
+}
+
+const decodeManifest = (input: unknown) =>
+  Schema.decodeUnknownSync(Manifest)(normalizeLegacyTokenCounts(input)) as unknown as Manifest
 
 function portableInfo(info: Session.Info): Session.Info {
   return {
