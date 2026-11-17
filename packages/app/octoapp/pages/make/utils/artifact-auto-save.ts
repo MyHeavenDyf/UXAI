@@ -18,7 +18,7 @@ function sidPrefix(sessionId: string): string {
 export const SAVEABLE_ARTIFACT_TYPES: OutputCard["type"][] = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
 
 export function sanitizeFilename(name: string): string {
-  return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
+  return name.replace(/[\\/:*?"<>|#%]/g, "_").trim() || "untitled"
 }
 
 export function extractFileContent(card: OutputCard): string {

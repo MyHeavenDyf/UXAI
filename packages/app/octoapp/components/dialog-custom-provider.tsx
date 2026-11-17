@@ -7,13 +7,21 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { useMutation } from "@tanstack/solid-query"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@opencode-ai/ui/toast"
-import { batch, For } from "solid-js"
+import { batch, For, Show } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { type FormState, headerRow, modalityRow, modelRow, validateCustomProvider } from "./dialog-custom-provider-form"
+import {
+  type FormState,
+  hasImageInput,
+  headerRow,
+  modalityRow,
+  modelRow,
+  setImageInput,
+  validateCustomProvider,
+} from "./dialog-custom-provider-form"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogSettings } from "./dialog-settings"
 
@@ -45,7 +53,11 @@ export function DialogCustomProvider(props: Props) {
             row: modelRow().row,
             id,
             name: model.name ?? id,
-            limit: model.limit,
+            limit: {
+              context: model.limit?.context ? String(model.limit.context) : "",
+              input: model.limit?.input ? String(model.limit.input) : "",
+              output: model.limit?.output ? String(model.limit.output) : "",
+            },
             modalities: Object.entries(model.modalities ?? {}).map(([key, value]) =>
               modalityRow(key, JSON.stringify(value)),
             ),
@@ -165,7 +177,7 @@ export function DialogCustomProvider(props: Props) {
       const models = Object.fromEntries(
         Object.entries(result.config.models).map(([id, model]) => {
           const { modalities: _, limit: __, ...before } = existing?.models?.[id] ?? {}
-          return [id, { attachment: true, ...before, ...model }]
+          return [id, { ...before, ...model }]
         }),
       )
       const { baseURL: _, headers: __, ...options } = existing?.options ?? {}
@@ -226,13 +238,13 @@ export function DialogCustomProvider(props: Props) {
       }
       transition
     >
-      <div class="flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]">
-        <div class="px-2.5 flex gap-4 items-center">
+      <div class="relative min-h-0 flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]">
+        <div class="px-2.5 flex gap-4 items-center shrink-0">
           <ProviderIcon id="synthetic" class="size-5 shrink-0 icon-strong-base" />
           <div class="text-16-medium text-text-strong">{language.t("provider.custom.title")}</div>
         </div>
 
-        <form onSubmit={save} class="px-2.5 pb-6 flex flex-col gap-6">
+        <form onSubmit={save} class="px-2.5 pb-6 flex flex-col gap-6 shrink-0">
           <p class="text-14-regular text-text-base">
             {language.t("provider.custom.description.prefix")}
             <Link href="https://opencode.ai/docs/providers/#custom-provider" tabIndex={-1}>
@@ -320,66 +332,41 @@ export function DialogCustomProvider(props: Props) {
                       aria-label={language.t("provider.custom.models.remove")}
                     />
                   </div>
-                  <div class="flex flex-col gap-2">
-                    <label class="text-12-medium text-text-weak">{language.t("provider.custom.advanced.label")}</label>
-                    <div class="flex flex-wrap items-center gap-4">
-                      <Checkbox
-                        style={{ position: "relative" }}
-                        checked={
-                          m.imageInput ??
-                          m.modalities.some((item) => item.key === "input" && item.value.includes('"image"'))
-                        }
-                        onChange={(value) => setForm("models", i(), "imageInput", value)}
-                      >
-                        {language.t("provider.custom.advanced.image")}
-                      </Checkbox>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                      <For each={["input", "output"] as const}>
-                        {(kind) => {
-                          const field = kind === "input" ? "inputLimit" : "outputLimit"
-                          const presets = kind === "input" ? [32, 64, 128, 256] : [8, 16, 32, 64]
-                          const value = () => m[field] ?? String(m.limit?.[kind] ?? "")
-                          return (
-                            <div class="flex flex-col gap-2">
-                              <TextField
-                                label={language.t(
-                                  kind === "input"
-                                    ? "provider.custom.advanced.input"
-                                    : "provider.custom.advanced.output",
-                                )}
-                                placeholder={language.t("provider.custom.advanced.default")}
-                                inputMode="numeric"
-                                value={value()}
-                                onChange={(value) => {
-                                  setForm("models", i(), field, value)
-                                  setForm("models", i(), "err", field, undefined)
-                                }}
-                                validationState={m.err[field] ? "invalid" : undefined}
-                                error={m.err[field]}
-                              />
-                              <div class="flex flex-wrap gap-1">
-                                <For each={presets}>
-                                  {(size) => (
-                                    <Button
-                                      type="button"
-                                      size="small"
-                                      variant="ghost"
-                                      onClick={() => {
-                                        setForm("models", i(), field, String(size * 1000))
-                                        setForm("models", i(), "err", field, undefined)
-                                      }}
-                                    >
-                                      {size}K
-                                    </Button>
-                                  )}
-                                </For>
-                              </div>
-                            </div>
-                          )
-                        }}
-                      </For>
-                    </div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <For each={["context", "input", "output"] as const}>
+                      {(key) => (
+                        <TextField
+                          class={key === "context" ? "col-span-2" : ""}
+                          label={language.t(`provider.custom.models.limit.${key}`)}
+                          placeholder={language.t("provider.custom.models.limit.placeholder")}
+                          value={m.limit?.[key] ?? ""}
+                          onChange={(value) => {
+                            setForm("models", i(), "limit", {
+                              context: "",
+                              input: "",
+                              output: "",
+                              ...m.limit,
+                              [key]: value,
+                            })
+                            setForm("models", i(), "err", "limit", undefined)
+                          }}
+                          validationState={m.err.limit ? "invalid" : undefined}
+                        />
+                      )}
+                    </For>
+                    <Show when={m.err.limit}>
+                      <p class="col-span-2 text-12-regular text-text-error" role="alert">
+                        {m.err.limit}
+                      </p>
+                    </Show>
+                  </div>
+                  <div class="relative self-start shrink-0">
+                    <Checkbox
+                      checked={hasImageInput(m.modalities)}
+                      onChange={(checked) => setForm("models", i(), "modalities", setImageInput(m.modalities, checked))}
+                    >
+                      {language.t("provider.custom.models.imageInput")}
+                    </Checkbox>
                   </div>
                 </div>
               )}

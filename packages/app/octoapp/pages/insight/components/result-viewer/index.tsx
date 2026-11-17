@@ -415,7 +415,7 @@ function TabContent(props: { tab: ResultTab; refreshKey?: number }): JSX.Element
       </Match>
       <Match when={props.tab.type === "html"}>
         <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="html" />}>
-          <HtmlRenderer content={content()} onReady={() => ready("frame-load")} />
+          <HtmlRenderer content={content()} filePath={props.tab.filePath} onReady={() => ready("frame-load")} />
         </Show>
       </Match>
       <Match when={props.tab.type === "code"}>

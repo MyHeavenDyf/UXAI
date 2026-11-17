@@ -12,6 +12,8 @@ import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
+import { AssetPickPopup } from "./asset-pick-popup"
+import type { AssetUploadRequest } from "./asset-upload-dialog"
 import { ModelEditPanel } from "./model-edit-panel"
 import { ModelEditAreaDialog } from "./model-edit-area-dialog"
 import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext, ModelEditModeContext } from "../model-edit-items/types"
@@ -172,6 +174,10 @@ export function HtmlRenderer(props: {
   palette?: PaletteId | null
   inspecting?: boolean
   editing?: boolean
+  /** 「保存到资产库(局部)」元素选择模式（复用 od:edit-mode 选择态） */
+  assetPicking?: boolean
+  /** 小弹窗确认后上报「保存到资产库(局部)」上传请求（result-viewer 打开上传弹窗） */
+  onAssetUploadRequest?: (req: AssetUploadRequest) => void
   modelEditing?: boolean
   modelEditConfig?: ModelEditConfig
   scene3dEditing?: boolean
@@ -260,6 +266,7 @@ export function HtmlRenderer(props: {
   )
   const [editStyleVersion, setEditStyleVersion] = createSignal(0)
   const [editPanelPosition, setEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [assetPickTarget, setAssetPickTarget] = createSignal<ManualEditTarget | null>(null)
   const [modelEditTarget, setModelEditTarget] = createSignal<ModelEditElement | null>(null)
   const [modelEditPanelConfig, setModelEditPanelConfig] = createSignal<ConfigGroup[]>([])
   const [modelEditPanelData, setModelEditPanelData] = createSignal<Record<string, string>>({})
@@ -853,6 +860,48 @@ createEffect(() => {
     })
   }
 })
+
+/** Request selected element outerHTML from iframe bridge (od:get-element-html → od:element-html) */
+const requestElementHtml = (id: string): Promise<string | null> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener("message", onMsg)
+      resolve(null)
+    }, 3000)
+    const onMsg = (e: MessageEvent) => {
+      if (e.source !== iframeRef?.contentWindow) return
+      const d = e.data
+      if (!d || d.type !== "od:element-html" || d.id !== id) return
+      clearTimeout(timer)
+      window.removeEventListener("message", onMsg)
+      resolve(typeof d.html === "string" ? d.html : null)
+    }
+    window.addEventListener("message", onMsg)
+    iframeRef?.contentWindow?.postMessage({ type: "od:get-element-html", id }, "*")
+  })
+
+/** 小弹窗确认：上报「保存到资产库(局部)」上传请求，ZIP 在上传弹窗确认时才构建 */
+const requestAssetUpload = (target: ManualEditTarget, name: string) => {
+  tracker.interaction({ module: "design", name: "save-to-asset-partial" })
+  props.onAssetUploadRequest?.({
+    variant: "partial",
+    title: "保存到资产库(局部)",
+    name: `${name}.zip`,
+    buildZip: async () => {
+      // 并行拉取：元素 outerHTML + 完整页面快照（live DOM，含运行时注入的样式）
+      const [html, snapshot] = await Promise.all([requestElementHtml(target.id), getIframeSnapshot()])
+      if (!html) throw new Error("无法读取选中元素内容")
+      const { createPartialAssetsZip } = await import("../../utils/html-assets-zip")
+      return await createPartialAssetsZip({
+        fragmentHtml: html,
+        // 快照失败（超时/无 iframe）回退 props.content 提取的源 HTML，样式尽力而为
+        pageHtml: snapshot || extractHtmlContent(props.content),
+        htmlFilePath: props.filePath || "",
+        fileNameInZip: `${name}.html`,
+      })
+    },
+  })
+}
 
 // Initialize floating position on first comment
 createEffect(() => {
@@ -1489,7 +1538,7 @@ const handleMessage = (e: MessageEvent) => {
 // Listen to edit messages from iframe
 createEffect(() => {
   const iframe = iframeRef
-  if (!iframe || !props.editing) return
+  if (!iframe || (!props.editing && !props.assetPicking)) return
 
   const handleMessage = (e: MessageEvent) => {
     if (e.source !== iframe.contentWindow) return
@@ -1550,7 +1599,14 @@ createEffect(() => {
       }
       window.dispatchEvent(new CustomEvent("design:element-selected"))
       const target: ManualEditTarget = d.target
-      
+
+      // 资产库局部选择：只记录目标并弹「保存到资产库(局部)」弹窗，不走 ManualEdit 草稿逻辑
+      if (props.assetPicking) {
+        setAssetPickTarget(target)
+        iframe.contentWindow?.postMessage({ type: "od:edit-selected-target", id: target.id }, "*")
+        return
+      }
+
       // Save previous element's pending changes before switching
       const prevId = editTarget()?.id
       if (prevId && prevId !== target.id) {
@@ -1837,15 +1893,19 @@ createEffect(() => {
     }, '*')
   }
 
-  // Send edit-mode toggle to iframe
+  // Send edit-mode toggle to iframe (局部修改 / 资产库局部选择共用选择态)
   createEffect(() => {
     if (iframeRef && props.mode === "preview") {
+      const enabled = !!props.editing || !!props.assetPicking
       iframeRef.contentWindow?.postMessage(
-        { type: "od:edit-mode", enabled: !!props.editing },
+        { type: "od:edit-mode", enabled },
         "*"
       )
       if (!props.editing) {
         setEditTarget(null)
+      }
+      if (!props.assetPicking) {
+        setAssetPickTarget(null)
       }
     }
   })
@@ -2079,8 +2139,8 @@ createEffect(() => {
     if (!iframe || props.mode !== "preview") return
     
     const handleLoad = () => {
-      // Re-send edit mode if still editing
-      if (props.editing) {
+      // Re-send edit mode if still editing or asset-picking
+      if (props.editing || props.assetPicking) {
         iframe.contentWindow?.postMessage(
           { type: "od:edit-mode", enabled: true },
           "*"
@@ -2577,6 +2637,19 @@ onExit={() => {
 onFloatingPositionChange={setEditPanelPosition}
                 />
               </Show>
+          <Show when={props.assetPicking && assetPickTarget()}>
+            <AssetPickPopup
+              element={assetPickTarget()!}
+              iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
+              pageName={(props.tabTitle || "").replace(/\.html$/i, "")}
+              onCancel={() => {
+                iframeRef?.contentWindow?.postMessage({ type: "od:edit-deselect" }, "*")
+                setAssetPickTarget(null)
+              }}
+              onConfirm={(name) => requestAssetUpload(assetPickTarget()!, name)}
+            />
+          </Show>
           <Show when={props.editing && editTarget()}>
             <ModelEditAreaDialog
               element={editTarget()}
