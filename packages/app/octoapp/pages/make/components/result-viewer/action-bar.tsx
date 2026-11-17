@@ -5,7 +5,7 @@ import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId } from "./html-renderer"
 import type { ArtifactExportKind } from "../insight-turn"
 import { PALETTE_PRESETS } from "./html-renderer"
-import { IconActionCopy, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconCanvasEdit, IconBoxSelectEdit, IconLocalModify, IconDownloadNew, IconDropdownChevron, IconAssessment } from "../../icons"
+import { IconActionCopy, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconCanvasEdit, IconBoxSelectEdit, IconLocalModify, IconDownloadNew, IconDropdownChevron, IconAssessment, IconScene3dEdit } from "../../icons"
 import { IconRefresh as IconFileRefresh } from "../../icons/design-files-icons"
 import { showOctoToast } from "../octo-toast"
 import { getDesktopApi } from "../../lib/electron-api"
@@ -28,6 +28,7 @@ import { DialogSwitchAssessment } from "../dialog-switch-assessment"
 import type { PanelSkill, SkillConfig } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
 import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
+import { getBridgeConfigForSubtype } from "../../utils/bridge-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import { isAssetLibraryLoggedIn } from "../../utils/asset-upload"
 import type { AssetUploadRequest } from "./asset-upload-dialog"
@@ -702,6 +703,7 @@ export function ActionBar(props: {
     inspecting?: boolean
     editing?: boolean
     modelEditing?: boolean
+    scene3dEditing?: boolean
     drawing?: boolean
     commenting?: boolean
     archiving?: boolean
@@ -722,6 +724,7 @@ export function ActionBar(props: {
     onInspectToggle?: () => void
     onEditToggle?: () => void
     onModelEditToggle?: () => void
+    onScene3dEditToggle?: () => void
     onDrawToggle?: () => void
     onCommentToggle?: () => void
     onArchiveToggle?: () => void
@@ -846,6 +849,7 @@ export function ActionBar(props: {
   const showRefreshButton = () => featureVisible(config().features.refresh)
   const showLocalEdit = () => featureVisible(config().features.localEdit) && showViewport()
   const showModelEdit = () => featureVisible(config().features.modelEdit) && showViewport()
+  const showScene3dEdit = () => featureVisible(config().features.scene3dEdit ?? false) && showViewport()
   const showDrawEdit = () => featureVisible(config().features.drawEdit) && showViewport()
   const showCanvasEdit = () => featureVisible(config().features.canvasEdit) && showViewport()
   const showAssessment = () => featureVisible(config().features.assessment) && props.tab.type === "html" && !!props.tab.filePath
@@ -1019,6 +1023,19 @@ export function ActionBar(props: {
       <div class="octo-action-bar-right">
         {/* Collapsible buttons - can become icons */}
         <div class="octo-action-bar-collapsible">
+          {showScene3dEdit() && props.onScene3dEditToggle && (
+            <Tooltip placement="top" value="3D编辑">
+              <button
+                type="button"
+                class="octo-action-btn"
+                classList={{ "octo-viewport-btn-active": !!props.scene3dEditing }}
+                onClick={props.onScene3dEditToggle}
+              >
+                <IconScene3dEdit size={16} />
+                <span>3D编辑</span>
+              </button>
+            </Tooltip>
+          )}
           {showLocalEdit() && props.onEditToggle && (
             <Tooltip placement="top" value="局部修改">
               <button
@@ -1458,7 +1475,7 @@ function AssetDownloadButton(props: {
                 >
                   <span class="octo-assessment-item-text">保存到资产库(全页面)</span>
                 </button>
-                <Show when={props.mode === "preview"}>
+                <Show when={props.mode === "preview" && getBridgeConfigForSubtype(props.tab.subtype).injectEdit}>
                   <button
                     type="button"
                     class="octo-assessment-item"
