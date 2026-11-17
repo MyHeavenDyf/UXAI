@@ -4,7 +4,8 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
-import { useMutation } from "@tanstack/solid-query"
+import { useMutation, useQueryClient } from "@tanstack/solid-query"
+import type { Config } from "@opencode-ai/sdk/v2/client"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@opencode-ai/ui/toast"
 import { batch, For, Show } from "solid-js"
@@ -12,6 +13,7 @@ import { createStore, produce } from "solid-js/store"
 import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { replaceProviderConfig } from "@/context/global-sync/utils"
 import { useLanguage } from "@/context/language"
 import {
   type FormState,
@@ -33,6 +35,7 @@ type Props = {
 export function DialogCustomProvider(props: Props) {
   const dialog = useDialog()
   const globalSync = useGlobalSync()
+  const queryClient = useQueryClient()
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const current = props.providerID ? globalSync.data.config.provider?.[props.providerID] : undefined
@@ -182,7 +185,7 @@ export function DialogCustomProvider(props: Props) {
       )
       const { baseURL: _, headers: __, ...options } = existing?.options ?? {}
 
-      await globalSDK.client.global.config.replaceProvider({
+      const saved = await globalSDK.client.global.config.replaceProvider({
         providerID: result.providerID,
         providerConfig: {
           ...existing,
@@ -195,6 +198,11 @@ export function DialogCustomProvider(props: Props) {
           models,
         },
       })
+      if (!saved.data) throw new Error("Provider configuration missing from save response")
+      await queryClient.cancelQueries({ queryKey: ["config"] })
+      queryClient.setQueryData<Config>(["config"], (current) =>
+        replaceProviderConfig(current, saved.data, result.providerID),
+      )
       if (nextDisabled.length !== disabledProviders.length) {
         await globalSync.updateConfig({ disabled_providers: nextDisabled })
       }
@@ -202,6 +210,7 @@ export function DialogCustomProvider(props: Props) {
     },
     onSuccess: (result) => {
       globalSync.invalidateProviders()
+      void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
       dialog.close()
       showToast({
         variant: "success",

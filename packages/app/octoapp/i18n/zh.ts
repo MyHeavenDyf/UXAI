@@ -239,6 +239,8 @@ export const dict = {
   "provider.custom.field.apiKey.editDescription": "可选。留空将保留现有 API 密钥。",
   "provider.custom.models.label": "模型",
   "provider.custom.models.imageInput": "图片输入",
+  "provider.apiKey.missing": "请先在提供商设置中填写 API Key",
+  "provider.apiKey.configure": "配置 API Key",
   "provider.custom.models.limit.context": "上下文上限（Token）",
   "provider.custom.models.limit.input": "输入上限（Token）",
   "provider.custom.models.limit.output": "输出上限（Token）",

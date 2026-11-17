@@ -236,6 +236,14 @@ export const SettingsProviders: Component = () => {
                       </span>
                       <Tag>{type(item)}</Tag>
                     </div>
+                    <Show when={item.options.requires_api_key === true}>
+                      <Button
+                        variant="secondary"
+                        onClick={() => dialog.show(() => <DialogConnectProvider provider={item.id} />)}
+                      >
+                        {language.t("provider.apiKey.configure")}
+                      </Button>
+                    </Show>
                     <Show when={item.id === "opencode"}>
                       <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
                         <Show when={!hasApiKey("opencode")}>
