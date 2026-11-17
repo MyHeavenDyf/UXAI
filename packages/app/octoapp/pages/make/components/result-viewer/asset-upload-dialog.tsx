@@ -2,6 +2,7 @@ import { createSignal, Show, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { assetUploadBaseUrl, sendFilesToAssetIframe, zipBlobToBase64 } from "../../utils/asset-upload"
 import { showOctoToast } from "../octo-toast"
+import { tracker } from "@/utils/tracker"
 import "../addon-menu/styles.css"
 
 /**
@@ -37,6 +38,18 @@ export function AssetUploadDialog(props: {
   const base = assetUploadBaseUrl()
   const uploadSrc = base && props.productId ? `${base}/agentPage/asset-upload/${props.productId}?ts=${Date.now()}` : ""
 
+  /** 上传结果打点：每次确认尝试一个结果事件（成功数 / 尝试数 = 保存成功率） */
+  const reportResult = (success: boolean, message?: string) =>
+    tracker.interaction({
+      module: "design",
+      name: "save-to-asset-result",
+      extend: JSON.stringify({
+        variant: props.request.variant,
+        success,
+        ...(message ? { message: message.slice(0, 100) } : {}),
+      }),
+    })
+
   const handleConfirm = async () => {
     if (props.saving || !iframeRef) return
     props.onSavingChange?.(true)
@@ -45,13 +58,17 @@ export function AssetUploadDialog(props: {
       const base64 = await zipBlobToBase64(zipBlob)
       const result = await sendFilesToAssetIframe(iframeRef, { name: props.request.name, base64 })
       if (result.success) {
+        reportResult(true)
         showOctoToast({ title: "已保存到资产库" })
         props.onSuccess()
       } else {
+        reportResult(false, result.message)
         showOctoToast({ title: "保存到资产库失败", description: result.message })
       }
     } catch (err) {
-      showOctoToast({ title: "保存到资产库失败", description: err instanceof Error ? err.message : String(err) })
+      const message = err instanceof Error ? err.message : String(err)
+      reportResult(false, message)
+      showOctoToast({ title: "保存到资产库失败", description: message })
     } finally {
       props.onSavingChange?.(false)
     }

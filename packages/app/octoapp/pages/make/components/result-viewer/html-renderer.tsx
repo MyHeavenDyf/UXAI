@@ -879,12 +879,12 @@ const requestElementHtml = (id: string): Promise<string | null> =>
 
 /** 小弹窗确认：上报「保存到资产库(局部)」上传请求，ZIP 在上传弹窗确认时才构建 */
 const requestAssetUpload = (target: ManualEditTarget, name: string) => {
-  tracker.interaction({ module: "design", name: "save-to-asset-partial" })
   props.onAssetUploadRequest?.({
     variant: "partial",
     title: "保存到资产库(局部)",
     name: `${name}.zip`,
     buildZip: async () => {
+      tracker.interaction({ module: "design", name: "save-to-asset-partial" })
       // 并行拉取：元素 outerHTML + 完整页面快照（live DOM，含运行时注入的样式）
       const [html, snapshot] = await Promise.all([requestElementHtml(target.id), getIframeSnapshot()])
       if (!html) throw new Error("无法读取选中元素内容")
