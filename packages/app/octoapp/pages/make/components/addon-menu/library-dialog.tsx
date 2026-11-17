@@ -81,7 +81,11 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
   const productSrc = base && props.productId ? `${base}/agentPage/asset-modal/${props.productId}?ts=${Date.now()}` : ""
 
   const postToIframe = (iframe: HTMLIFrameElement | undefined, payload: unknown) => {
-    iframe?.contentWindow?.postMessage(payload, allowedOrigin || "*")
+    if (tab() === "product") {
+      iframe?.contentWindow?.postMessage(payload, allowedOrigin || "*")
+    } else {
+      iframe?.contentWindow?.postMessage(payload, "*")
+    }
   }
 
   // ── chip 构造/匹配 ──
