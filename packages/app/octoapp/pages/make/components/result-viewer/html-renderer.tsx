@@ -1898,7 +1898,7 @@ createEffect(() => {
     if (iframeRef && props.mode === "preview") {
       const enabled = !!props.editing || !!props.assetPicking
       iframeRef.contentWindow?.postMessage(
-        { type: "od:edit-mode", enabled },
+        { type: "od:edit-mode", enabled, svgRoot: !!props.assetPicking },
         "*"
       )
       if (!props.editing) {
@@ -2142,7 +2142,7 @@ createEffect(() => {
       // Re-send edit mode if still editing or asset-picking
       if (props.editing || props.assetPicking) {
         iframe.contentWindow?.postMessage(
-          { type: "od:edit-mode", enabled: true },
+          { type: "od:edit-mode", enabled: true, svgRoot: !!props.assetPicking },
           "*"
         )
       }

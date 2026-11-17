@@ -532,9 +532,11 @@ window.addEventListener('message',function(ev){
 
 export const EDIT_BRIDGE_SCRIPT = `<script data-od-edit-bridge>(function(){
 var editEnabled = false;
+var editSvgRoot = false;
 var lastSelectedId = null;
 var TEXT_PROPS=['textContent'];
 var ATTR_PROPS=['href','src','alt'];
+var SVG_CHILD_TAGS = ['path','circle','rect','line','polyline','polygon','g','defs','use','text','tspan','linearGradient','radialGradient','stop','filter','mask','clippath','pattern','symbol','image','foreignobject','ellipse'];
 
 function caretRangeFromClick(ev){
   try{
@@ -913,6 +915,7 @@ window.addEventListener('message',function(ev){
   
   if(d.type==='od:edit-mode'){
     editEnabled = d.enabled;
+    editSvgRoot = !!d.svgRoot;
     document.documentElement.toggleAttribute('data-od-edit-mode', editEnabled);
     if(editEnabled){
       annotateRendered();
@@ -1026,6 +1029,13 @@ function handleEditSingleClick(ev){
   clearSelectedTarget();
   
   var el=ev.target;
+  if(editSvgRoot&&el&&el.tagName){
+    var clickTag=el.tagName.toLowerCase();
+    if(SVG_CHILD_TAGS.indexOf(clickTag)>=0){
+      var svgRoot=el.closest('svg');
+      if(svgRoot)el=svgRoot;
+    }
+  }
   while(el&&el!==document.documentElement){
     var target=getManualEditTarget(el);
     if(target){
