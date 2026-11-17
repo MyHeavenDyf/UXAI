@@ -806,7 +806,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         },
         onStructuredOutput: () => {},
       })
-      return Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
+      const system = Token.estimateValue(request.system)
+      const tools = Token.estimateValue(request.activeTools)
+      const msgs = Token.estimateValue(request.modelMsgs)
+      return { total: system + msgs + tools, system, messages: msgs, tools }
     })
 
     const dumpCompactionContext = Effect.fn("SessionPrompt.dumpCompactionContext")(function* (input: {
@@ -1943,12 +1946,28 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           if (task?.type === "compaction") {
             if (task.auto && !AUTOMATIC_COMPACTION_ENABLED) continue
             yield* dumpCompactionContext({ sessionID, session, model, phase: "before" })
+            // 上下文构成明细(system/tools)供压缩服务做「no-op 跳过」与「地板预检」判定
+            const contextTokens = yield* estimateCompactedContext({ sessionID, session, model }).pipe(
+              Effect.catchCause((cause) =>
+                elog.warn("failed to estimate compacted context", { error: Cause.squash(cause) }).pipe(
+                  Effect.as(undefined),
+                ),
+              ),
+            )
             const result = yield* compaction.process({
               messages: msgs,
               parentID: lastUser.id,
               sessionID,
               auto: task.auto,
               overflow: task.overflow,
+              contextTokens:
+                contextTokens === undefined
+                  ? undefined
+                  : {
+                      system: contextTokens.system,
+                      tools: contextTokens.tools,
+                      usable: usableContext({ cfg: yield* config.get(), model }),
+                    },
             })
             yield* dumpCompactionContext({
               sessionID,
@@ -1959,16 +1978,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             })
             if (result === "stop") break
             if (!task.auto) {
-              const estimated = yield* estimateCompactedContext({ sessionID, session, model }).pipe(
-                Effect.catchCause((cause) =>
-                  elog.warn("failed to estimate compacted context", { error: Cause.squash(cause) }).pipe(
-                    Effect.as(undefined),
-                  ),
-                ),
-              )
-              if (estimated !== undefined) {
+              if (contextTokens !== undefined) {
                 const limit = model.limit.input ?? model.limit.context
-                task.estimated_tokens = estimated
+                task.estimated_tokens = contextTokens.total
                 task.estimated_limit = limit
                 task.estimated_provider_id = model.providerID
                 task.estimated_model_id = model.id
@@ -1976,7 +1988,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 yield* bus.publish(SessionCompaction.Event.Estimated, {
                   sessionID,
                   messageID: task.messageID,
-                  tokens: estimated,
+                  tokens: contextTokens.total,
                   limit,
                   providerID: model.providerID,
                   modelID: model.id,

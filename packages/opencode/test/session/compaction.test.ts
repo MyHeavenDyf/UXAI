@@ -916,6 +916,7 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
+        await user(session.id, `old ${"x".repeat(80_000)}`)
         const msg = await user(session.id, "hello")
         const msgs = await svc.messages({ sessionID: session.id })
         const done = defer()
@@ -966,6 +967,7 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
+        await user(session.id, `old ${"x".repeat(80_000)}`)
         const msg = await user(session.id, "hello")
         const rt = runtime("compact", Plugin.defaultLayer, wide())
         try {
@@ -1029,6 +1031,7 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
+        await user(session.id, `old ${"x".repeat(80_000)}`)
         const msg = await user(session.id, "hello")
         const rt = runtime("continue", Plugin.defaultLayer, wide())
         try {
@@ -1393,6 +1396,7 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
+        await user(session.id, `old ${"x".repeat(80_000)}`)
         const msg = await user(session.id, "hello")
         const rt = runtime("continue", autocontinue(false), wide())
         try {
@@ -1436,7 +1440,8 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
-        await user(session.id, "root")
+        const root = await user(session.id, `root ${"x".repeat(80_000)}`)
+        await assistant(session.id, root.id, tmp.path)
         const replay = await user(session.id, "image")
         await svc.updatePart({
           id: PartID.ascending(),
@@ -1485,37 +1490,43 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("falls back to overflow guidance when no replayable turn exists", async () => {
+  test("reports nothing-to-compact instead of replaying when the pending turn is unsplittable on overflow", async () => {
     await using tmp = await tmpdir()
     await WithInstance.provide({
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
-        await user(session.id, "earlier")
-        const msg = await user(session.id, "current")
+        await user(session.id, `huge ${"x".repeat(80_000)}`)
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true, overflow: true })
 
         const rt = runtime("continue", Plugin.defaultLayer, wide())
         try {
           const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          expect(parent).toBeTruthy()
           const result = await rt.runPromise(
             SessionCompaction.Service.use((svc) =>
-              svc.process({
-                parentID: msg.id,
-                messages: msgs,
-                sessionID: session.id,
-                auto: true,
-                overflow: true,
-              }),
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: true, overflow: true }),
             ),
           )
 
-          const last = (await svc.messages({ sessionID: session.id })).at(-1)
+          const all = await svc.messages({ sessionID: session.id })
+          const summary = all.find((item) => item.info.role === "assistant" && item.info.summary)
 
-          expect(result).toBe("continue")
-          expect(last?.info.role).toBe("user")
-          if (last?.parts[0]?.type === "text") {
-            expect(last.parts[0].text).toContain("previous request exceeded the provider's size limit")
+          expect(result).toBe("stop")
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") {
+            expect(summary.info.finish).toBe("error")
+            expect(JSON.stringify(summary.info.error)).toContain("exceeds the preserved-recent budget")
+            expect(JSON.stringify(summary.info.error)).toContain("pending user message")
           }
+          expect(
+            all.some(
+              (item) =>
+                item.info.role === "user" &&
+                item.parts.some((part) => part.type === "text" && part.metadata?.compaction_replay === true),
+            ),
+          ).toBe(false)
         } finally {
           await rt.dispose()
         }
@@ -1551,6 +1562,8 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
+        const old = await user(session.id, `old ${"x".repeat(80_000)}`)
+        await assistant(session.id, old.id, tmp.path)
         const msg = await user(session.id, "hello")
         const msgs = await svc.messages({ sessionID: session.id })
         const abort = new AbortController()
@@ -1625,6 +1638,8 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
+        const old = await user(session.id, `old ${"x".repeat(80_000)}`)
+        await assistant(session.id, old.id, tmp.path)
         const msg = await user(session.id, "hello")
         const msgs = await svc.messages({ sessionID: session.id })
         const abort = new AbortController()
@@ -1727,6 +1742,8 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
+        const old = await user(session.id, `old ${"x".repeat(80_000)}`)
+        await assistant(session.id, old.id, tmp.path)
         const msg = await user(session.id, "hello")
         const rt = liveRuntime(stub.layer, wide())
         try {
@@ -1821,7 +1838,7 @@ describe("session.compaction.process", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
-        await user(session.id, "older context")
+        await user(session.id, `older context ${"x".repeat(80_000)}`)
         await user(session.id, "keep this turn")
         await SessionCompaction.create({
           sessionID: session.id,
@@ -1846,6 +1863,7 @@ describe("session.compaction.process", () => {
             ),
           )
 
+          await user(session.id, `big middle ${"x".repeat(80_000)}`)
           await user(session.id, "latest turn")
           await SessionCompaction.create({
             sessionID: session.id,
@@ -2600,6 +2618,8 @@ describe("session.compaction.summary sizing", () => {
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
+        const old = await user(session.id, `old ${"x".repeat(80_000)}`)
+        await assistant(session.id, old.id, tmp.path)
         await user(session.id, "hello")
         await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
 
@@ -2645,7 +2665,7 @@ describe("session.compaction.summary sizing", () => {
       fn: async () => {
         const session = await svc.create({})
         await user(session.id, `skill doc ${"x".repeat(400_000)}`)
-        await user(session.id, `skill doc again ${"y".repeat(400_000)}`)
+        await user(session.id, "latest question")
         await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
 
         const rt = liveRuntime(stub.layer, wide(), cfg())
@@ -2662,7 +2682,132 @@ describe("session.compaction.summary sizing", () => {
           expect(result).toBe("continue")
           expect(captured).toContain("characters omitted")
           expect(captured).not.toContain("x".repeat(1_500))
-          expect(captured).not.toContain("y".repeat(1_500))
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("skips the summary when the history fits the tail budget", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, "hello")
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          expect(parent).toBeTruthy()
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: false }),
+            ),
+          )
+
+          expect(result).toBe("stop")
+          const part = await lastCompactionPart(session.id)
+          expect(part?.type).toBe("compaction")
+          expect(part?.tail_start_id).toBeUndefined()
+          const summary = (await svc.messages({ sessionID: session.id })).find(
+            (msg) => msg.info.role === "assistant" && msg.info.summary,
+          )
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") {
+            expect(summary.info.finish).toBe("error")
+            expect(JSON.stringify(summary.info.error)).toContain("fits entirely within the preserved-recent budget")
+          }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("names system and tools pressure in the no-op error when context tokens are provided", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, "hello")
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: parent!,
+                messages: msgs,
+                sessionID: session.id,
+                auto: false,
+                contextTokens: { system: 10_000, tools: 12_000, usable: 25_500 },
+              }),
+            ),
+          )
+
+          expect(result).toBe("stop")
+          const summary = (await svc.messages({ sessionID: session.id })).find(
+            (msg) => msg.info.role === "assistant" && msg.info.summary,
+          )
+          if (summary?.info.role === "assistant") {
+            const error = JSON.stringify(summary.info.error)
+            expect(error).toContain("system prompt ~10000")
+            expect(error).toContain("tools ~12000")
+            expect(error).toContain("25500-token usable limit")
+          }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("rejects compaction when the post-compaction floor exceeds the usable limit", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, `old ${"x".repeat(80_000)}`)
+        await user(session.id, "hello")
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: parent!,
+                messages: msgs,
+                sessionID: session.id,
+                auto: false,
+                contextTokens: { system: 10_000, tools: 12_000, usable: 20_000 },
+              }),
+            ),
+          )
+
+          expect(result).toBe("stop")
+          const part = await lastCompactionPart(session.id)
+          expect(part?.type).toBe("compaction")
+          expect(part?.tail_start_id).toBeUndefined()
+          const summary = (await svc.messages({ sessionID: session.id })).find(
+            (msg) => msg.info.role === "assistant" && msg.info.summary,
+          )
+          if (summary?.info.role === "assistant") {
+            const error = JSON.stringify(summary.info.error)
+            expect(error).toContain("cannot bring the context under the limit")
+            expect(error).toContain("20000-token usable limit")
+          }
         } finally {
           await rt.dispose()
         }

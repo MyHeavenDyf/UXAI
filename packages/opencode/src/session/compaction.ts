@@ -57,6 +57,7 @@ const MAX_PRESERVE_RECENT_TOKENS = 15_000
 const SUMMARY_RESERVE_MIN = 16_000
 const SUMMARY_RESERVE_SHARE = 0.15
 const SUMMARY_SHRINK_STEPS = [0.85, 0.7, 0.5, 0.35]
+const SUMMARY_FLOOR_TOKENS = 2_000
 const TRANSCRIPT_CLIP = 2_000
 // 文档型 text part(skill 注入,首行 "# Skill: <name>")在降级档的独立裁剪配额
 const SKILL_DOC_CLIP = 8_000
@@ -302,6 +303,7 @@ export interface Interface {
     sessionID: SessionID
     auto: boolean
     overflow?: boolean
+    contextTokens?: { system: number; tools: number; usable: number }
   }) => Effect.Effect<"continue" | "stop">
   readonly create: (input: {
     sessionID: SessionID
@@ -357,10 +359,11 @@ export const layer: Layer.Layer<
       model: Provider.Model
     }) {
       const limit = input.cfg.compaction?.tail_turns
-      if (limit !== undefined && limit <= 0) return { head: input.messages, tail_start_id: undefined }
+      if (limit !== undefined && limit <= 0)
+        return { head: input.messages, tail_start_id: undefined, noop: "tail-turns-disabled" as const }
       const budget = preserveRecentBudget({ cfg: input.cfg, model: input.model })
       const all = turns(input.messages)
-      if (!all.length) return { head: input.messages, tail_start_id: undefined }
+      if (!all.length) return { head: input.messages, tail_start_id: undefined, noop: "no-turns" as const }
       const recent = limit === undefined ? all : all.slice(-limit)
 
       let total = 0
@@ -388,10 +391,12 @@ export const layer: Layer.Layer<
         break
       }
 
-      if (!keep || keep.start === 0) return { head: input.messages, tail_start_id: undefined }
+      if (!keep) return { head: input.messages, tail_start_id: undefined, noop: "unsplittable-tail" as const }
+      if (keep.start === 0) return { head: input.messages, tail_start_id: undefined, noop: "fits-budget" as const }
       return {
         head: input.messages.slice(0, keep.start),
         tail_start_id: keep.id,
+        noop: undefined,
       }
     })
 
@@ -449,6 +454,7 @@ export const layer: Layer.Layer<
       sessionID: SessionID
       auto: boolean
       overflow?: boolean
+      contextTokens?: { system: number; tools: number; usable: number }
     }) {
       const startedAt = Date.now()
       const parent = input.messages.findLast((m) => m.info.id === input.parentID)
@@ -492,11 +498,101 @@ export const layer: Layer.Layer<
       const prior = completedCompactions(history)
       const hidden = new Set(prior.flatMap((item) => [item.userIndex, item.assistantIndex]))
       const previousSummary = prior.at(-1)?.summary
+      const compactable = history.filter((_, index) => !hidden.has(index))
       const selected = yield* select({
-        messages: history.filter((_, index) => !hidden.has(index)),
+        messages: compactable,
         cfg,
         model,
       })
+      const ctx = yield* InstanceState.context
+      const tailBudget = preserveRecentBudget({ cfg, model })
+      const summaryMessage = (): MessageV2.Assistant => ({
+        id: MessageID.ascending(),
+        role: "assistant",
+        parentID: input.parentID,
+        sessionID: input.sessionID,
+        mode: "compaction",
+        agent: "compaction",
+        variant: userMessage.model.variant,
+        summary: true,
+        path: {
+          cwd: ctx.directory,
+          root: ctx.worktree,
+        },
+        cost: 0,
+        tokens: {
+          output: 0,
+          input: 0,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        modelID: model.id,
+        providerID: model.providerID,
+        time: {
+          created: Date.now(),
+        },
+      })
+      const failSummary = (message: string) =>
+        Effect.gen(function* () {
+          const fail = {
+            ...summaryMessage(),
+            finish: "error",
+            error: new MessageV2.ContextOverflowError({ message }).toObject(),
+          } satisfies MessageV2.Assistant
+          yield* session.updateMessage(fail)
+          return "stop" as const
+        })
+
+      // 修复「no-op 压缩」:select 找不到可丢弃内容(无锚点)时,摘要与 replay 都不再执行。
+      // 否则压缩"成功"却什么都没丢,上下文反而追加 摘要+标记+replay 副本(大消息场景暴涨),
+      // 且 overflow 路径的 replay 会把未答复的大消息原样复制一份——原件必然还在尾部,replay 变纯复制。
+      if (selected.tail_start_id === undefined) {
+        const historyTokens = yield* estimate({ messages: compactable, model })
+        const reason: Record<NonNullable<(typeof selected)["noop"]>, string> = {
+          "tail-turns-disabled": "compaction.tail_turns is configured to keep the full history",
+          "no-turns": "the conversation has no compactable user turns",
+          "fits-budget": `the compactable history (~${historyTokens} tokens) fits entirely within the preserved-recent budget (${tailBudget} tokens)`,
+          "unsplittable-tail": `no preservable recent tail could be established: the newest turn exceeds the preserved-recent budget (${tailBudget} tokens) and cannot be split`,
+        }
+        const pressure = input.contextTokens
+          ? ` The remaining context pressure sits outside the compactable history: system prompt ~${input.contextTokens.system} + tools ~${input.contextTokens.tools} tokens against a ${input.contextTokens.usable}-token usable limit; reduce the toolset or switch to a larger-context model.`
+          : ""
+        const pending = input.overflow
+          ? " The pending user message that triggered the overflow stays in the context; reduce or split it and try again."
+          : ""
+        log.warn("compaction no-op, skipping summary", {
+          sessionID: input.sessionID,
+          reason: selected.noop,
+          history_tokens: historyTokens,
+          tail_budget: tailBudget,
+        })
+        return yield* failSummary(`Nothing to compact: ${reason[selected.noop ?? "fits-budget"]}.${pending}${pressure}`)
+      }
+
+      // 修复「压缩后仍必然超限」:system + tools + 保尾 + 摘要 ≥ usable 时,压缩必然无效,
+      // 直接给出可行动的错误,不再白付摘要调用。
+      const floor =
+        input.contextTokens && selected.tail_start_id
+          ? input.contextTokens.system +
+            input.contextTokens.tools +
+            tailBudget +
+            SUMMARY_FLOOR_TOKENS -
+            input.contextTokens.usable
+          : Number.NEGATIVE_INFINITY
+      if (floor >= 0) {
+        const estimate =
+          input.contextTokens!.system + input.contextTokens!.tools + tailBudget + SUMMARY_FLOOR_TOKENS
+        log.warn("compaction floor exceeds usable limit, skipping summary", {
+          sessionID: input.sessionID,
+          system: input.contextTokens!.system,
+          tools: input.contextTokens!.tools,
+          tail_budget: tailBudget,
+          usable: input.contextTokens!.usable,
+        })
+        return yield* failSummary(
+          `Compaction cannot bring the context under the limit: system prompt (~${input.contextTokens!.system}) + tools (~${input.contextTokens!.tools}) + preserved recent history (~${tailBudget}) + summary (~${SUMMARY_FLOOR_TOKENS}) ≈ ${estimate} tokens, at or above the ${input.contextTokens!.usable}-token usable limit. Reduce the toolset or switch to a larger-context model.`,
+        )
+      }
       // Allow plugins to inject context or replace compaction prompt.
       const compacting = yield* plugin.trigger(
         "experimental.session.compacting",
@@ -505,7 +601,6 @@ export const layer: Layer.Layer<
       )
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-      const ctx = yield* InstanceState.context
       const promptFor = (conversation: string) =>
         compacting.prompt
           ? [compacting.prompt, "The following is the conversation history:", conversation]
@@ -536,28 +631,9 @@ export const layer: Layer.Layer<
           budget: summaryBudget,
           minimal_transcript_tokens: minimal,
         })
-        const fail: MessageV2.Assistant = {
-          id: MessageID.ascending(),
-          role: "assistant",
-          parentID: input.parentID,
-          sessionID: input.sessionID,
-          mode: "compaction",
-          agent: "compaction",
-          variant: userMessage.model.variant,
-          summary: true,
-          path: { cwd: ctx.directory, root: ctx.worktree },
-          cost: 0,
-          tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          modelID: model.id,
-          providerID: model.providerID,
-          time: { created: Date.now() },
-          finish: "error",
-          error: new MessageV2.ContextOverflowError({
-            message: `Session too large to compact - the minimal transcript (~${minimal} tokens) cannot fit the summary model budget (${summaryBudget} tokens of a ${summaryLimit}-token limit). Reduce the attached content or switch to a larger-context model.`,
-          }).toObject(),
-        }
-        yield* session.updateMessage(fail)
-        return "stop"
+        return yield* failSummary(
+          `Session too large to compact - the minimal transcript (~${minimal} tokens) cannot fit the summary model budget (${summaryBudget} tokens of a ${summaryLimit}-token limit). Reduce the attached content or switch to a larger-context model.`,
+        )
       }
       if (built.degraded)
         log.warn("compaction transcript degraded to fit summary budget", {
@@ -567,32 +643,7 @@ export const layer: Layer.Layer<
 
       let conversation = built.text
       const summarize = Effect.fnUntraced(function* (prompt: string) {
-        const msg: MessageV2.Assistant = {
-          id: MessageID.ascending(),
-          role: "assistant",
-          parentID: input.parentID,
-          sessionID: input.sessionID,
-          mode: "compaction",
-          agent: "compaction",
-          variant: userMessage.model.variant,
-          summary: true,
-          path: {
-            cwd: ctx.directory,
-            root: ctx.worktree,
-          },
-          cost: 0,
-          tokens: {
-            output: 0,
-            input: 0,
-            reasoning: 0,
-            cache: { read: 0, write: 0 },
-          },
-          modelID: model.id,
-          providerID: model.providerID,
-          time: {
-            created: Date.now(),
-          },
-        }
+        const msg = summaryMessage()
         yield* session.updateMessage(msg)
         const processor = yield* processors.create({
           assistantMessage: msg,
