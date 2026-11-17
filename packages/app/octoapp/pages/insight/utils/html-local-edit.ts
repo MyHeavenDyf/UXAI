@@ -17,5 +17,5 @@ export async function saveHtmlEdit(path: string, original: string, content: stri
   await api.writeFileBuffer(path, bytes.buffer)
   const saved = await api.readFileBuffer(path)
   if (!saved || saved.byteLength !== bytes.byteLength || !bytes.every((value, index) => value === new Uint8Array(saved)[index])) throw new Error("HTML 保存校验失败，请从历史版本恢复后重试")
-  await history.record("user")
+  return history.record("user")
 }
