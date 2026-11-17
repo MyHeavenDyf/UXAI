@@ -68,6 +68,7 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
   const [productSelected, setProductSelected] = createSignal<Map<string, AssetFile>>(new Map())
   const [platformPanelOpen, setPlatformPanelOpen] = createSignal(false)
   const [productPanelOpen, setProductPanelOpen] = createSignal(false)
+  const [platformSrc, setPlatformSrc] = createSignal("")
   // 面板打开瞬间的行快照
   const [platformPanelRows, setPlatformPanelRows] = createSignal<PlatformAsset[]>([])
 
@@ -77,7 +78,6 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
 
   const base = import.meta.env.VITE_OCTO_BASE_URL || ""
   const allowedOrigin = base ? new URL(base).origin : ""
-  const platformSrc = base ? `${base}/designAssets/skillLibrary/#/resourcePage` : ""
   const productSrc = base && props.productId ? `${base}/agentPage/asset-modal/${props.productId}?ts=${Date.now()}` : ""
 
   const postToIframe = (iframe: HTMLIFrameElement | undefined, payload: unknown) => {
@@ -124,7 +124,12 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
   }
 
   // ── iframe→parent ──
-  onMount(() => {
+  onMount(async () => {
+    // jk-j60099994-replace-with-60062650-octoapp-pages-make-addon-menu-library-dialog-1-start
+    const platformUrl = base ? `${base}/designAssets/skillLibrary/#/resourcePage` : ""
+    setPlatformSrc(platformUrl)
+    // jk-j60099994-replace-with-60062650-octoapp-pages-make-addon-menu-library-dialog-1-end
+    
     const onMessage = (event: MessageEvent) => {
       if (event.source !== platformIframeRef?.contentWindow && event.source !== productIframeRef?.contentWindow) return
       if (allowedOrigin && event.origin !== allowedOrigin) return
@@ -162,6 +167,9 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
         }
         setProductSelected(next)
       }
+
+      // jk-j60099994-replace-with-60062650-octoapp-pages-make-addon-menu-library-dialog-2-start
+      // jk-j60099994-replace-with-60062650-octoapp-pages-make-addon-menu-library-dialog-2-end
     }
     window.addEventListener("message", onMessage)
     onCleanup(() => {
@@ -398,10 +406,10 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
 
           {/* iframe 区(border-top + margin-top 16,双 iframe 常挂载保状态) */}
           <div class="library-dialog-iframe-area">
-            <Show when={platformSrc}>
+            <Show when={platformSrc()}>
               <iframe
                 ref={(el) => (platformIframeRef = el)}
-                src={platformSrc}
+                src={platformSrc()}
                 class="library-dialog-iframe"
                 style={{ display: tab() === "platform" ? "block" : "none" }}
                 title="平台资产"
