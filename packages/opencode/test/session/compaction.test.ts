@@ -1390,6 +1390,89 @@ describe("session.compaction.process", () => {
     })
   })
 
+  test("retains a giant tool output turn with a model-scaled clip quota instead of failing", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, `old ${"x".repeat(80_000)}`)
+        const keep = await user(session.id, "evaluate the design")
+        const asst = await assistant(session.id, keep.id, tmp.path)
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: asst.id,
+          sessionID: session.id,
+          type: "tool",
+          callID: `call-${asst.id}`,
+          tool: "skill",
+          state: {
+            status: "completed",
+            input: { name: "design" },
+            output: "y".repeat(300_000),
+            title: "Loaded skill: design",
+            metadata: {},
+            time: { start: Date.now(), end: Date.now() },
+          },
+        })
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: false }),
+            ),
+          )
+
+          const all = await svc.messages({ sessionID: session.id })
+          const part = await lastCompactionPart(session.id)
+          const toolPart = all
+            .find((item) => item.info.id === asst.id)
+            ?.parts.find((item): item is MessageV2.ToolPart => item.type === "tool")
+
+          // 巨型工具输出(75k tokens)超过模型缩放阈值(usable 85k × 0.05 ≈ 4.25k tokens):
+          // 锚点落在其轮次,输出按既有 time.compacted 契约从模型上下文清除
+          expect(result).toBe("continue")
+          expect(part?.type).toBe("compaction")
+          expect(part?.tail_start_id).toBe(keep.id)
+          expect(
+            toolPart?.state.status === "completed" ? toolPart.state.time.compacted : undefined,
+          ).toBeGreaterThan(0)
+
+          // 渲染层按既有契约输出占位符:原文不再进入模型上下文
+          const filtered = MessageV2.filterCompacted(MessageV2.stream(session.id))
+          const rendered = JSON.stringify(
+            await MessageV2.toModelMessages(filtered, createModel({ context: 100_000, output: 32_000 })),
+          )
+          expect(rendered).toContain("[Old tool result content cleared]")
+          expect(rendered).not.toContain("y".repeat(50))
+
+          // 二次压缩:已标记(time.compacted)的输出必须按占位符体积估算,
+          // 锚点仍落在其轮次,而不是被按全文误判为超预算
+          await user(session.id, "next question")
+          await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+          const msgs2 = await svc.messages({ sessionID: session.id })
+          const parent2 = msgs2.at(-1)?.info.id
+          const result2 = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent2!, messages: msgs2, sessionID: session.id, auto: false }),
+            ),
+          )
+          expect(result2).toBe("continue")
+          expect(await lastCompactionPart(session.id)).toMatchObject({
+            type: "compaction",
+            tail_start_id: keep.id,
+          })
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
   test("allows plugins to disable synthetic continue prompt", async () => {
     await using tmp = await tmpdir()
     await WithInstance.provide({
@@ -1434,7 +1517,7 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("replays the prior user turn on overflow when earlier context exists", async () => {
+  test("keeps the pending user turn in the tail on overflow instead of replaying when it fits", async () => {
     await using tmp = await tmpdir()
     await WithInstance.provide({
       directory: tmp.path,
@@ -1442,10 +1525,10 @@ describe("session.compaction.process", () => {
         const session = await svc.create({})
         const root = await user(session.id, `root ${"x".repeat(80_000)}`)
         await assistant(session.id, root.id, tmp.path)
-        const replay = await user(session.id, "image")
+        const image = await user(session.id, "image")
         await svc.updatePart({
           id: PartID.ascending(),
-          messageID: replay.id,
+          messageID: image.id,
           sessionID: session.id,
           type: "file",
           mime: "image/png",
@@ -1468,21 +1551,24 @@ describe("session.compaction.process", () => {
             ),
           )
 
-          const last = (await svc.messages({ sessionID: session.id })).at(-1)
+          const all = await svc.messages({ sessionID: session.id })
+          const last = all.at(-1)
 
           expect(result).toBe("continue")
-          expect(last?.info.role).toBe("user")
-          expect(last?.parts.some((part) => part.type === "file")).toBe(false)
+          // pending turn 装得下保尾:原件保留在尾部,不再复制一份 replay
           expect(
-            last?.parts.some(
-              (part) =>
-                part.type === "text" &&
-                part.synthetic &&
-                part.metadata?.compaction_replay === true &&
-                part.text.includes("Attached image/png: cat.png"),
+            all.some(
+              (item) =>
+                item.info.role === "user" &&
+                item.parts.some((part) => part.type === "text" && part.metadata?.compaction_replay === true),
             ),
+          ).toBe(false)
+          expect(
+            last?.parts.some((part) => part.type === "text" && part.metadata?.compaction_continue === true),
           ).toBe(true)
-          expect(last?.parts.filter((part) => part.type === "text").every((part) => part.synthetic)).toBe(true)
+          // 原始 image 消息保留在尾部,文件 part 不被剥离
+          const original = all.find((item) => item.info.id === image.id)
+          expect(original?.parts.some((part) => part.type === "file")).toBe(true)
         } finally {
           await rt.dispose()
         }
@@ -1490,16 +1576,18 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("reports nothing-to-compact instead of replaying when the pending turn is unsplittable on overflow", async () => {
+  test("folds the unsplittable pending turn into the summary and replays its text on overflow", async () => {
+    const stub = llm()
+    stub.push(reply("summary"))
     await using tmp = await tmpdir()
     await WithInstance.provide({
       directory: tmp.path,
       fn: async () => {
         const session = await svc.create({})
-        await user(session.id, `huge ${"x".repeat(80_000)}`)
+        const huge = await user(session.id, `huge ${"x".repeat(80_000)}`)
         await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true, overflow: true })
 
-        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        const rt = liveRuntime(stub.layer, wide())
         try {
           const msgs = await svc.messages({ sessionID: session.id })
           const parent = msgs.at(-1)?.info.id
@@ -1512,21 +1600,29 @@ describe("session.compaction.process", () => {
 
           const all = await svc.messages({ sessionID: session.id })
           const summary = all.find((item) => item.info.role === "assistant" && item.info.summary)
+          const replayMsg = all.find(
+            (item) =>
+              item.info.role === "user" &&
+              item.parts.some((part) => part.type === "text" && part.metadata?.compaction_replay === true),
+          )
+          const part = all
+            .find((item) => item.info.id === parent)
+            ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
 
-          expect(result).toBe("stop")
+          // 空尾兜底:巨型 pending turn 折叠进摘要,锚点 = 压缩标记自身
+          expect(result).toBe("continue")
           expect(summary?.info.role).toBe("assistant")
-          if (summary?.info.role === "assistant") {
-            expect(summary.info.finish).toBe("error")
-            expect(JSON.stringify(summary.info.error)).toContain("exceeds the preserved-recent budget")
-            expect(JSON.stringify(summary.info.error)).toContain("pending user message")
+          if (summary?.info.role === "assistant") expect(summary.info.finish).not.toBe("error")
+          expect(part?.tail_start_id).toBe(parent)
+          expect(replayMsg?.info.role).toBe("user")
+          if (replayMsg?.info.role === "user") {
+            const text = replayMsg.parts.find((p) => p.type === "text")
+            expect(text?.type === "text" && text.text.startsWith("huge ")).toBe(true)
           }
-          expect(
-            all.some(
-              (item) =>
-                item.info.role === "user" &&
-                item.parts.some((part) => part.type === "text" && part.metadata?.compaction_replay === true),
-            ),
-          ).toBe(false)
+          // 原始巨型消息在锚点之前,折叠后不再进入模型上下文
+          const filtered = MessageV2.filterCompacted(MessageV2.stream(session.id))
+          expect(filtered.map((msg) => msg.info.id)).not.toContain(huge.id)
+          expect(filtered.map((msg) => msg.info.id)).toContain(replayMsg!.info.id)
         } finally {
           await rt.dispose()
         }
@@ -2808,6 +2904,51 @@ describe("session.compaction.summary sizing", () => {
             expect(error).toContain("cannot bring the context under the limit")
             expect(error).toContain("20000-token usable limit")
           }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("allows compaction when the projected floor with the actual retained tail fits", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, `old ${"x".repeat(80_000)}`)
+        const keep = await user(session.id, "hello")
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: parent!,
+                messages: msgs,
+                sessionID: session.id,
+                auto: false,
+                // 旧地板用保尾预算上限(15k)代替实际尾部(≈几十 tokens):10k+12k+15k+2k=39k ≥ 30k
+                // 会误拒;投影用实际尾部 + 估算余量 ≈ 26k < 30k,放行压缩。
+                contextTokens: { system: 10_000, tools: 12_000, usable: 30_000 },
+              }),
+            ),
+          )
+
+          const part = await lastCompactionPart(session.id)
+          const summary = (await svc.messages({ sessionID: session.id })).find(
+            (msg) => msg.info.role === "assistant" && msg.info.summary,
+          )
+
+          expect(result).toBe("continue")
+          expect(part?.type).toBe("compaction")
+          expect(part?.tail_start_id).toBe(keep.id)
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") expect(summary.info.finish).not.toBe("error")
         } finally {
           await rt.dispose()
         }
