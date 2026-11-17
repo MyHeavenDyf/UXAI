@@ -28,6 +28,7 @@ import { DialogSwitchAssessment } from "../dialog-switch-assessment"
 import type { PanelSkill, SkillConfig } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
 import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
+import { getBridgeConfigForSubtype } from "../../utils/bridge-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import { isAssetLibraryLoggedIn } from "../../utils/asset-upload"
 import type { AssetUploadRequest } from "./asset-upload-dialog"
@@ -1474,7 +1475,7 @@ function AssetDownloadButton(props: {
                 >
                   <span class="octo-assessment-item-text">保存到资产库(全页面)</span>
                 </button>
-                <Show when={props.mode === "preview"}>
+                <Show when={props.mode === "preview" && getBridgeConfigForSubtype(props.tab.subtype).injectEdit}>
                   <button
                     type="button"
                     class="octo-assessment-item"
