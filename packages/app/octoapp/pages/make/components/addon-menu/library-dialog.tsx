@@ -129,10 +129,12 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
     const platformUrl = base ? `${base}/designAssets/skillLibrary/#/resourcePage` : ""
     setPlatformSrc(platformUrl)
     // jk-j60099994-replace-with-60062650-octoapp-pages-make-addon-menu-library-dialog-1-end
-    
+
     const onMessage = (event: MessageEvent) => {
-      if (event.source !== platformIframeRef?.contentWindow && event.source !== productIframeRef?.contentWindow) return
-      if (allowedOrigin && event.origin !== allowedOrigin) return
+      if (tab() === "product") {
+        if (event.source !== platformIframeRef?.contentWindow && event.source !== productIframeRef?.contentWindow) return
+        if (allowedOrigin && event.origin !== allowedOrigin) return
+      }
       const payload = event.data as { type?: string; data?: unknown } | null
       if (!payload?.type) return
 
