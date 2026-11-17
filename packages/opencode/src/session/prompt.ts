@@ -17,6 +17,9 @@ import { ModelID, ProviderID } from "../provider/schema"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
+import { CompactionDebug } from "./compaction-debug"
+import { MessageDebug } from "./message-debug"
+import { AutoCompactDebug } from "./auto-compact-debug"
 import { Bus } from "../bus"
 import { ProviderTransform } from "@/provider/transform"
 import { SystemPrompt } from "./system"
@@ -68,7 +71,7 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
-import { AUTOMATIC_COMPACTION_ENABLED } from "./overflow"
+import { AUTOMATIC_COMPACTION_ENABLED, usable as usableContext } from "./overflow"
 import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
 import { Token } from "@/util/token"
 
@@ -803,7 +806,156 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         },
         onStructuredOutput: () => {},
       })
-      return Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
+      const system = Token.estimateValue(request.system)
+      const tools = Token.estimateValue(request.activeTools)
+      const msgs = Token.estimateValue(request.modelMsgs)
+      return { total: system + msgs + tools, system, messages: msgs, tools }
+    })
+
+    const dumpCompactionContext = Effect.fn("SessionPrompt.dumpCompactionContext")(function* (input: {
+      sessionID: SessionID
+      session: Session.Info
+      model: Provider.Model
+      phase: "before" | "after"
+      outcome?: "success" | "failed"
+    }) {
+      const exit = yield* Effect.gen(function* () {
+        const modelLabel = `${input.model.providerID}/${input.model.id}`
+        const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
+        const lastUser = messages.findLast((message) => message.info.role === "user")?.info
+        const lastAssistant = messages.findLast((message) => message.info.role === "assistant")?.info
+        const agent = lastUser?.role === "user" ? yield* agents.get(lastUser.agent) : undefined
+        if (!lastUser || lastUser.role !== "user" || !lastAssistant || lastAssistant.role !== "assistant" || !agent) {
+          yield* CompactionDebug.dump({
+            sessionID: input.sessionID,
+            phase: input.phase,
+            outcome: input.outcome,
+            note: `context not assemblable (lastUser=${lastUser?.role ?? "none"}, lastAssistant=${lastAssistant?.role ?? "none"}, agent=${agent?.name ?? "missing"})`,
+            model: modelLabel,
+            system: [],
+            modelMsgs: [],
+            activeTools: {},
+          })
+          return
+        }
+        const request = yield* prepareRequest({
+          messages,
+          lastUser,
+          agent,
+          session: input.session,
+          model: input.model,
+          processor: {
+            message: lastAssistant,
+            updateToolCall: () => Effect.succeed(undefined),
+            completeToolCall: () => Effect.succeed(undefined),
+          },
+          onStructuredOutput: () => {},
+        })
+        yield* CompactionDebug.dump({
+          sessionID: input.sessionID,
+          phase: input.phase,
+          outcome: input.outcome,
+          model: modelLabel,
+          system: [...(agent.prompt ? [agent.prompt] : SystemPrompt.provider(input.model)), ...request.system],
+          modelMsgs: request.modelMsgs,
+          activeTools: request.activeTools,
+        })
+      }).pipe(Effect.exit)
+      if (Exit.isSuccess(exit)) return
+      const error = Cause.squash(exit.cause)
+      yield* elog.warn("compaction debug dump failed", { error })
+      yield* CompactionDebug.dump({
+        sessionID: input.sessionID,
+        phase: input.phase,
+        outcome: input.outcome,
+        note: `request assembly failed: ${error instanceof Error ? error.message : String(error)}`,
+        model: `${input.model.providerID}/${input.model.id}`,
+        system: [],
+        modelMsgs: [],
+        activeTools: {},
+      })
+    })
+
+    // 自动压缩触发埋点:每次 compaction.create({ auto: true }) 前落盘一份完整请求快照,
+    // 用于排查压缩后上下文仍超阈值导致的循环压缩(auto-compact 目录下 auto_compact_*.txt)。
+    const dumpAutoCompactTrigger = Effect.fn("SessionPrompt.dumpAutoCompactTrigger")(function* (input: {
+      sessionID: SessionID
+      session: Session.Info
+      model: Provider.Model
+      trigger: string
+      tokens?: MessageV2.Assistant["tokens"]
+      overflow?: boolean
+    }) {
+      const exit = yield* Effect.gen(function* () {
+        const modelLabel = `${input.model.providerID}/${input.model.id}`
+        const cfg = yield* config.get()
+        const usable = usableContext({ cfg, model: input.model })
+        const limit = input.model.limit.input ?? input.model.limit.context
+        const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
+        const compactions = messages.reduce(
+          (count, msg) => count + msg.parts.filter((part) => part.type === "compaction").length,
+          0,
+        )
+        const lastUser = messages.findLast((message) => message.info.role === "user")?.info
+        const lastAssistant = messages.findLast((message) => message.info.role === "assistant")?.info
+        const agent = lastUser?.role === "user" ? yield* agents.get(lastUser.agent) : undefined
+        if (!lastUser || lastUser.role !== "user" || !lastAssistant || lastAssistant.role !== "assistant" || !agent) {
+          yield* AutoCompactDebug.dump({
+            sessionID: input.sessionID,
+            trigger: input.trigger,
+            tokens: input.tokens,
+            limit,
+            usable,
+            compactions,
+            overflow: input.overflow,
+            note: `context not assemblable (lastUser=${lastUser?.role ?? "none"}, lastAssistant=${lastAssistant?.role ?? "none"}, agent=${agent?.name ?? "missing"})`,
+            model: modelLabel,
+            system: [],
+            modelMsgs: [],
+            activeTools: {},
+          })
+          return
+        }
+        const request = yield* prepareRequest({
+          messages,
+          lastUser,
+          agent,
+          session: input.session,
+          model: input.model,
+          processor: {
+            message: lastAssistant,
+            updateToolCall: () => Effect.succeed(undefined),
+            completeToolCall: () => Effect.succeed(undefined),
+          },
+          onStructuredOutput: () => {},
+        })
+        yield* AutoCompactDebug.dump({
+          sessionID: input.sessionID,
+          trigger: input.trigger,
+          tokens: input.tokens,
+          limit,
+          usable,
+          compactions,
+          overflow: input.overflow,
+          model: modelLabel,
+          system: [...(agent.prompt ? [agent.prompt] : SystemPrompt.provider(input.model)), ...request.system],
+          modelMsgs: request.modelMsgs,
+          activeTools: request.activeTools,
+        })
+      }).pipe(Effect.exit)
+      if (Exit.isSuccess(exit)) return
+      const error = Cause.squash(exit.cause)
+      yield* elog.warn("auto compact trigger dump failed", { error })
+      yield* AutoCompactDebug.dump({
+        sessionID: input.sessionID,
+        trigger: input.trigger,
+        overflow: input.overflow,
+        note: `request assembly failed: ${error instanceof Error ? error.message : String(error)}`,
+        model: `${input.model.providerID}/${input.model.id}`,
+        system: [],
+        modelMsgs: [],
+        activeTools: {},
+      })
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
@@ -1793,25 +1945,42 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           if (task?.type === "compaction") {
             if (task.auto && !AUTOMATIC_COMPACTION_ENABLED) continue
+            yield* dumpCompactionContext({ sessionID, session, model, phase: "before" })
+            // 上下文构成明细(system/tools)供压缩服务做「no-op 跳过」与「地板预检」判定
+            const contextTokens = yield* estimateCompactedContext({ sessionID, session, model }).pipe(
+              Effect.catchCause((cause) =>
+                elog.warn("failed to estimate compacted context", { error: Cause.squash(cause) }).pipe(
+                  Effect.as(undefined),
+                ),
+              ),
+            )
             const result = yield* compaction.process({
               messages: msgs,
               parentID: lastUser.id,
               sessionID,
               auto: task.auto,
               overflow: task.overflow,
+              contextTokens:
+                contextTokens === undefined
+                  ? undefined
+                  : {
+                      system: contextTokens.system,
+                      tools: contextTokens.tools,
+                      usable: usableContext({ cfg: yield* config.get(), model }),
+                    },
+            })
+            yield* dumpCompactionContext({
+              sessionID,
+              session,
+              model,
+              phase: "after",
+              outcome: result === "stop" ? "failed" : "success",
             })
             if (result === "stop") break
             if (!task.auto) {
-              const estimated = yield* estimateCompactedContext({ sessionID, session, model }).pipe(
-                Effect.catchCause((cause) =>
-                  elog.warn("failed to estimate compacted context", { error: Cause.squash(cause) }).pipe(
-                    Effect.as(undefined),
-                  ),
-                ),
-              )
-              if (estimated !== undefined) {
+              if (contextTokens !== undefined) {
                 const limit = model.limit.input ?? model.limit.context
-                task.estimated_tokens = estimated
+                task.estimated_tokens = contextTokens.total
                 task.estimated_limit = limit
                 task.estimated_provider_id = model.providerID
                 task.estimated_model_id = model.id
@@ -1819,7 +1988,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 yield* bus.publish(SessionCompaction.Event.Estimated, {
                   sessionID,
                   messageID: task.messageID,
-                  tokens: estimated,
+                  tokens: contextTokens.total,
                   limit,
                   providerID: model.providerID,
                   modelID: model.id,
@@ -1855,6 +2024,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             lastFinished.modelID === model.id &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
+            yield* dumpAutoCompactTrigger({
+              sessionID,
+              session,
+              model,
+              trigger: "loop-overflow-check",
+              tokens: lastFinished.tokens,
+            })
             yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
             continue
           }
@@ -1926,6 +2102,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               onStructuredOutput(output) {
                 structured = output
               },
+            })
+            yield* MessageDebug.dumpTurn({
+              sessionID,
+              userID: lastUser.id,
+              agent: agent.name,
+              model: `${model.providerID}/${model.id}`,
+              system: [
+                ...(agent.prompt ? [agent.prompt] : SystemPrompt.provider(model)),
+                ...request.system,
+                ...(lastUser.system ? [lastUser.system] : []),
+              ],
+              modelMsgs: request.modelMsgs,
+              activeTools: request.activeTools,
             })
             if (estimateAfterAutoCompaction) {
               const tokens = Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
@@ -2002,6 +2191,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             if (result === "stop") return "break" as const
             if (result === "compact") {
               if (!AUTOMATIC_COMPACTION_ENABLED) return "break" as const
+              const overflowTokens =
+                handle.message.tokens.input + handle.message.tokens.cache.read + handle.message.tokens.cache.write
+              yield* dumpAutoCompactTrigger({
+                sessionID,
+                session,
+                model,
+                trigger: handle.message.finish
+                  ? "processor-post-step"
+                  : overflowTokens > 0
+                    ? "processor-halt-overflow"
+                    : "processor-preflight",
+                tokens: handle.message.tokens,
+                overflow: !handle.message.finish,
+              })
               yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,

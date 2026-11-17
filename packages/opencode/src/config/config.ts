@@ -273,6 +273,13 @@ export const Info = Schema.Struct({
       prune: Schema.optional(Schema.Boolean).annotate({
         description: "Enable pruning of old tool outputs (default: true)",
       }),
+      tail_turns: Schema.optional(NonNegativeInt).annotate({
+        description:
+          "Maximum number of recent user turns, including their following assistant/tool responses, to keep verbatim during compaction. By default retention is limited only by the preserved token budget.",
+      }),
+      preserve_recent_tokens: Schema.optional(NonNegativeInt).annotate({
+        description: "Maximum number of tokens from recent turns to preserve verbatim after compaction",
+      }),
       reserved: Schema.optional(NonNegativeInt).annotate({
         description: "Token buffer for compaction. Leaves enough window to avoid overflow during compaction.",
       }),

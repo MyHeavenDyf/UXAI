@@ -37,12 +37,16 @@ export function createStudioSessionData(input: {
         const session = result.data
         if (!session || session.agent !== "octo_studio") {
           batch(() => {
+            setDataStore("session", [])
             setDataStore("message", {})
             setDataStore("part", {})
             setSnapshot("sessionID", undefined)
           })
           return
         }
+        // 保留直连 session.get 的会话记录：syncStore 冷启动引导延迟期间，
+        // 头部三点菜单等以它兜底，避免点击后菜单静默不渲染。
+        setDataStore("session", [session])
         return input.globalSDK.client.session.messages({ sessionID }).then((msgResult) => {
           if (token !== loadToken || sessionID !== input.sessionID() || removedSessions.has(sessionID)) return
           const items = msgResult.data ?? []
@@ -82,6 +86,7 @@ export function createStudioSessionData(input: {
   createEffect(
     on(input.sessionID, (id) => {
       setSnapshot("sessionID", undefined)
+      setDataStore("session", [])
       if (!id) {
         batch(() => {
           setDataStore("message", {})
@@ -114,6 +119,7 @@ export function createStudioSessionData(input: {
       removedSessions.add(sessionID)
       setSnapshot("sessionID", undefined)
       loadToken++
+      setDataStore("session", [])
       setDataStore("message", sessionID, [])
       return
     }

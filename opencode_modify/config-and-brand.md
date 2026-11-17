@@ -30,3 +30,4 @@
 ### 待提交 — default.txt agent 身份更名
 
 - `src/session/prompt/default.txt`：全文品牌 "Octo AI" → "octo Agent"（首行身份声明 + `/help` 提示 + 用户问能力的示例句，共 5 处）
+- `src/session/prompt/default.txt`：品牌再统一为 "OctoAgent"（承接上一条，5 处）

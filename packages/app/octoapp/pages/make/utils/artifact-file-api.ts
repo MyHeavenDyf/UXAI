@@ -400,7 +400,8 @@ export function getProjectRelativePath(filePath: string, projectDir: string): st
 
 export function pathToLocalUrl(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/")
-  return `local:///${normalized}`
+ 
+  return `local:///${normalized.replace(/%/g, "%25").replace(/#/g, "%23")}`
 }
 
 

@@ -1,7 +1,21 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { hasModelsApiToken, modelsApiHeaders, modelsApiProviders, modelsApiThirdToken, modelsApiToken } from "./models-api"
+import {
+  hasModelsApiToken,
+  modelsApiHeaders,
+  modelsApiProviders,
+  modelsApiThirdToken,
+  modelsApiToken,
+} from "./models-api"
 
 describe("modelsApiProviders", () => {
+  test("requires an explicitly configured API key only when requested by the catalog", () => {
+    const result = modelsApiProviders({
+      paid: { id: "paid", name: "Paid", requires_api_key: true, models: {} },
+      free: { id: "free", name: "Free", models: {} },
+    })
+    expect(result[0].options).toMatchObject({ requires_api_key: true, api_key_configured: false })
+    expect(result[1].options.requires_api_key).toBeUndefined()
+  })
   test("converts remote provider arrays into app provider models", () => {
     const result = modelsApiProviders({
       w3: {

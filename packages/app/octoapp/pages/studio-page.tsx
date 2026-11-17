@@ -2150,7 +2150,9 @@ function StudioPageContent() {
   // ── 会话区顶部三点菜单（与 design 页/左侧栏 session 右键菜单一致）──
   const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
   const [menuTriggerEl, setMenuTriggerEl] = createSignal<HTMLElement | undefined>(undefined)
-  const menuSession = () => activeStudioSession()
+  // syncStore 冷启动引导延迟（深链/刷新/新建会话后）时当前会话可能尚未同步进来，
+  // 用本页直连 session.get 的记录兜底，否则菜单会静默不渲染。
+  const menuSession = () => activeStudioSession() ?? dataStore.session.find((s) => s.id === params.id)
   const menuHasMessages = () => {
     const s = menuSession()
     return !!s && s.time.updated > s.time.created
@@ -2160,6 +2162,12 @@ function StudioPageContent() {
     setHeaderTitle("menuOpen", false)
     setMenuTriggerEl(undefined)
   }
+
+  // menuOpen 为 true 但会话数据仍缺失时立即复位：按钮不会卡在高亮态，
+  // 也避免数据到达后菜单未经点击自行弹出。
+  createEffect(() => {
+    if (headerTitle.menuOpen && !menuSession()) closeMenu()
+  })
 
   // 切换会话（如分享链接打开新对话）时关闭三点菜单：原触发按钮随头部重建/移除，
   // menuOpen 若保持 true，菜单会按已脱离 DOM 的旧按钮定位而落到屏幕左上角。
