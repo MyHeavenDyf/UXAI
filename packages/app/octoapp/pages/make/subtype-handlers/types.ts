@@ -99,6 +99,12 @@ export interface SubtypeHandler {
   isDownloadBusy?: (ctx: SubtypeHandlerContext, option?: string) => boolean
 
   /**
+   * 处理「保存到资产库(局部)」进入元素选择模式
+   * @returns true 表示 subtype 已接管（跳过通用 edit-bridge 选择流程），false 或 void 表示走通用流程
+   */
+  handleAssetPick?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+
+  /**
    * 构建归档时要塞进 src/ 的代码包
    * 返回 { blob, fileName } 表示要写入 src/<fileName>；
    * 返回 null 表示该 subtype 不提供 src 内容（默认行为，src/ 留空）
