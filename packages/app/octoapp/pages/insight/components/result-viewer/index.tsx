@@ -29,7 +29,7 @@ import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 import { InsightFileManager } from "../file-manager"
 import type { InsightFile, InsightFileEntry } from "../../utils/insight-file-api"
 import { createPreviewTracker } from "../../utils/interaction-tracking"
-import { HtmlReviewProvider } from "./html-review"
+import { HtmlReviewProvider, useHtmlReview } from "./html-review"
 
 // ── Markdown 渲染器 ──────────────────────────────────────────
 // 用 Vditor 的渲染引擎(MarkdownPreview),与全屏编辑器**同一套渲染**,保证卡片预览与编辑预览
@@ -262,7 +262,8 @@ function LocalFileTabBody(props: {
   onCacheContent?: (id: string, content: string) => void
   onCanvasState?: (state: "loading" | "error" | "ready") => void
 }): JSX.Element {
-  const [resource, { refetch }] = createResource(
+  const review = useHtmlReview()
+  const [resource, { refetch, mutate }] = createResource(
     // source 必须是可按值比较的结构:返回新对象会让 createResource 每次 effect 都重跑,
     // 而 onCacheContent 回写又会换 props.tab 对象 → 死循环。故只放三个原始值。
     () => ({ path: props.path, disk: props.diskVersion ?? 0, key: props.refreshKey ?? 0 }),
@@ -281,6 +282,13 @@ function LocalFileTabBody(props: {
       return text
     },
   )
+
+  createEffect(() => {
+    const content = review?.consumeSavedPreview(props.tab.id, props.path)
+    if (content === undefined) return
+    mutate(content)
+    props.onCacheContent?.(props.tab.id, content)
+  })
 
   createEffect(() => {
     if (props.tab.type === "html") props.onCanvasState?.(resource.loading ? "loading" : resource.error ? "error" : "ready")

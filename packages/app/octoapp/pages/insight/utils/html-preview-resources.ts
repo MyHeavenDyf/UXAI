@@ -4,7 +4,10 @@ import { pathToLocalUrl } from "./insight-file-api"
 export function resolvePreviewStyles(html: string, filePath?: string): string {
   if (!filePath) return html
   const document = new DOMParser().parseFromString(html, "text/html")
-  const base = pathToLocalUrl(filePath).replace(/#/g, "%23").replace(/\?/g, "%3F")
+  const fallback = pathToLocalUrl(filePath).replace(/#/g, "%23").replace(/\?/g, "%3F")
+  const declared = document.querySelector("base[href]")?.getAttribute("href")
+  const base = declared !== undefined && declared !== null && URL.canParse(declared, fallback)
+    ? new URL(declared, fallback).href : fallback
   document.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"][href]').forEach((link) => {
     const href = link.getAttribute("href")!
     if (!href || /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(href)) return

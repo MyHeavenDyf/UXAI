@@ -1,9 +1,10 @@
 import { HtmlLocalEditor } from "./html-local-editor"
-import { createMemo, createSignal, createEffect, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, createEffect, onCleanup, untrack, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { stripCodeFence } from "../../utils/detect"
 import { createStore } from "solid-js/store"
-import { injectCommentBridge } from "@opencode-ai/core/bridge-scripts"
+import { annotateElementsWithIdsBrowser, injectCommentBridge } from "@opencode-ai/core/bridge-scripts"
+import { injectInsightEditBridge } from "../../utils/html-edit-preview"
 import { useHtmlReview } from "./html-review"
 import { HtmlCommentLayer } from "./html-comment-layer"
 import { resolvePreviewStyles } from "../../utils/html-preview-resources"
@@ -23,16 +24,46 @@ export function HtmlRenderer(props: { content: string; filePath?: string; onRead
   const [frame, setFrame] = createStore<{ element?: HTMLIFrameElement }>({})
   const commentsEnabled = createMemo(() => !!review?.comments())
 
+  let retained: { content: string; source: string } | undefined
+  let url = ""
+  let pendingContent: string | undefined
+  const retainPreview = (content: string, source: string) => {
+    retained = { content, source }
+    pendingContent = content === props.content ? undefined : content
+  }
+  const source = createMemo(() => {
+    if (retained?.content === props.content) return retained.source
+    return review?.history() && html() ? annotateElementsWithIdsBrowser(html()) : html()
+  })
+  onCleanup(() => { if (url) URL.revokeObjectURL(url) })
+  const syncEditMode = () => frame.element?.contentWindow?.postMessage({
+    type: "od:model-edit-mode", enabled: !!review?.state.editing, includeDocumentSelector: true,
+  }, "*")
+  createEffect(syncEditMode)
+
   createEffect(() => {
-    const src = resolvePreviewStyles(html(), isElectronDesktop() ? props.filePath : undefined)
+    const path = isElectronDesktop() ? props.filePath : undefined
+    const documentSource = source()
+    const editable = !!review?.history()
+    const commenting = commentsEnabled()
+    const content = props.content
+    // 消费一次本预览的保存通知；外部更新仍以新文件重建 iframe。
+    if (url && pendingContent === content) {
+      pendingContent = undefined
+      return
+    }
+    pendingContent = undefined
+    retained = undefined
+    if (url) URL.revokeObjectURL(url)
+    url = ""
+    const src = resolvePreviewStyles(documentSource, path)
     if (!src) {
       setBlobUrl("")
       return
     }
-    const url = URL.createObjectURL(new Blob([commentsEnabled() ? injectCommentBridge(src) : src], { type: "text/html; charset=utf-8" }))
+    const preview = editable ? injectInsightEditBridge(src) : src
+    url = URL.createObjectURL(new Blob([commenting ? injectCommentBridge(preview) : preview], { type: "text/html; charset=utf-8" }))
     setBlobUrl(url)
-    // 内容变化前 / 组件卸载时回收,避免 blob 泄漏
-    onCleanup(() => URL.revokeObjectURL(url))
   })
 
   return (
@@ -44,26 +75,27 @@ export function HtmlRenderer(props: { content: string; filePath?: string; onRead
         </div>
       }
     >
-      <Show when={!review?.state.editing} fallback={<HtmlLocalEditor content={props.content} filePath={props.filePath} onReady={props.onReady} />}>
-      <div class="relative w-full h-full">
-      <iframe ref={element => setFrame("element", element)}
-        src={blobUrl()}
-        onLoad={() => { if (blobUrl()) props.onReady?.() }}
-        sandbox="allow-scripts"
-        title="HTML preview"
-        style={{
-          width: "100%",
-          height: "100%",
-          border: "none",
-          background: "white",
-          display: "block",
-        }}
-      />
-      <Show when={commentsEnabled()}>
-        <HtmlCommentLayer frame={frame.element} content={html()} />
-      </Show>
+      <div class="relative w-full h-full" classList={{ "insight-html-local-editor": !!review?.state.editing }}>
+        <iframe ref={element => setFrame("element", element)}
+          src={blobUrl()}
+          onLoad={() => { if (blobUrl()) { syncEditMode(); props.onReady?.() } }}
+          sandbox="allow-scripts"
+          title="HTML preview"
+          style={{
+            width: "100%",
+            height: "100%",
+            border: "none",
+            background: "white",
+            display: "block",
+          }}
+        />
+        <Show when={commentsEnabled()}>
+          <HtmlCommentLayer frame={frame.element} content={html()} />
+        </Show>
+        <Show when={review?.state.editing && frame.element && blobUrl()} keyed>
+          {(_url) => <HtmlLocalEditor frame={frame.element!} content={untrack(() => props.content)} source={untrack(source)} onRetainPreview={retainPreview} />}
+        </Show>
       </div>
-      </Show>
     </Show>
   )
 }
