@@ -47,6 +47,25 @@ export function encodeSelectorToBase64Url(selector: string): string {
 }
 
 /**
+ * 局部保存默认名（即 Input 值）：页面名 + "-" + selector 的 base64url，
+ * 总长 ≤ maxLength（默认 95——加 zip 条目 ".html" 后缀后 ≤ 100）。
+ * 超长时页面名完整保留（极端超长页面名自身截到上限），
+ * 单段仍塞不进预算时截编码。
+ */
+export function buildDefaultAssetName(pageName: string, cssSelector: string, maxLength = 95): string {
+  const name = pageName.slice(0, maxLength)
+  const budget = maxLength - name.length - 1
+  if (budget < 2 || !cssSelector) return name
+  const segments = cssSelector.split(" > ")
+  let encoded = encodeSelectorToBase64Url(segments.join(" > "))
+  while (encoded.length > budget && segments.length > 1) {
+    segments.shift()
+    encoded = encodeSelectorToBase64Url(segments.join(" > "))
+  }
+  return `${name}-${encoded.slice(0, budget)}`
+}
+
+/**
  * 文件名清洁+ 控制字符 → `~`，合并连续 `~`，
  * 截断 200 字符，剥尾部点/空格、前导 `~`）。files.name 兜底：覆盖用户
  * 编辑的任意内容、LLM 页面名脏字符、超长名称。
