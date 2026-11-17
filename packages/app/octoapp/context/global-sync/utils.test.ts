@@ -1,6 +1,39 @@
 import { describe, expect, test } from "bun:test"
-import type { Agent, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
-import { directoryKey, normalizeAgentList, normalizeProviderList, replaceProviderList } from "./utils"
+import type { Agent, Config, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import {
+  directoryKey,
+  normalizeAgentList,
+  normalizeProviderList,
+  replaceProviderList,
+  replaceProviderConfig,
+} from "./utils"
+
+describe("replaceProviderConfig", () => {
+  test("replaces the saved provider without reviving deleted models or losing unrelated settings", () => {
+    const current = {
+      model: "custom/kept",
+      provider: {
+        custom: {
+          models: {
+            removed: { name: "Removed" },
+            kept: { name: "Kept", modalities: { input: ["text", "image"], output: ["text"] } },
+          },
+        },
+        other: { models: { untouched: { name: "Untouched" } } },
+      },
+    } satisfies Config
+    const saved = { provider: { custom: { models: { kept: { name: "Kept" } } } } }
+    const next = replaceProviderConfig(current, saved, "custom")
+    expect(next.provider?.custom.models).toEqual({ kept: { name: "Kept" } })
+    expect(next.provider?.other).toEqual(current.provider.other)
+    expect(next.model).toBe(current.model)
+    expect(current.provider.custom.models.removed).toBeDefined()
+  })
+
+  test("does not report a missing provider response as a successful replacement", () => {
+    expect(() => replaceProviderConfig(undefined, {}, "custom")).toThrow("missing from save response")
+  })
+})
 
 const agent = (name = "build") =>
   ({
@@ -52,6 +85,20 @@ describe("directoryKey", () => {
 })
 
 describe("replaceProviderList", () => {
+  test("preserves local key readiness during remote catalog replacement", () => {
+    const provider = {
+      id: "paid",
+      name: "Paid",
+      source: "remote",
+      env: [],
+      models: {},
+      options: { requires_api_key: true, api_key_configured: true },
+    } as Provider
+    const current = { all: [provider], connected: ["paid"], default: {} }
+    const incoming = { ...provider, options: { requires_api_key: true, api_key_configured: false } }
+    expect(replaceProviderList(current, [incoming]).all[0].options.api_key_configured).toBe(true)
+    expect(replaceProviderList({ ...current, all: [] }, [incoming]).all[0].options.api_key_configured).toBe(false)
+  })
   test("replaces snapshot providers and keeps unrelated configured providers", () => {
     const provider = (id: string, models: Provider["models"] = {}) =>
       ({ id, name: id, source: "api", env: [], options: {}, models }) as Provider

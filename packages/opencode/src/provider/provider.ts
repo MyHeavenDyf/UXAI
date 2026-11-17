@@ -1359,7 +1359,12 @@ export const ConfigProvidersResult = Schema.Struct({
 export type ConfigProvidersResult = Types.DeepMutable<Schema.Schema.Type<typeof ConfigProvidersResult>>
 
 export function defaultModelIDs<T extends { models: Record<string, { id: string }> }>(providers: Record<string, T>) {
-  return mapValues(providers, (item) => sort(Object.values(item.models))[0].id)
+  return Object.fromEntries(
+    Object.entries(providers).flatMap(([id, item]) => {
+      const model = sort(Object.values(item.models))[0]
+      return model ? [[id, model.id]] : []
+    }),
+  )
 }
 
 export interface Interface {
@@ -1513,7 +1518,7 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider, source: Info
     source,
     name: provider.name,
     env: [...(provider.env ?? [])],
-    options: {},
+    options: provider.requires_api_key === true ? { requires_api_key: true, api_key_configured: false } : {},
     title_model: provider.title_model ? [...provider.title_model] : undefined,
     models,
   }
@@ -1943,7 +1948,32 @@ const layer: Layer.Layer<
 
     const list = Effect.fn("Provider.list")(function* () {
       yield* syncRemoteProviders()
+      yield* syncRequiredApiKeys()
       return yield* InstanceState.use(state, (s) => s.providers)
+    })
+
+    const syncRequiredApiKeys = Effect.fn("Provider.syncRequiredApiKeys")(function* () {
+      const current = yield* InstanceState.get(state)
+      if (!Object.values(current.providers).some((provider) => provider.options.requires_api_key === true)) return
+      const credentials = yield* auth.all().pipe(Effect.orDie)
+      const cfg = yield* config.get()
+      const envs = yield* env.all()
+      Object.values(current.providers).forEach((provider) => {
+        if (provider.options.requires_api_key !== true) return
+        const stored = credentials[provider.id]
+        const configured = cfg.provider?.[provider.id]?.options?.apiKey
+        const key =
+          (stored?.type === "api" ? stored.key.trim() : "") ||
+          (typeof configured === "string" ? configured.trim() : "") ||
+          provider.env.map((name) => envs[name]?.trim()).find(Boolean)
+        if (provider.key !== key) {
+          current.models.clear()
+          current.sdk.clear()
+        }
+        provider.key = key || undefined
+        delete provider.options.apiKey
+        provider.options.api_key_configured = !!key
+      })
     })
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>, remoteApi?: string) {
@@ -2344,9 +2374,14 @@ const layer: Layer.Layer<
     })
 
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
+      yield* syncRemoteProviders()
+      yield* syncRequiredApiKeys()
       const s = yield* InstanceState.get(state)
       const envs = yield* env.all()
       const provider = s.providers[model.providerID]
+      if (provider.options.requires_api_key === true && provider.options.api_key_configured !== true) {
+        return yield* Effect.die(new Error(`请先为提供商 ${provider.name} 配置 API Key`))
+      }
       const configuredBaseURL =
         typeof provider.options["baseURL"] === "string" && provider.options["baseURL"] !== ""
           ? provider.options["baseURL"]
