@@ -1,28 +1,25 @@
-import { createEffect, createMemo, onCleanup, onMount, Show } from "solid-js"
+import { createMemo, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { showToast } from "@opencode-ai/ui/toast"
-import { annotateElementsWithIdsBrowser, injectEditBridge, injectEditBridgeStyle, injectInspectStyleBridge, injectModelEditBridge } from "@opencode-ai/core/bridge-scripts"
 import { ModelEditPanel } from "../../../make/components/result-viewer/model-edit-panel"
 import { getDefaultNativeConfig, readNativeDefaults } from "../../../make/components/model-edit-items/registry"
 import type { ModelEditContext, ModelEditElement, OnChangeArgs } from "../../../make/components/model-edit-items/types"
 import { directModelEditConfig } from "../../../make/subtype-handlers/default"
 import { cleanBridgeContent } from "../../../make/utils/bridge-cleaner"
 import { applyManualEditPatch, normalizeManualEditInspectorColor } from "../../../make/edit-mode/source-patches"
-import { stripCodeFence } from "../../utils/detect"
 import { applyHtmlAppearanceEdit, applyHtmlEditMessage, borderEditKeys, prepareHtmlDeletion } from "../../utils/html-edit-source"
 import { HUI_COLOR_TOKENS } from "../../../make/components/model-edit-items/icon-data/hui-color-tokens"
 import type { AssetFile } from "../../../make/components/addon-menu/asset-library"
 import { importProductAsset } from "../../utils/product-asset-import"
 import { getDesktopApi } from "../../lib/electron-api"
+import type { EditPreviewCommit } from "../../utils/html-edit-preview"
 import { attachPanelDrag } from "../../utils/panel-drag"
 import "./html-local-editor.css"
 import { useHtmlReview } from "./html-review"
-import { resolvePreviewStyles } from "../../utils/html-preview-resources"
-import { isElectronDesktop } from "../../utils/insight-file-api"
 
 const directStyleGroups = new Set(["od_effects", "od_bgImage", "od_padding", "od_margin", "od_size", "od_layout"])
 
-export function HtmlLocalEditor(props: { content: string; filePath?: string; onReady?: () => void }) {
+export function HtmlLocalEditor(props: { content: string; source: string; frame: HTMLIFrameElement; onRetainPreview: (content: string, source: string) => void }) {
   const review = useHtmlReview()!
   let original = props.content
   const lifetime = new AbortController()
@@ -47,30 +44,38 @@ export function HtmlLocalEditor(props: { content: string; filePath?: string; onR
     }
   }
   const [state, setState] = createStore({
-    target: null as (ModelEditElement & { documentSelector?: string }) | null, url: "", revision: 0, importing: false,
+    target: null as (ModelEditElement & { documentSelector?: string }) | null, importing: false,
   })
-  let frame: HTMLIFrameElement | undefined
-  let source = annotateElementsWithIdsBrowser(stripCodeFence(original))
+  let source = props.source
+  let baseline = source
+  const links = new Map<string, string>()
+  const dynamicIds = new Set<string>()
   const failedStyles = new Map<string, string>()
   const send = (data: unknown) => {
     try {
       source = applyHtmlEditMessage(source, data)
-      frame?.contentWindow?.postMessage(data, "*")
+      const message = data as { id?: string; styles?: { href?: string } }
+      if (message.id && message.styles?.href !== undefined) {
+        links.set(message.id, message.styles.href)
+        return
+      }
+      props.frame.contentWindow?.postMessage(data, "*")
     } catch (error) {
       showToast({ title: error instanceof Error ? error.message : "修改失败", variant: "error" })
     }
   }
-  createEffect(() => {
-    state.revision
-    source = annotateElementsWithIdsBrowser(stripCodeFence(original))
+  const reset = () => {
+    source = baseline
     failedStyles.clear()
-    const html = injectEditBridgeStyle(injectModelEditBridge(injectEditBridge(injectInspectStyleBridge(source))))
-    const url = URL.createObjectURL(new Blob([resolvePreviewStyles(html, isElectronDesktop() ? props.filePath : undefined)], { type: "text/html;charset=utf-8" }))
-    setState("url", url)
-    onCleanup(() => URL.revokeObjectURL(url))
-  })
+    links.clear()
+    dynamicIds.clear()
+    setState("target", null)
+    send({ type: "od:insight-reset-edit" })
+    send({ type: "od:model-edit-clear" })
+  }
+  onCleanup(() => send({ type: "od:insight-reset-edit" }))
   const receive = (event: MessageEvent) => {
-    if (event.source !== frame?.contentWindow || review.state.busy || state.importing) return
+    if (event.source !== props.frame.contentWindow || review.state.busy || state.importing) return
     if (event.data?.type !== "od:model-edit-selected") return
     const target = event.data.target
     if (!target || typeof target.dataOdId !== "string" || typeof target.tagName !== "string") return
@@ -119,7 +124,8 @@ export function HtmlLocalEditor(props: { content: string; filePath?: string; onR
       const result = applyHtmlAppearanceEdit(source, args.dom, styles)
       failedStyles.delete(errorKey)
       source = result.source
-      frame?.contentWindow?.postMessage({
+      if (result.important) dynamicIds.add(args.dom.dataOdId)
+      props.frame.contentWindow?.postMessage({
         type: "od:edit-preview-style", id: args.dom.dataOdId, styles: result.styles,
         important: result.important, version: Date.now(),
       }, "*")
@@ -128,6 +134,35 @@ export function HtmlLocalEditor(props: { content: string; filePath?: string; onR
       failedStyles.set(errorKey, title)
       if (args.key !== "od_bgImage") showToast({ title, variant: "error" })
     }
+  }
+  const commitPreview = (savedSource: string, removeId?: string) => {
+    const doc = new DOMParser().parseFromString(savedSource, "text/html")
+    const attributes = ["data-insight-fill-overrides", "data-insight-border-overrides", "data-insight-style-overrides"]
+    const overrides = dynamicIds.size ? Array.from(doc.head.querySelectorAll(attributes.map(name => `style[${name}]`).join(","))).flatMap(node => {
+      const attribute = attributes.find(name => node.hasAttribute(name))
+      return attribute ? [[attribute, node.textContent ?? ""] as [string, string]] : []
+    }) : []
+    const commit: EditPreviewCommit = { requestId: crypto.randomUUID(), removeId, links: [...links], dynamicIds: [...dynamicIds], overrides }
+    return new Promise<boolean>(resolve => {
+      const frame = props.frame.contentWindow
+      if (!frame || lifetime.signal.aborted) { resolve(false); return }
+      const done = (ok: boolean) => {
+        clearTimeout(timer)
+        window.removeEventListener("message", receive)
+        lifetime.signal.removeEventListener("abort", abort)
+        resolve(ok)
+      }
+      const abort = () => done(false)
+      const receive = (event: MessageEvent) => {
+        if (event.source === frame && event.data?.type === "od:insight-commit-result" && event.data.requestId === commit.requestId) {
+          done(event.data.ok === true)
+        }
+      }
+      const timer = setTimeout(abort, 1000)
+      window.addEventListener("message", receive)
+      lifetime.signal.addEventListener("abort", abort, { once: true })
+      frame.postMessage({ type: "od:insight-commit-edit", commit }, "*")
+    })
   }
   const save = async (remove = false) => {
     const ctx = context()
@@ -138,11 +173,16 @@ export function HtmlLocalEditor(props: { content: string; filePath?: string; onR
       const html = await snapshot()
       const result = remove ? prepareHtmlDeletion(html, ctx.dom, ctx.filePath) : { kind: "source" as const, source: html }
       if (result.kind === "agent") {
-        await review.editWithAgent(result.prompt, cleanBridgeContent(html), original, content => { original = content }, "html-element-delete")
+        await review.editWithAgent(result.prompt, cleanBridgeContent(html), original, content => { original = content; baseline = source; void commitPreview(source) }, "html-element-delete")
         showToast({ title: "已请求 Agent 修改生成代码以删除该元素，请等待处理" })
         return true
       }
-      await review.saveEdit(cleanBridgeContent(result.source), original)
+      const content = cleanBridgeContent(result.source)
+      await review.saveEdit(content, original, async () => {
+        if (!await commitPreview(result.source, remove ? ctx.dom.dataOdId : undefined)) return false
+        props.onRetainPreview(content, result.source)
+        return true
+      })
       return true
     } catch (error) {
       showToast({ title: error instanceof Error ? error.message : "保存失败", variant: "error" })
@@ -155,10 +195,7 @@ export function HtmlLocalEditor(props: { content: string; filePath?: string; onR
       onCleanup(detach)
     })
   }
-  return <div class="insight-html-local-editor relative w-full h-full">
-    <iframe ref={frame} src={state.url} sandbox="allow-scripts" title="HTML 局部修改"
-      style={{ width: "100%", height: "100%", border: "none", background: "white", display: "block" }}
-      onLoad={() => { send({ type: "od:model-edit-mode", enabled: true, includeDocumentSelector: true }); props.onReady?.() }} />
+  return (
     <Show when={state.target}>{target => <div ref={draggablePanel} class="insight-property-panel"><ModelEditPanel element={target()}
       config={getDefaultNativeConfig(target().elementKind, target().isLayoutContainer)}
       panelData={readNativeDefaults(target().elementKind, {
@@ -183,6 +220,8 @@ export function HtmlLocalEditor(props: { content: string; filePath?: string; onR
             await review.editWithAgent(prompt, cleanBridgeContent(await snapshot()), original, content => {
               // 文件已落盘，即使发送失败也要使用新基线继续编辑或重试。
               original = content
+              baseline = source
+              void commitPreview(source)
             })
           } catch (error) {
             if (!lifetime.signal.aborted) showToast({ title: error instanceof Error ? error.message : "资产替换失败", variant: "error" })
@@ -192,6 +231,6 @@ export function HtmlLocalEditor(props: { content: string; filePath?: string; onR
         },
       }}
       onSave={() => save()} onDelete={() => save(true)}
-      onExit={() => { setState("target", null); setState("revision", value => value + 1) }} /></div>}</Show>
-  </div>
+      onExit={reset} /></div>}</Show>
+  )
 }
