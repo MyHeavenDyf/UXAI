@@ -49,7 +49,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     return versionOptions() ?? []
   }
 
-  // 版本数据到达后校验当前版本是否仍存在；为空则自动选第一项
+  // 版本数据到达后校验当前版本是否仍存在；为空则自动选第一项；命中则以接口最新数据回填(本地缓存(lastSelection)可能缺少 ownerList/uxDlList 等后加字段)
   createEffect(() => {
     const options = safeVersionOptions()
     if (!options.length) return
@@ -58,7 +58,8 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
       setStore("version", options[0] ? { ...options[0] } : undefined)
       return
     }
-    if (!options.some((v) => v.id === current.id)) setStore("version", undefined)
+    const fresh = options.find((v) => v.id === current.id)
+    setStore("version", fresh ? { ...fresh } : undefined)
   })
 
   createEffect(() => {

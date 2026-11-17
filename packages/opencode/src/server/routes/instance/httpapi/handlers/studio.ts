@@ -19,6 +19,7 @@ import {
   deleteStudioHistoryMedia,
   listStudioHistoryExcludedIds,
   listStudioHistoryMedia,
+  rematerializeStudioSessionMedia,
   snapshotSessionMedia,
   splitHistoryFilter,
   studioHistoryRevision,
@@ -584,7 +585,9 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
         try: () => Instance.restore(instance, () => Promise.resolve({
-          snapshotted: snapshotSessionMedia(instance.directory, ctx.payload.sessionID),
+          snapshotted:
+            snapshotSessionMedia(instance.directory, ctx.payload.sessionID)
+            + rematerializeStudioSessionMedia(instance.directory, ctx.payload.sessionID),
         })),
         catch: (error) =>
           new ApiStudioGenerationError({

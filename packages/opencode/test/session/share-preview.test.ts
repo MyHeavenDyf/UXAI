@@ -87,6 +87,36 @@ it.instance("previews Studio turns from their user, assistant and generation too
   }),
 )
 
+it.instance("keeps assistant reasoning separate from the reply text", () =>
+  Effect.gen(function* () {
+    const service = yield* Session.Service
+    const session = yield* service.create({ title: "思考过程预览", agent: "octo_make" })
+    const message = yield* service.updateMessage({
+      id: MessageID.ascending(), sessionID: session.id, role: "assistant",
+      parentID: MessageID.ascending(), agent: "octo_make", mode: "octo_make",
+      modelID: ModelID.make("test"), providerID: ProviderID.make("test"),
+      time: { created: 1, completed: 2 }, path: { cwd: "/tmp", root: "/tmp" },
+      cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    })
+    yield* service.updatePart({
+      id: PartID.ascending(), messageID: message.id, sessionID: session.id,
+      type: "reasoning", text: "先查看原始页面的代码结构。", time: { start: 1, end: 2 },
+    })
+    yield* service.updatePart({
+      id: PartID.ascending(), messageID: message.id, sessionID: session.id,
+      type: "text", text: "页面修改完成。",
+    })
+    expect((yield* previewSession({ sessionID: session.id })).messages).toEqual([{
+      id: message.id,
+      role: "assistant",
+      text: "页面修改完成。",
+      reasoning: "先查看原始页面的代码结构。",
+      truncated: false,
+      files: [],
+    }])
+  }),
+)
+
 it.instance("shows the same user input as Design instead of injected artifact or workspace prompts", () =>
   Effect.gen(function* () {
     const service = yield* Session.Service

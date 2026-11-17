@@ -957,7 +957,7 @@ window.addEventListener('message',function(ev){
         if(typeof value!=='string'||value.trim()===''){
           previewEl.style.removeProperty(cssName);
         }else{
-          previewEl.style.setProperty(cssName,value.trim());
+          previewEl.style.setProperty(cssName,value.trim(),d.important===true?'important':'');
         }
       }
       window.parent.postMessage({

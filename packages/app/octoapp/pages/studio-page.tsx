@@ -44,6 +44,7 @@ import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
   capabilityLabel,
+  isSeedreamStyleModel,
   referenceImageLimit,
   styleModelId,
   styleModelLabel,
@@ -106,6 +107,7 @@ import {
   hasVideoFrameAssets,
   isVideoMedia,
   isStudioGenerationFailure,
+  isStudioCustomSizeValid,
   isStudioGenerationStatusRegression,
   isPromptExpansionGeneration,
   studioRegenerationExtra,
@@ -138,7 +140,7 @@ import { createRecommendationSettings, type RecommendationImageSettings } from "
 import { createRecommendationMode } from "./studio/studio-recommendation-mode"
 import { createStudioDraftCapture, restoreStudioDraft } from "./studio/studio-draft-restore"
 import { createPromptRecommendation } from "./studio/studio-prompt-recommendation"
-import { createExpansionReview, expansionGenerationInput, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
+import { createExpansionReview, generateExpansion, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
 import { createStudioSessionData } from "./studio/studio-session-data"
 import { createSessionThumbnailStore, extractStudioThumbnailMedia } from "./studio/session-thumbnail"
 import { isStudioThumbnailUrl, originalMediaSrc, resolveStudioMediaUrl } from "./studio/studio-media"
@@ -512,6 +514,9 @@ function StudioPageContent() {
   const setVideoQualityMode = (v: StudioVideoQualityMode) => setVideoSettingStore("videoQualityMode", v)
   const videoMode = () => videoSettingStore.videoMode
   const setVideoMode = (v: StudioVideoMode) => setVideoSettingStore("videoMode", v)
+  createEffect(() => {
+    if (capability() === "video.generate" && videoQualityMode() === "4k" && count() !== 1) setCount(1)
+  })
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [mentionImagesMap, setMentionImagesMap] = createSignal<Record<string, string>>({})
@@ -2145,7 +2150,9 @@ function StudioPageContent() {
   // ── 会话区顶部三点菜单（与 design 页/左侧栏 session 右键菜单一致）──
   const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
   const [menuTriggerEl, setMenuTriggerEl] = createSignal<HTMLElement | undefined>(undefined)
-  const menuSession = () => activeStudioSession()
+  // syncStore 冷启动引导延迟（深链/刷新/新建会话后）时当前会话可能尚未同步进来，
+  // 用本页直连 session.get 的记录兜底，否则菜单会静默不渲染。
+  const menuSession = () => activeStudioSession() ?? dataStore.session.find((s) => s.id === params.id)
   const menuHasMessages = () => {
     const s = menuSession()
     return !!s && s.time.updated > s.time.created
@@ -2155,6 +2162,12 @@ function StudioPageContent() {
     setHeaderTitle("menuOpen", false)
     setMenuTriggerEl(undefined)
   }
+
+  // menuOpen 为 true 但会话数据仍缺失时立即复位：按钮不会卡在高亮态，
+  // 也避免数据到达后菜单未经点击自行弹出。
+  createEffect(() => {
+    if (headerTitle.menuOpen && !menuSession()) closeMenu()
+  })
 
   // 切换会话（如分享链接打开新对话）时关闭三点菜单：原触发按钮随头部重建/移除，
   // menuOpen 若保持 true，菜单会按已脱离 DOM 的旧按钮定位而落到屏幕左上角。
@@ -2506,25 +2519,26 @@ function StudioPageContent() {
       currentTemplate &&
         !options?.preserveStyleTemplate &&
         value !== styleModel() &&
-        nextStyleModelID !== "seedream-5-lite" &&
+        !isSeedreamStyleModel(value) &&
         nextStyleModelID !== "qwen",
     )
-    // 切换 Seedream 与其他模型时清空自定义尺寸（校验规则不同）
+    // 规则变化时清空不兼容尺寸，Lite/Pro 间保留仍然有效的自定义尺寸。
     const prevIsSeedream = styleModelRequiresSeedreamPermission(styleModel())
     const nextIsSeedream = styleModelRequiresSeedreamPermission(value)
-    if (prevIsSeedream !== nextIsSeedream) {
+    const resetCustomSize = prevIsSeedream !== nextIsSeedream || (
+      isCustomStore() &&
+      isSeedreamStyleModel(styleModel()) &&
+      isSeedreamStyleModel(value) &&
+      !isStudioCustomSizeValid(value, customWidth(), customHeight())
+    )
+    if (resetCustomSize) {
       setIsCustomStore(false)
       setCustomWidth(0)
       setCustomHeight(0)
-    } else if (isCustomStore()) {
-      // 非 Seedream 模型间切换时，根据新模型的临界值钳位自定义尺寸
-      const prevIsQwen = styleModel() === "qwen"
-      const nextIsQwen = value === "qwen"
-      if (!prevIsQwen && nextIsQwen) {
-        // 从其他模型切到千问：钳位到千问上限 1664
-        setCustomWidth(Math.min(customWidth(), 1664))
-        setCustomHeight(Math.min(customHeight(), 1664))
-      }
+    }
+    if (!resetCustomSize && isCustomStore() && styleModelId(styleModel()) !== "qwen" && nextStyleModelID === "qwen") {
+      setCustomWidth(Math.min(customWidth(), 1664))
+      setCustomHeight(Math.min(customHeight(), 1664))
     }
     if (recommendationActive()) {
       setStyleModel(value)
@@ -4320,9 +4334,13 @@ function StudioPageContent() {
     const nextWidth = overrides?.width ?? customWidth()
     const nextHeight = overrides?.height ?? customHeight()
     const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
-    const nextCount = overrides?.count ?? count()
+    if (nextCapability === "image.generate" && nextIsCustom && !isStudioCustomSizeValid(nextStyleModel, nextWidth, nextHeight)) {
+      showFloatingNotice("info", "当前自定义尺寸不符合所选模型要求，请调整后重试。")
+      return
+    }
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
+    const nextCount = nextCapability === "video.generate" && nextVideoQualityMode === "4k" ? 1 : overrides?.count ?? count()
     const restoredVideoFrames = overrides?.videoFrames
     const nextVideoFrames = restoredVideoFrames
       ? restoredVideoFrames
@@ -5183,22 +5201,16 @@ function StudioPageContent() {
     (studioPermissionStatus() !== "loading" || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel()))
 
-  async function generateFromExpansion(turn: StudioTurnData, choice: "confirmed" | "ignored") {
-    if (!canGenerateExpansion() || !expansionReview.editable(turn)) return
-    const text = (choice === "confirmed" ? expansionReview.text(turn) : turn.userText).trim()
-    if (!text) return
-    if ((turn.inputImages?.length ?? 0) > referenceImageLimit(styleModel())) {
-      showFloatingNotice("info", "参考图数量超过当前模型上限，请调整模型后重试。")
-      return
-    }
-    if (!expansionReview.choose(turn, choice)) return
-    await runGeneration({
-      ...expansionGenerationInput(turn, text, recommendationSettings.image()),
-      inputPolicy: "preserve",
-      styleModel: styleModel(),
-      detailTitle: buildStudioDisplayPrompt(text),
-    })
-  }
+  const generateFromExpansion = (turn: StudioTurnData, choice: "confirmed" | "ignored") => generateExpansion({
+    turn,
+    choice,
+    ready: canGenerateExpansion(),
+    review: expansionReview,
+    styleModel: styleModel(),
+    settings: recommendationSettings.image(),
+    notify: (message) => showFloatingNotice("info", message),
+    generate: (request) => runGeneration({ ...request, detailTitle: buildStudioDisplayPrompt(request.prompt) }),
+  })
 
   function exitRecommendation() {
     setDraftAction("revision", (value) => value + 1)

@@ -19,6 +19,7 @@ import { collectPortableDependencies } from "./portable-dependencies"
 import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
 import { isExcludedPortableFile, loadPortableFileBlacklist } from "./portable-exclusions"
 import { materializeStudioSessionParts } from "@/studio/studio-history-service"
+import { Provider } from "@/provider/provider"
 
 const bundleVersion = 1 as const
 const manifestName = "manifest.json"
@@ -78,6 +79,7 @@ const Manifest = Schema.Struct({
   ),
   exclusions: Schema.Array(Schema.String),
   sessions: Schema.Array(SessionEntry),
+  models: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   files: Schema.Array(FileEntry),
 })
 
@@ -107,6 +109,8 @@ type Manifest = {
   pathMappings?: { sessionID: string; scope: string; from: string; to: string }[]
   exclusions: string[]
   sessions: SessionEntry[]
+  /** "<providerID>/<modelID>" → 模型展示名。分享页 turn meta 用(对齐 design 页 provider.models[modelID].name 的取值),缺省回退 modelID。 */
+  models?: Record<string, string>
   files: FileEntry[]
 }
 
@@ -352,6 +356,16 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
   const context = yield* InstanceState.context
   update({ type: "export", stage: "正在整理聊天记录", percent: 1 })
   const entries = yield* collectSessions(input.sessionID)
+  // 模型展示名快照:分享页没有 provider 目录,导出时把用到的 providerID/modelID 解析成友好名一并带走
+  const providerSvc = yield* Provider.Service
+  const providers = yield* providerSvc.list()
+  const models = Object.fromEntries(
+    entries
+      .flatMap((entry) => entry.messages)
+      .flatMap((message) => (message.info.role === "assistant" ? [{ providerID: message.info.providerID, modelID: message.info.modelID }] : []))
+      .filter((model, index, all) => all.findIndex((item) => item.providerID === model.providerID && item.modelID === model.modelID) === index)
+      .map((model) => [`${model.providerID}/${model.modelID}`, providers[model.providerID]?.models?.[model.modelID]?.name ?? model.modelID]),
+  )
   update({ type: "export", stage: "正在扫描文件", percent: 8, completed: 0 })
   const zip = new JSZip()
   const output = path.resolve(
@@ -378,6 +392,7 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
         : []),
     ],
     sessions: entries,
+    models,
     files: yield* collectFiles(entries, context.directory, zip, output, input.scope, blacklist, update),
   }
   update({ type: "export", stage: "正在整理文件路径", percent: 56 })

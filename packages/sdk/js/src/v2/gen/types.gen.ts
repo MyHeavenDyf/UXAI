@@ -1049,9 +1049,9 @@ export type ProviderConfig = {
         }
       }
       limit?: {
-        context: number
+        context?: number
         input?: number
-        output: number
+        output?: number
       }
       modalities?: {
         input: Array<"text" | "audio" | "image" | "video" | "pdf">
@@ -1635,6 +1635,10 @@ export type BadRequestError = {
     [key: string]: unknown
   }>
   success: false
+}
+
+export type InternalServerError = {
+  message: string
 }
 
 export type NotFoundError = {
@@ -5378,6 +5382,19 @@ export type ProjectInitGitData = {
   url: "/project/git/init"
 }
 
+export type ProjectInitGitErrors = {
+  /**
+   * BadRequestError
+   */
+  400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
+}
+
+export type ProjectInitGitError = ProjectInitGitErrors[keyof ProjectInitGitErrors]
+
 export type ProjectInitGitResponses = {
   /**
    * Project information after git initialization
@@ -5402,6 +5419,10 @@ export type ProjectGetGitRemoteErrors = {
    * BadRequestError
    */
   400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
 }
 
 export type ProjectGetGitRemoteError = ProjectGetGitRemoteErrors[keyof ProjectGetGitRemoteErrors]
@@ -5434,6 +5455,10 @@ export type ProjectAddGitRemoteErrors = {
    * BadRequestError
    */
   400: BadRequestError
+  /**
+   * InternalServerError
+   */
+  500: InternalServerError
 }
 
 export type ProjectAddGitRemoteError = ProjectAddGitRemoteErrors[keyof ProjectAddGitRemoteErrors]
@@ -6232,6 +6257,7 @@ export type SessionSharePreviewResponses = {
       id: string
       role: "user" | "assistant"
       text: string
+      reasoning?: string
       truncated: boolean
       files: Array<{
         name: string

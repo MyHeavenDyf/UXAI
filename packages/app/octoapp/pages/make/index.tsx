@@ -3868,6 +3868,9 @@ const sessionMessagesLoaded = createMemo(() => {
       // design-plan 表单流程直接冲突,normal 的 [Artifact Folder] 对纯对话流程只是噪音。
       const artifactFolderPrefix = inPlanSession ? "" : await buildArtifactFolderPrefix(sessionId)
 
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
+
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
       // If skills are matched, extract the entire remaining prompt (excluding all /cmd patterns)
@@ -4041,10 +4044,6 @@ const sessionMessagesLoaded = createMemo(() => {
       }
       // ── End command detection ──
 
-      // Store display text for rendering (user's visible text with @mentions)
-      const hasMentions = selections.length > 0
-      const userDisplayText = hasMentions ? displayText : undefined
-
       let promptText = processedText
 
       const loadedSkills = skillToolCalls()
@@ -4068,17 +4067,14 @@ const sessionMessagesLoaded = createMemo(() => {
         promptText = artifactFolderPrefix + "\n" + promptText
       }
 
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
-
       const textPart: TextPartInput = { 
         type: "text", 
         text: promptText,
-        ...(userDisplayText ? { metadata: { displayText: userDisplayText } } : {}),
+        metadata: { displayText: displayText },
       }
       
       console.log("[sendMessage] textPart:", textPart)
-      console.log("[sendMessage] userDisplayText:", userDisplayText)
+      console.log("[sendMessage] displayText:", displayText)
       
       // 本地文件清单 (synthetic)
       const manifestPart = localManifest.length > 0 

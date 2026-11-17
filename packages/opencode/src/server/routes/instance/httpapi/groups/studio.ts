@@ -625,7 +625,7 @@ export const StudioApi = HttpApi.make("studio")
           OpenApi.annotations({
             identifier: "studio.history.snapshot",
             summary: "Snapshot session media to history",
-            description: "Copies a session's media to the history table before session deletion.",
+            description: "Copies a session's media to the history table before session deletion, and re-materializes imported session parts so re-opening a share restores assets deleted from history.",
           }),
         ),
         HttpApiEndpoint.post("deleteHistoryMedia", StudioPaths.historyDelete, {

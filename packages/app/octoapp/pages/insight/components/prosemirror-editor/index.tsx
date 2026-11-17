@@ -275,16 +275,8 @@ export function ProseMirrorEditor(props: Props) {
     autoInjected = true
     requestAnimationFrame(() => {
       if (!v.dom.isConnected || !isEmpty()) return
-      for (const sel of injects) {
-        if (sel.type !== "skill") continue
-        const node = editorSchema.nodes.mention.create({
-          id: sel.name, name: sel.name, type: "skill", label: sel.label, path: "",
-        })
-        const from = v.state.selection.from
-        const tr = v.state.tr.replaceWith(from, v.state.selection.to, node)
-        tr.setSelection(TextSelection.create(tr.doc, from + node.nodeSize))
-        v.dispatch(tr)
-      }
+      const tr = insertAddonMentions(v.state, injects.filter(sel => sel.type === "skill"))
+      if (tr.docChanged) v.dispatch(tr)
     })
   })
 
@@ -353,8 +345,12 @@ export function ProseMirrorEditor(props: Props) {
       return
     }
     const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
-    tr.insert(trigger.from + node.nodeSize, editorSchema.text(" "))
-    tr.setSelection(TextSelection.create(tr.doc, trigger.from + node.nodeSize + 1))
+    const before = v.state.doc.resolve(trigger.from).nodeBefore
+    const needsSpaceBefore = before?.type.name === "mention"
+    if (needsSpaceBefore) tr.insertText(" ", trigger.from)
+    const end = trigger.from + node.nodeSize + Number(needsSpaceBefore)
+    if (!tr.doc.resolve(end).nodeAfter?.text?.startsWith(" ")) tr.insertText(" ", end)
+    tr.setSelection(TextSelection.create(tr.doc, end + 1))
     v.dispatch(tr)
     setTriggerState(null)
     v.focus()

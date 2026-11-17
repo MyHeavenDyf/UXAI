@@ -154,6 +154,21 @@ export function SharedSessionHandler() {
       }
       navigate(modulePath(module, routeDirectory, result.sessionID))
     })
+    // studio 分享打开（含 app 缓存命中、跳过服务端重导的路径）时刷新该会话的「我的资产」物化：
+    // 重开分享是显式恢复动作，从资产里删除的素材应回到列表（清墓碑 + 幂等 upsert）。
+    if (module === "studio") {
+      void globalSDK
+        .createClient({ directory: result.directory, throwOnError: false })
+        .studio.history.snapshot({ sessionID: result.sessionID, directory: result.directory })
+        .then((response) => {
+          if (!response.response.ok) {
+            console.warn("[octo:share] studio history snapshot failed", { sessionID: result.sessionID, status: response.response.status })
+          }
+        })
+        .catch((error) => {
+          console.warn("[octo:share] studio history snapshot failed", { sessionID: result.sessionID, error })
+        })
+    }
     window.dispatchEvent(
       new CustomEvent("octo:session-imported", {
         detail: { sessionID: result.sessionID, directory: result.directory, agent: result.session.agent },

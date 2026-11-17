@@ -8,7 +8,6 @@ import * as Log from "@opencode-ai/core/util/log"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
-import { which } from "../util/which"
 import { ProjectID } from "./schema"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
@@ -122,7 +121,7 @@ export interface Interface {
   readonly list: () => Effect.Effect<Info[]>
   readonly get: (id: ProjectID) => Effect.Effect<Info | undefined>
   readonly update: (input: UpdateInput) => Effect.Effect<Info>
-  readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
+  readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info, Error>
   readonly getGitRemote: (input: { directory: string }) => Effect.Effect<{ remoteUrl: string }, Error>
   readonly addGitRemote: (input: { directory: string; url: string }) => Effect.Effect<{ remoteUrl: string }, Error>
   readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
@@ -217,18 +216,7 @@ export const layer: Layer.Layer<
         }
 
         let sandbox = pathSvc.dirname(dotgit)
-        const gitBinary = yield* Effect.sync(() => which("git"))
         let id = yield* readCachedProjectId(dotgit)
-
-        if (!gitBinary) {
-          log.info("fromDirectory:no-git-binary", { directory, dotgit })
-          return {
-            id: id ?? ProjectID.global,
-            worktree: sandbox,
-            sandbox,
-            vcs: fakeVcs,
-          }
-        }
 
         const commonDir = yield* git(["rev-parse", "--git-common-dir"], { cwd: sandbox })
         if (commonDir.code !== 0) {
@@ -421,27 +409,28 @@ export const layer: Layer.Layer<
 
     const initGit = Effect.fn("Project.initGit")(function* (input: { directory: string; project: Info }) {
       if (input.project.vcs === "git") return input.project
-      if (!(yield* Effect.sync(() => which("git")))) throw new Error("Git is not installed")
       const result = yield* git(["init", "--quiet"], { cwd: input.directory })
       if (result.code !== 0) {
-        throw new Error(result.stderr.trim() || result.text.trim() || "Failed to initialize git repository")
+        if (!result.stderr && !result.text) {
+          yield* Effect.fail(new Error("未检测到 Git，请确认已安装"))
+        } else {
+          yield* Effect.fail(new Error(result.stderr.trim() || result.text.trim() || "Failed to initialize git repository"))
+        }
       }
       const { project } = yield* fromDirectory(input.directory)
       return project
     })
 
-    // 查询当前目录的 origin 远程仓库地址;未安装 git 或无 origin 时返回空串。
-    // spawn 失败(目录不存在/权限不足)时 Effect.fail,不误判为"未配置"。
+    // 查询当前目录的 origin 远程仓库地址;未配置 origin 时返回空串。
+    // 不用 which("git") 预检 — GUI 启动的进程 PATH 可能不含 Homebrew 路径,
+    // 但 ChildProcess.spawn 仍能通过 OS 原生 exec 找到 git。
     const getGitRemote = Effect.fn("Project.getGitRemote")(function* (input: { directory: string }) {
-      if (!(yield* Effect.sync(() => which("git")))) {
-        yield* Effect.fail(new Error("Git is not installed"))
-      }
       const result = yield* git(["remote", "get-url", "origin"], { cwd: input.directory })
       if (result.code !== 0) {
         // git 正常退出但返回非零(如"No remote configured")→ 未配置,返回空串
-        // spawn 失败被 catch-all 吞掉 → code=1, stderr="", text="" → 实际错误
+        // spawn 失败被 catch-all 吞掉 → code=1, stderr="", text="" → git 不可用
         if (!result.stderr && !result.text) {
-          yield* Effect.fail(new Error("Failed to read git remote (directory may not exist or git unavailable)"))
+          yield* Effect.fail(new Error("未检测到 Git，请确认已安装"))
         }
         return { remoteUrl: "" }
       }
@@ -452,12 +441,12 @@ export const layer: Layer.Layer<
     // 已存在则 git remote set-url 更新,不存在则 git remote add 新增。
     // git 命令中 URL 前加 -- 分隔,防止以 - 开头的 URL 被 git 解释为选项参数
     const addGitRemote = Effect.fn("Project.addGitRemote")(function* (input: { directory: string; url: string }) {
-      if (!(yield* Effect.sync(() => which("git")))) {
-        yield* Effect.fail(new Error("Git is not installed"))
-      }
       // 检测目录是否已初始化 git(git rev-parse --git-dir 失败说明尚未 init)
       const initCheck = yield* git(["rev-parse", "--git-dir"], { cwd: input.directory })
       if (initCheck.code !== 0) {
+        if (!initCheck.stderr && !initCheck.text) {
+          yield* Effect.fail(new Error("未检测到 Git，请确认已安装"))
+        }
         const initResult = yield* git(["init", "--quiet"], { cwd: input.directory })
         if (initResult.code !== 0) {
           yield* Effect.fail(new Error(initResult.stderr.trim() || initResult.text.trim() || "Failed to initialize git repository"))

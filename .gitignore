@@ -44,3 +44,6 @@ bun.lock
 analysis/
 
 .octo/ses_*/
+
+# local nested repo, referenced accidentally as a gitlink
+codegraph/

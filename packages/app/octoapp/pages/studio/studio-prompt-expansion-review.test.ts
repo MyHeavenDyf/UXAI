@@ -2,7 +2,8 @@ import { expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makePersisted } from "@solid-primitives/storage"
-import { createExpansionReview, expansionGenerationInput, type ExpansionReviews } from "./studio-prompt-expansion-review"
+import { createExpansionReview, expansionGenerationInput, generateExpansion, type ExpansionReviews } from "./studio-prompt-expansion-review"
+import { createRecommendationSettings, type RecommendationImageSettings } from "./studio-recommendation-settings"
 import type { StudioTurnData } from "./turns"
 
 const turn: StudioTurnData = {
@@ -64,6 +65,92 @@ test.each(["confirmed", "ignored"] as const)("%s consumes the choice once and fr
     expect(value.saved[0].entries[value.state.key]?.["assistant-1"]?.status).toBe(choice)
   } finally { value.dispose() }
 })
+
+test.each([
+  { from: "seedream-5-pro", to: "seedream-5-lite", width: 1280, height: 720 },
+  { from: "seedream-5-lite", to: "seedream-5-pro", width: 3072, height: 3072 },
+].flatMap((scenario) => (["confirmed", "ignored"] as const).map((choice) => ({ ...scenario, choice }))))(
+  "invalid restored dimensions leave the expansion retryable after switching models in another session: %j",
+  async (scenario) => {
+    const value = setup()
+    const controls = createRoot((dispose) => {
+      const [state, setState] = createStore({
+        session: "A",
+        model: scenario.from,
+        entries: {
+          A: { aspectRatio: "1:1", count: 1, customWidth: scenario.width, customHeight: scenario.height, isCustom: true },
+        } as Record<string, RecommendationImageSettings>,
+        shared: { aspectRatio: "3:4", count: 1, customWidth: 0, customHeight: 0, isCustom: false } as RecommendationImageSettings,
+      })
+      const settings = createRecommendationSettings({
+        key: () => state.session,
+        enabled: () => true,
+        entries: () => state.entries,
+        ready: () => true,
+        imageActive: () => true,
+        lastImage: () => undefined,
+        saveImage: () => {},
+        fallback: () => state.shared,
+        global: () => state.shared,
+        setGlobal: (next) => setState("shared", next),
+        save: (key, next) => setState("entries", key, next),
+      })
+      return { state, setState, settings, dispose }
+    })
+    try {
+      await Bun.sleep(0)
+      value.review.update(turn, "可重试的编辑稿")
+      const key = value.state.key
+      controls.setState("session", "B")
+      value.setState("key", "session-b")
+      controls.setState("model", scenario.to)
+      controls.setState("session", "A")
+      value.setState("key", key)
+      expect(controls.settings.image().customWidth).toBe(scenario.width)
+      expect(controls.settings.image().customHeight).toBe(scenario.height)
+
+      const requests: unknown[] = []
+      const notices: string[] = []
+      const submit = () => generateExpansion({
+        turn,
+        choice: scenario.choice,
+        ready: true,
+        review: value.review,
+        styleModel: controls.state.model,
+        settings: controls.settings.image(),
+        notify: (message) => { notices.push(message) },
+        generate: async (request) => { requests.push(request) },
+      })
+      const capture = value.review.capture()
+      await submit()
+      expect(requests).toHaveLength(0)
+      expect(notices).toEqual(["当前自定义尺寸不符合所选模型要求，请调整后重试。"])
+      expect(value.review.editable(turn)).toBe(true)
+      expect(value.review.text(turn)).toBe("可重试的编辑稿")
+      expect(value.saved[0].entries[key]?.["assistant-1"]?.status).toBe("pending")
+      expect(capture()).toBe(true)
+
+      controls.settings.set("customWidth", 2048)
+      controls.settings.set("customHeight", 2048)
+      await submit()
+      expect(requests).toEqual([expect.objectContaining({
+        styleModel: scenario.to,
+        prompt: scenario.choice === "confirmed" ? "可重试的编辑稿" : turn.userText,
+        width: 2048,
+        height: 2048,
+        inputPolicy: "preserve",
+      })])
+      expect(value.saved[0].entries[key]?.["assistant-1"]?.status).toBe(scenario.choice)
+      expect(value.review.editable(turn)).toBe(false)
+      expect(notices).toHaveLength(1)
+      await submit()
+      expect(requests).toHaveLength(1)
+    } finally {
+      controls.dispose()
+      value.dispose()
+    }
+  },
+)
 
 test("ordinary tasks dismiss the review without changing its edited text", async () => {
   const value = setup()
