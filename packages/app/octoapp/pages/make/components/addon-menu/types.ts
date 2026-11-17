@@ -6,6 +6,7 @@ import type { AssetFile as LibraryAssetFile } from "./asset-library"
 export type AddonMenuItemKey =
   | "skills"
   | "productAssets"
+  | "assetLibrary"
   | "designFiles"
   | "urlImport"
   | "addAttachment"
@@ -19,7 +20,7 @@ export interface AddonMenuSlot {
 /** chip 联动核心类型(结构与 mention-popover 的 MentionSelection 一致) */
 export type MenuSelection =
   | { type: "skill"; name: string; label: string }
-  | { type: "file"; filename: string; path: string; id?: string; isFolder?: boolean }
+  | { type: "file"; filename: string; path: string; id?: string; isFolder?: boolean; realPathName?: string }
   | { type: "product-asset"; filename: string; path: string; s3BaseUrl: string; convertHtmlUrl: string; snapshot: string }
 
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
@@ -56,6 +57,8 @@ export interface AddonMenuProps {
   filesLoading?: boolean
   cancelOnDispose?: boolean
   productAssetsDisabledReason?: string
+  /** assetLibrary 项入口不可用原因 */
+  assetLibraryDisabledReason?: string
   onAssetDownloadError?: (error: unknown) => void
   onAssetSelect?: (selection: MenuSelection) => void
   onAssetDeselect?: (selection: MenuSelection) => void
