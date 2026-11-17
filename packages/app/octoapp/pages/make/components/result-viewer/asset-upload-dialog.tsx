@@ -89,7 +89,7 @@ export function AssetUploadDialog(props: {
           </div>
 
           {/* iframe 区 */}
-          <div class="library-dialog-iframe-area">
+          <div class="library-dialog-iframe-area" style={{ "user-select": "none" }}>
             <Show
               when={uploadSrc}
               fallback={
@@ -105,6 +105,7 @@ export function AssetUploadDialog(props: {
                 ref={(el) => (iframeRef = el)}
                 src={uploadSrc}
                 class="library-dialog-iframe"
+                style={{ "user-select": "none" }}
                 title={props.request.title}
                 onLoad={() => setIframeLoaded(true)}
               />
