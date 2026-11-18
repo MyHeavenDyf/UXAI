@@ -1,8 +1,10 @@
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { For, Show, createSignal } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { MODEL_TRIGGER_BASE_CLASS } from "@/components/dialog-select-model"
 import { IconPaintPalette, IconSizeCheckmark } from "../icons"
+import "./design-system-selector.css"
 
 export const DESIGN_SYSTEM_NONE = "不使用设计系统"
 
@@ -21,7 +23,8 @@ export function DesignSystemSelector(props: {
       when={!props.displayOnly}
       fallback={
         <span
-          class="flex items-center gap-1.5 min-w-0 max-w-[180px] overflow-hidden bg-[#f3f3f3] px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium cursor-default"
+          class="flex items-center gap-1.5 min-w-0 min-h-[1lh] max-w-[180px] overflow-hidden bg-[#f3f3f3] px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium cursor-not-allowed opacity-50"
+          aria-disabled="true"
           title={props.selected ?? DESIGN_SYSTEM_NONE}
         >
           <IconPaintPalette size={14} />
@@ -55,7 +58,7 @@ export function DesignSystemSelector(props: {
             style="box-shadow: 0 4px 12px rgba(0,0,0,0.16)"
           >
             <Kobalte.Title class="sr-only">选择设计系统</Kobalte.Title>
-            <div class="max-h-[260px] overflow-y-auto">
+            <ScrollView class="ds-options-scroll">
               <For each={items()}>
                 {(item) => (
                   <button
@@ -78,7 +81,7 @@ export function DesignSystemSelector(props: {
                   </button>
                 )}
               </For>
-            </div>
+            </ScrollView>
           </Kobalte.Content>
         </Kobalte.Portal>
       </Kobalte>
