@@ -27,7 +27,7 @@ export function DesignSystemSelector(props: {
           aria-disabled="true"
           title={props.selected ?? DESIGN_SYSTEM_NONE}
         >
-          <IconPaintPalette size={14} />
+          <IconPaintPalette size={16} />
           <Show when={props.selected}>
             {(label) => <span class="truncate">{label()}</span>}
           </Show>
@@ -42,7 +42,7 @@ export function DesignSystemSelector(props: {
           data-action="prompt-design-system"
           title={props.selected ?? DESIGN_SYSTEM_NONE}
         >
-          <IconPaintPalette size={14} />
+          <IconPaintPalette size={16} />
           <Show when={props.selected}>
             {(label) => <span class="truncate">{label()}</span>}
           </Show>
