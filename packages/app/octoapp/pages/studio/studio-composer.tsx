@@ -2011,7 +2011,7 @@ function StyleMenu(props: {
   onSelect: (value: string) => void
 }): JSX.Element {
   return (
-    <div class="studio-menu w-[414px] p-4">
+    <div class="studio-menu w-[456px] p-4">
       <div class="text-[13px] font-semibold mb-3">风格模型</div>
       <Show when={props.permissionStatus !== "loading"} fallback={<div class="studio-style-menu-loading">加载中...</div>}>
         <Show
@@ -2026,24 +2026,40 @@ function StyleMenu(props: {
           <div class="grid grid-cols-2 gap-x-4 gap-y-3">
             <For each={STUDIO_STYLE_MODELS.filter((item) => item.requiresSeedreamPermission !== true || props.canUseSeedream)}>
               {(item) => {
+                const description = item.id === "seedream-5-pro" ? "设计、影视、高密度图文等场景效果全面提升" : undefined
                 return (
-                  <button
-                    type="button"
-                    onClick={() => props.onSelect(item.id)}
-                    title={item.label}
-                    class="studio-style-option"
-                    classList={{ active: item.id === props.value }}
+                  <Tooltip
+                    inactive={!description}
+                    placement="top"
+                    gutter={10}
+                    openDelay={0}
+                    arrow
+                    value={description}
+                    contentClass="studio-style-tooltip"
                   >
-                    <span class="studio-style-icon">
-                      <Show when={item.icon}>
-                        {(icon) => <img src={icon()} alt="" aria-hidden="true" />}
+                    <button
+                      type="button"
+                      onClick={() => props.onSelect(item.id)}
+                      title={item.label}
+                      class="studio-style-option"
+                      classList={{ active: item.id === props.value }}
+                    >
+                      <span class="studio-style-icon">
+                        <Show when={item.icon}>
+                          {(icon) => <img src={icon()} alt="" aria-hidden="true" />}
+                        </Show>
+                      </span>
+                      <span class="studio-style-details">
+                        <span class="studio-style-label">{item.label}</span>
+                        <Show when={description}>
+                          <span class="studio-style-description">{description}</span>
+                        </Show>
+                      </span>
+                      <Show when={item.id === props.value}>
+                        <span class="studio-style-check" />
                       </Show>
-                    </span>
-                    <span class="studio-style-label">{item.label}</span>
-                    <Show when={item.id === props.value}>
-                      <span class="studio-style-check" />
-                    </Show>
-                  </button>
+                    </button>
+                  </Tooltip>
                 )
               }}
             </For>

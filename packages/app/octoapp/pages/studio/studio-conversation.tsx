@@ -6,7 +6,7 @@ import { tracker } from "@/utils/tracker"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
 import { getDefaultDimensions, isStudioEditResult, isVideoMedia, getImageOrientation, STUDIO_VIDEO_RESOLUTION } from "./studio-shared"
-import { capabilityLabel, STUDIO_STYLE_MODELS } from "./data"
+import { capabilityLabel, styleModelLabel } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import { StudioFileManager } from "./studio-file-manager"
@@ -130,7 +130,7 @@ export function StudioConversation(props: {
   onExpansionInput: (turn: StudioTurnData, text: string) => void
   onExpansionChoose: (turn: StudioTurnData, choice: "confirmed" | "ignored") => void
   onEditGeneration: (result: StudioGenerationResult) => void
-  onRebootGeneration: (generationID: string) => void
+  onRebootGeneration: (result: StudioGenerationResult) => void
   onRefreshGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
@@ -942,11 +942,7 @@ export function StudioDetails(props: {
     const dimensions = getDefaultDimensions(props.result.styleModel ?? props.result.model, props.result.aspectRatio)
     return dimensions ? `${dimensions.width} x ${dimensions.height}` : "-"
   })
-  const modelLabel = createMemo(() => {
-    const m = props.result.styleModel || props.result.model
-    const found = STUDIO_STYLE_MODELS.find((item) => item.id === m || item.label === m)
-    return found?.label ?? (m || "千问")
-  })
+  const modelLabel = createMemo(() => styleModelLabel(props.result.styleModel || props.result.model))
   return (
     <ScrollView class="studio-detail-panel">
       <Show when={!props.hideCover}>

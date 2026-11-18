@@ -1248,10 +1248,11 @@
 .studio-capability-icon-7 { background-image: url("/studio/imgCreate7.svg"); }
 
 .studio-style-option {
+  width: 204px;
   min-height: 52px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 0;
   padding: 8px;
   border-radius: 8px;
   text-align: left;
@@ -1287,20 +1288,57 @@
   object-fit: contain;
 }
 
-.studio-style-label {
+.studio-style-details {
+  min-width: 0;
+  flex: 1;
+  margin-left: 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.studio-style-label,
+.studio-style-description {
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-style-label {
   color: #191919;
   font-size: 14px;
   line-height: 22px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.studio-style-description {
+  color: rgba(25, 25, 25, 0.6);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+[data-component="tooltip"].studio-style-tooltip {
+  width: 353px;
+  max-width: calc(100vw - 24px);
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  background: #4a4a4a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.studio-style-tooltip [data-slot="tooltip-arrow"] {
+  color: #4a4a4a;
 }
 
 .studio-style-check {
   width: 16px;
   height: 16px;
-  margin-left: auto;
+  flex-shrink: 0;
+  margin-left: 2px;
   background: url("/studio/checkmark.svg") center / contain no-repeat;
 }
 

@@ -1,5 +1,10 @@
 import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage, StudioInputImage, StudioMode } from "./types"
 import { isSeedreamStyleModel, styleModelId } from "./data"
+import { historicalStudioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
+
+export function studioGenerationModelUnavailableMessage(result: Pick<StudioGenerationResult, "capability" | "styleModel" | "model" | "request" | "taskType" | "task_type">) {
+  return historicalStudioModelUnavailableMessage(result)
+}
 
 export const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
