@@ -108,8 +108,9 @@ const write = Effect.fn("AutoCompactDebug.write")(function* (input: DumpInput) {
 })
 
 export const dump = Effect.fn("AutoCompactDebug.dump")(function* (input: DumpInput) {
-  const exit = yield* write(input).pipe(Effect.exit)
-  if (Exit.isFailure(exit)) log.warn("auto compact trigger dump failed", { cause: Cause.squash(exit.cause) })
+  // 暂时禁用埋点落盘,恢复调试时取消下面两行注释
+  // const exit = yield* write(input).pipe(Effect.exit)
+  // if (Exit.isFailure(exit)) log.warn("auto compact trigger dump failed", { cause: Cause.squash(exit.cause) })
 })
 
 export * as AutoCompactDebug from "./auto-compact-debug"

@@ -107,8 +107,9 @@ export const dumpTurn = Effect.fn("SessionMessageDebug.dumpTurn")(function* (inp
 }) {
   if (dumpedUsers.has(input.userID)) return
   dumpedUsers.add(input.userID)
-  const exit = yield* write(input).pipe(Effect.exit)
-  if (Exit.isFailure(exit)) log.warn("message debug dump failed", { cause: Cause.squash(exit.cause) })
+  // 暂时禁用埋点落盘,恢复调试时取消下面两行注释
+  // const exit = yield* write(input).pipe(Effect.exit)
+  // if (Exit.isFailure(exit)) log.warn("message debug dump failed", { cause: Cause.squash(exit.cause) })
 })
 
 export * as MessageDebug from "./message-debug"
