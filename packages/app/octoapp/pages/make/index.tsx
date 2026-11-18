@@ -114,7 +114,7 @@ import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/resul
 import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
 import { setAssessmentContext, harvestAssessmentReview, pauseAssessment, pendingAssessment } from "./utils/assessment-state"
 import { processMentions } from "./utils/mention-processor"
-import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
+import { buildRevertDraft, collectRevertedFiles, recordWriteEvidence, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart, type WriteEvidence } from "./utils/restore-draft"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -139,7 +139,7 @@ import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
-import { isVisibleUserMessage } from "./utils/visible-message"
+import { isCompactionInjectedMessage, isHiddenTaskPromptMessage, isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限;
@@ -1466,6 +1466,20 @@ const sessionMessagesLoaded = createMemo(() => {
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
 
+  // 锚点轨道只对「有用户气泡的真实输入」生成锚点:子会话内部消息(路由派发的 task
+  // prompt/表单回填,气泡已隐藏)与压缩续跑注入不是用户输入,生成锚点会造成锚点与
+  // 可见对话轮次不对应(hover 显示内部模板文本)。子任务内容归属发起它的那条输入,
+  // 由 TurnAnchorNav 滚动侦测回落到最近的前一个锚点。
+  const anchorMessages = createMemo(() =>
+    userMessages().filter(
+      (m) =>
+        !isHiddenTaskPromptMessage(m, params.id) &&
+        !isCompactionInjectedMessage(
+          (sync.data.part[m.id] ?? []) as Array<{ type: string; synthetic?: boolean; metadata?: Record<string, unknown> }>,
+        ),
+    ),
+  )
+
   // 最后一条可回退的用户消息（主会话、未被回退过滤）——回退按钮只显示在这一条上
   const lastMainMessageID = createMemo(() => {
     const sid = params.id
@@ -2162,12 +2176,35 @@ const sessionMessagesLoaded = createMemo(() => {
     const startIdx = liveMsgs.findIndex((m) => m.id === msg.id)
     const normalizePath = (p: string) => p.replace(/\\/g, "/")
     const involved = new Set<string>()
+    // 路径 → 合并消息(主+子会话)里最早一次 write/edit 的证据:回退轮次内
+    // write 新建(metadata.exists===false)的文件没有 .history 版本,兜底删除用
+    const writeEvidence = new Map<string, WriteEvidence>()
+    for (const m of liveMsgs) {
+      recordWriteEvidence((sync.data.part[m.id] ?? []) as RevertDraftPart[], m.id, writeEvidence)
+    }
     for (let i = startIdx; i < liveMsgs.length; i++) {
       for (const filePath of collectRevertedFiles(
         (sync.data.part[liveMsgs[i]?.id] ?? []) as RevertDraftPart[],
         { sessionId: sid, projectDir: projectDir(), kind: workspaceKind() },
       )) {
         involved.add(normalizePath(filePath))
+      }
+    }
+    // 子任务子会话(octo_design/octo_code 等)回退点之后落盘的文件:write/edit 路径存在
+    // 子会话 parts、<artifact> 产物由前端 autoSave 归档到主会话产物目录(mainSessionID
+    // 归属),只扫主会话消息会漏掉,子任务文件回退后在文件管理器中残留
+    for (const childId of childSessionIDs()) {
+      const childMsgs = (sync.data.message?.[childId] ?? []) as Message[]
+      const liveChildMsgs = currentRevertID ? childMsgs.filter((m) => m.id < currentRevertID) : childMsgs
+      for (const m of liveChildMsgs) {
+        recordWriteEvidence((sync.data.part[m.id] ?? []) as RevertDraftPart[], m.id, writeEvidence)
+        if (m.id <= msg.id) continue
+        for (const filePath of collectRevertedFiles(
+          (sync.data.part[m.id] ?? []) as RevertDraftPart[],
+          { sessionId: sid, projectDir: projectDir(), kind: workspaceKind() },
+        )) {
+          involved.add(normalizePath(filePath))
+        }
       }
     }
 
@@ -2199,22 +2236,33 @@ const sessionMessagesLoaded = createMemo(() => {
         // revert 拿不到 patch，文件内容必须由前端用 .history 版本自己恢复/删除
         for (const filePath of involved) {
           const realTab = tabStore.tabs().find((t) => t.filePath && normalizePath(t.filePath) === filePath)
+          let outcome: "restored" | "deleted" | "none"
           if (realTab) {
-            await historyController.restoreFilesBefore(realTab, cutoff)
-            continue
+            outcome = await historyController.restoreFilesBefore(realTab, cutoff)
+          } else {
+            const buffer = await api.readFileBuffer(filePath)
+            const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+            const pseudoTab: ResultTab = {
+              id: `revert-${filePath}`,
+              title: fileName,
+              type: "html",
+              subtype: extractSubtypeFromFilename(fileName),
+              content: buffer ? new TextDecoder().decode(buffer) : "",
+              filePath,
+              createdAt: new Date(),
+            }
+            outcome = await historyController.restoreFilesBefore(pseudoTab, cutoff)
           }
-          const buffer = await api.readFileBuffer(filePath)
-          const fileName = filePath.split(/[/\\]/).pop() ?? filePath
-          const pseudoTab: ResultTab = {
-            id: `revert-${filePath}`,
-            title: fileName,
-            type: "html",
-            subtype: extractSubtypeFromFilename(fileName),
-            content: buffer ? new TextDecoder().decode(buffer) : "",
-            filePath,
-            createdAt: new Date(),
+          if (outcome !== "none") continue
+          // 兜底删除:子代理 write 工具服务端直接落盘的文件(非 git 项目拿不到
+          // patch,没开过 tab 也没有 .history 版本)零版本时上面的恢复是 no-op。
+          // write part 的 metadata.exists 记录写入时文件是否已存在:该路径最早的
+          // 写在回退点之后且写入时不存在 → 文件是回退轮次新建的,直接删除;
+          // 之前已存在的文件保持不动(无恢复来源,与既有行为一致)。
+          const evidence = writeEvidence.get(filePath)
+          if (evidence && evidence.existed === false && evidence.msgId > msg.id) {
+            await api.deleteFile?.(filePath)
           }
-          await historyController.restoreFilesBefore(pseudoTab, cutoff)
         }
         for (const filePath of involved) {
           await historyController.removeVersionsAfter({ filePath }, cutoff)
@@ -6582,7 +6630,7 @@ onPreview={(url) => {
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
                         active={sync.data.session_status[userMessages()[0].sessionID ?? params.id!]?.type === "busy"}
                         mainSessionID={params.id}
-                        hideUserBubble={!!userMessages()[0].sessionID && userMessages()[0].sessionID !== params.id && (userMessages()[0].agent === "octo_design" || userMessages()[0].agent === "octo_code" || userMessages()[0].agent === "plan")}
+                        hideUserBubble={isHiddenTaskPromptMessage(userMessages()[0], params.id)}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -6624,7 +6672,7 @@ onPreview={(url) => {
                             status={sync.data.session_status[messageSessionID] ?? sessionStatus()}
                             active={sync.data.session_status[messageSessionID]?.type === "busy"}
                             mainSessionID={params.id}
-                            hideUserBubble={messageSessionID !== params.id && (msg.agent === "octo_design" || msg.agent === "octo_code" || msg.agent === "plan")}
+                            hideUserBubble={isHiddenTaskPromptMessage(msg, params.id)}
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}
                             onAbort={halt}
@@ -6668,7 +6716,7 @@ onPreview={(url) => {
                 }}
               />
               <TurnAnchorNav
-                messages={userMessages()}
+                messages={anchorMessages()}
                 sessionID={params.id}
                 viewport={chatViewportEl}
                 content={chatContentEl}

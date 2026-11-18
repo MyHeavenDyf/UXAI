@@ -218,3 +218,45 @@ index.tsx 两处 InsightTurn 调用自动合并，dev 的 `canRevert` 以 `sessi
 验证：packages/app 与 packages/opencode typecheck 过；share-preview 9/9。
 
 **影响面分析其余结论（未修，待产品决策）**：分享导出只同步根会话（make 会话分享缺子代理产物正文）；回退不回退子会话 autoSave 落盘文件（消息流与磁盘不一致）；question 断连无重播（permission 有，sidecar 重启时子会话 pending question 挂死）；`AUTOMATIC_COMPACTION_ENABLED` false→true 为全局开关（所有会话首次启用自动压缩，insight 主界面走上游 SessionTurn 滤 synthetic 安全，分享页已由本次修复覆盖）。排查确认无影响：question/permission 树感知 BFS 收集、发消息路由、停止级联 abort、刷新恢复、skill/MCP 别名链、ACP/studio/tui、Fix 8/9。
+
+## 第三批修复:锚点与子任务对应 + 回退清理子任务(2026-11-17,同事测试反馈)
+
+同事打包版测试反馈两问题,均定位为真实缺陷并修复:
+
+### 1. 锚点与子任务的对应问题(app 前端)
+
+**根因**:make 页对话锚点轨道(TurnAnchorNav)的 messages 直接用 `userMessages()`(主+子会话合并流)。路由派发后子会话(octo_design/octo_code/plan)的 task prompt、question 表单回填等内部 user 消息虽然气泡已隐藏(hideUserBubble),但照样各生成一个锚点条:锚点数量与可见用户输入不一一对应,hover 显示内部五段式模板文本(【需求原文】...),滚动到子任务卡片时高亮的也是这个"幽灵锚点"。压缩续跑注入消息同理(此前只处理了 hover 无文本,锚点条本身还在)。
+
+**修复**:
+- `octoapp/pages/make/utils/visible-message.ts`:新增导出 `isHiddenTaskPromptMessage(message, mainSessionID)`——消息属子会话且 agent ∈ {octo_design, octo_code, plan}(与 InsightTurn hideUserBubble 同口径,抽成共享 helper);index.tsx 两处 hideUserBubble 内联表达式替换为该 helper
+- `octoapp/pages/make/index.tsx`:新增 `anchorMessages` memo——userMessages 过滤掉隐藏 task prompt 与压缩注入消息,TurnAnchorNav 改用此列表
+- `octoapp/pages/make/components/turn-anchor-nav.tsx`:滚动侦测只认有锚点的 turn(anchoredIds 集合),滚到无锚点 turn(子任务卡片/注入消息)时保持最近一个有锚点 turn 高亮——子任务内容归属发起它的那条用户输入;视口顶部 fallback 同步改为首个有锚点 turn
+- 测试:visible-message.test.ts 加 `isHiddenTaskPromptMessage` 5 例(三子代理判定/主会话 false/其他子代理 false/缺 sessionID false/空主会话 id false),18 pass
+
+### 2. 回退不删除子任务生成的文件(前端收集 + 服务端清理,双端)
+
+**根因**:回退 executeRevert 只扫主会话回退点之后的消息收集落盘文件(collectRevertedFiles:write/edit 工具路径 + artifact 标签推导路径)。子代理产物两路全漏:write/edit 工具调用在子会话 parts;<artifact> 标签产物由前端 autoSave 按 mainSessionID 归档到主会话产物目录,但标签文本在子会话 assistant 消息里。主会话产物(路由改造前 octo_make 直出)走同一条收集路径所以一直正常。
+
+**修复(packages/app)**:`make/index.tsx` executeRevert 收集循环后追加子会话扫描——遍历 childSessionIDs,各子会话按现有 revert 指针过滤活消息(id < currentRevertID,与主会话 liveMsgs 同口径),只收 `id > 回退目标消息 id` 的消息(跨会话 MessageID.ascending 单调,与 userMessages revert 过滤同一比较口径),artifact 路径一律传主会话 sid 推导(与 autoSave 归属一致)。回退、重新生成(handleRegenerateMessage 复用 executeRevert)两入口同时生效。
+- 测试:新增 `make/utils/restore-draft.test.ts`(collectWriteEditFiles/collectRevertedFiles 口径:子会话 write 路径直收、artifact 按主会话 id 推导、code 工作区 output/<sid前12位>、合并去重、无 projectDir 只收工具路径),8 pass
+
+**伴生修复(packages/opencode,幽灵 turn 复活)**:服务端 `SessionRevert.cleanup`(发新消息时物理删除被回退消息)只清主会话——回退后子会话消息原样保留,发新消息清掉 revert 指针后,被回退轮次派发的子会话 turn 会重新出现在前端合并消息流(旧子任务卡片与新派发并存)。修复:cleanup 里对 `sessions.children(sessionID)` 各子会话删除 `id >= messageID` 的消息(MessageV2.Event.Removed,与主会话同机制);整会话落在回退点之后(无更早消息)的直接 `sessions.remove`(级联删孙会话,Event.Deleted 推送前端移除);remove 失败(并发已删)Effect.ignore 不阻断。
+- 测试:revert-compact.test.ts 新增「回退点前派发的子会话保留、之后派发的整会话删除」用例(消息级+会话级断言),8/8 pass(--timeout 30000;5s 默认超时下 git 重测试本机既有抖动,基线对照确认非本次引入)
+
+验证:packages/app + packages/opencode typecheck 过;visible-message 18、turn-anchor-text 11、restore-draft 8、revert-compact 8 全绿。
+
+## 第四批修复:回退文件清理实际不删根因(2026-11-18,桌面 dev E2E 实测)
+
+第三批的「回退收集子会话文件」修复后实测(桌面 dev + CDP 查 sidecar API),回退到消息 2 后 about.html 仍在、portfolio.html 内容也没恢复——**involved 收集是对的,删除机制整段失效**。真实根因两层:
+
+**根因 A(非 git 项目,服务端 patch 机制整体失效)**:opencode 的文件回退走 Snapshot 服务——独立 git 快照仓(`Global.Path.data/snapshot/<project>/<hash>`),`enabled()` 要求项目 vcs 是 git。test_project2 等测试项目**没有 .git**,主/子会话 patch part 数为 0,`snap.revert(patches)` 空转。改造前主任务文件能删,靠的是 .octo/outputs 产物的前端 .history 机制(artifact 卡开 tab 记版本),不是服务端。
+
+**根因 B(前端 .history 机制对子代理直写文件失效)**:路由化后 octo_design 用 write 工具把文件直接落到项目根(跟随项目已有文件布局),不经 artifact autoSave、从未开成 tab → 零 .history 版本。`historyController.restoreFilesBefore` 对零版本文件返回 `"none"` 直接 no-op(有版本但全在 cutoff 后才删),于是收集到的路径既不恢复也不删。
+
+**修复 1(packages/opencode,git 项目,`revert.ts`)**:revert 的 patch 收集从只扫主会话扩展到合并子会话——`sessions.children()` 各子会话取 `id >= rev.messageID`(与 cleanup 同口径)的 patch part,按消息 id 与主会话 patch 时序排序合并(`snap.revert` 同文件取数组首次出现的快照,时序保证取回退点状态)。子会话写的文件 git 项目回退后恢复内容/删除新建,与主会话语义完全一致。
+- 测试:revert-compact.test.ts 新增「子会话写文件回退恢复+删除」端到端用例(provideTmpdirInstance {git:true},子会话两轮 patch:保留轮 a0→a1,回退轮 a1→a2+新建 b.txt;revert 后断言 a.txt=a1、b.txt 不存在),9/9 pass
+
+**修复 2(packages/app,非 git 项目/无版本文件,`executeRevert` 兜底删除)**:利用 write 工具 part 的 `state.metadata.exists`(写入时文件是否已存在,write.ts 既有字段)做证据——合并消息(主 liveMsgs + 子 liveChildMsgs)按「路径 → 最早一次 write/edit」聚合(recordWriteEvidence,restore-draft.ts 新增导出;edit 视为已存在,路径反斜杠归一与 involved 同口径);`restoreFilesBefore` 返回 `"none"`(零版本)且证据满足 `existed === false && 最早写消息 id > 回退目标消息 id` → 文件是回退轮次 write 新建的 → `api.deleteFile` 直接删。之前已存在的文件(existed true / 最早写在回退点前 / edit 先行)保持不动——无恢复来源,与既有行为一致,宁可保守。
+- 测试:restore-draft.test.ts 加 recordWriteEvidence 6 例(exists 记录/undefined 不删/edit 已存在/路径归一/多消息保最早且与调用顺序无关/未完成不记),32 pass
+
+E2E 实测定位手法(复用):CDP 9222 拿 sidecar 密码 → `GET /session`(主会话 directory/children)→ `GET /session/{child}/message` 看 parts(write 工具 input.filePath + metadata.exists)→ 对照项目磁盘文件与 revert 指针状态;TurnAnchorNav 阈值(≥3 条消息才渲染)也解释了两输入对话锚点栏整体消失——过滤幽灵锚点后 2<3,属既有阈值设计而非过滤缺陷。

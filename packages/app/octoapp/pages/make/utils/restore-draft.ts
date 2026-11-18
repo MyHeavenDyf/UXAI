@@ -17,7 +17,7 @@ export type RevertDraftPart = {
   url?: string
   tool?: string
   name?: string
-  state?: { status?: string; name?: string; input?: Record<string, unknown> }
+  state?: { status?: string; name?: string; input?: Record<string, unknown>; metadata?: { exists?: boolean } }
 }
 
 export type RevertSkill = { name: string; label: string }
@@ -86,6 +86,30 @@ export function collectRevertedFiles(
     }
   }
   return result
+}
+
+export type WriteEvidence = { msgId: string; existed: boolean | undefined }
+
+/** write 工具在 part state.metadata.exists 记录写入时文件是否已存在（edit 必然是已存在）。
+ *  按「路径 → 最早一次写」聚合（多消息按时间正序调用，或靠 msgId 比较保最早项），
+ *  键统一反斜杠转正斜杠，与回退 involved 集合同口径。exists===false 且最早写
+ *  在回退点之后 → 文件是回退轮次新建的，回退时可直接删除。 */
+export function recordWriteEvidence(parts: RevertDraftPart[], msgId: string, target: Map<string, WriteEvidence>): void {
+  for (const part of parts) {
+    if (part.type !== "tool") continue
+    if (part.state?.status !== "completed") continue
+    const toolName = (part.tool ?? part.name ?? part.state?.name ?? "").toLowerCase()
+    if (!toolName.includes("write") && !toolName.includes("edit")) continue
+    const input = part.state?.input
+    const raw = ((input?.filePath ?? input?.filepath ?? input?.path ?? "") as string).replace(/\\/g, "/")
+    if (!raw) continue
+    const prev = target.get(raw)
+    if (prev && prev.msgId <= msgId) continue
+    target.set(raw, {
+      msgId,
+      existed: toolName.includes("write") ? part.state?.metadata?.exists : true,
+    })
+  }
 }
 
 /** 恢复用户可见文本：优先 metadata.displayText（含 ​@name​ chip 标记），否则取第一个 text part 按 \n---\n 截断（与 insight-turn userText 同口径）。

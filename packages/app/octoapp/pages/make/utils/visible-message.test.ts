@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { isCompactionInjectedMessage, isVisibleUserMessage } from "./visible-message"
+import { isCompactionInjectedMessage, isHiddenTaskPromptMessage, isVisibleUserMessage } from "./visible-message"
 
 const sessionID = "ses_1"
 
@@ -134,5 +134,39 @@ describe("isCompactionInjectedMessage", () => {
   test("undefined / 空数组不是注入消息", () => {
     expect(isCompactionInjectedMessage(undefined)).toBe(false)
     expect(isCompactionInjectedMessage([])).toBe(false)
+  })
+})
+
+describe("isHiddenTaskPromptMessage", () => {
+  const childUser = (agent: string): Message =>
+    ({ ...userMessage("msg_1"), sessionID: "ses_child", agent }) as Message
+  const mainUser = (agent: string): Message => ({ ...userMessage("msg_1"), agent }) as Message
+
+  test("octo_design/octo_code/plan 子会话消息是隐藏 task prompt", () => {
+    for (const agent of ["octo_design", "octo_code", "plan"]) {
+      expect(isHiddenTaskPromptMessage(childUser(agent), sessionID)).toBe(true)
+    }
+  })
+
+  test("主会话消息不是隐藏 task prompt", () => {
+    for (const agent of ["octo_design", "octo_code", "plan", "octo_make"]) {
+      expect(isHiddenTaskPromptMessage(mainUser(agent), sessionID)).toBe(false)
+    }
+  })
+
+  test("其他子代理(octo_make_plan/ict_pattern)的子会话消息不是隐藏 task prompt", () => {
+    for (const agent of ["octo_make_plan", "ict_pattern"]) {
+      expect(isHiddenTaskPromptMessage(childUser(agent), sessionID)).toBe(false)
+    }
+  })
+
+  test("消息缺 sessionID 时按主会话处理,不是隐藏 task prompt", () => {
+    const noSession = { ...userMessage("msg_1"), agent: "octo_design" } as Message
+    delete (noSession as { sessionID?: string }).sessionID
+    expect(isHiddenTaskPromptMessage(noSession, sessionID)).toBe(false)
+  })
+
+  test("主会话 id 为空时恒为 false", () => {
+    expect(isHiddenTaskPromptMessage(childUser("octo_design"), undefined)).toBe(false)
   })
 })
