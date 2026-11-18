@@ -196,7 +196,7 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
   createEffect(() => { review?.key(); props.tab.viewMode; setState("open", false) })
   return <Show when={props.tab.type === "html" && review}>
     <Tooltip value={editLabel()} placement="top">
-      <button type="button" class={buttonClass()} disabled={!!disabled() || review?.editDisabled()}
+      <button type="button" class={`${buttonClass()} insight-local-edit-toggle`} disabled={!!disabled() || review?.editDisabled()}
         aria-pressed={review?.state.editing} classList={{ "octo-viewport-btn-active": review?.state.editing }}
         onClick={() => review?.toggleEdit()}><IconLocalModify size={iconSize()} /><span>{editLabel()}</span></button>
     </Tooltip>
