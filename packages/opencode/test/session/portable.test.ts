@@ -880,6 +880,53 @@ describe("portable session", () => {
     }
   })
 
+  test("limits uploaded ZIP names without truncating session titles or splitting Unicode characters", async () => {
+    const uploads: { name: string; description: string; title: string }[] = []
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const form = await request.formData()
+        const file = form.get("file")
+        if (!(file instanceof File)) return new Response("file is required", { status: 400 })
+        const zip = await JSZip.loadAsync(await file.arrayBuffer())
+        const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+        uploads.push({
+          name: file.name,
+          description: String(form.get("description") ?? ""),
+          title: manifest.sessions[0].info.title,
+        })
+        return Response.json({ content: { uniqueId: "short-name" }, success: true })
+      },
+    })
+    const previousUpload = process.env.OCTO_SHARE_API_URL
+    const previousPage = process.env.OCTO_SHARE_PAGE_URL
+    process.env.OCTO_SHARE_API_URL = `http://127.0.0.1:${server.port}/upload`
+    process.env.OCTO_SHARE_PAGE_URL = "https://share.example/session"
+    try {
+      await using source = await tmpdir({ git: true })
+      await provideTestInstance({ directory: source.path, fn: async () => {
+        for (const agent of ["octo_insight", "octo_make", "octo_studio"]) {
+          for (const title of ["分享标题".repeat(30), "a".repeat(49) + "😀后续内容", "短标题", "  "]) {
+            const session = await runSession((service) => service.create({ title, agent }))
+            await AppRuntime.runPromise(sharePortableSession({ sessionID: session.id }))
+          }
+          expect(uploads.splice(0)).toEqual([
+            { name: "分享标题".repeat(12) + "分享.zip", description: "分享标题".repeat(30), title: "分享标题".repeat(30) },
+            { name: "a".repeat(49) + "😀.zip", description: "a".repeat(49) + "😀后续内容", title: "a".repeat(49) + "😀后续内容" },
+            { name: "短标题.zip", description: "短标题", title: "短标题" },
+            { name: "session.zip", description: "  ", title: "  " },
+          ])
+        }
+      } })
+    } finally {
+      server.stop(true)
+      if (previousUpload === undefined) delete process.env.OCTO_SHARE_API_URL
+      else process.env.OCTO_SHARE_API_URL = previousUpload
+      if (previousPage === undefined) delete process.env.OCTO_SHARE_PAGE_URL
+      else process.env.OCTO_SHARE_PAGE_URL = previousPage
+    }
+  })
+
   test("uploads a generated ZIP despite a missing dependency in another shared page and returns a share page URL", async () => {
     const uploads: { fileName: string; description: string; size: number }[] = []
     const server = Bun.serve({
