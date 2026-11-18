@@ -1938,9 +1938,8 @@ const sessionMessagesLoaded = createMemo(() => {
     return preset && designSystemOptions().includes(preset) ? preset : null
   })
 
-  // 存量对话页展示：创建会话时选中的设计系统 —— 主 session 首条可见用户消息的 skill part
-  // （state.input.name）匹配设计系统列表（注入时 chip 前置 → 首个匹配即创建时选择；
-  // 消息推导跨设备可用，旧会话/创建时未选 → 无匹配 → null → displayOnly 仅图标）
+  // 存量对话页展示：创建会话时选中的设计系统 —— handleSubmit 发送时把选中项写入首条
+  // 用户消息 text part 的 metadata.designSystem，
   const sessionDesignSystem = createMemo(() => {
     const sid = params.id
     if (!sid) return null
@@ -1948,14 +1947,8 @@ const sessionMessagesLoaded = createMemo(() => {
       ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => isVisibleUserMessage(m, sync.data.part[m.id])),
     )[0]
     if (!firstUser) return null
-    const parts = (sync.data.part?.[firstUser.id] ?? []) as Array<Record<string, unknown>>
-    const opts = designSystemOptions()
-    return (
-      parts
-        .filter((p) => p.type === "tool" && (p.tool as string | undefined) === "skill")
-        .map((p) => (p.state as { input?: { name?: string } } | undefined)?.input?.name)
-        .find((name) => name && opts.includes(name)) ?? null
-    )
+    const parts = (sync.data.part?.[firstUser.id] ?? []) as Array<{ type?: string; metadata?: { designSystem?: string } }>
+    return parts.find((p) => p.type === "text" && p.metadata?.designSystem)?.metadata?.designSystem ?? null
   })
 
   // ── Slash Command List ──
@@ -3729,7 +3722,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string, attachmentSnapshot?: Attachment[]) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], designSystem?: string, attachmentSnapshot?: Attachment[]) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -4008,6 +4001,7 @@ const sessionMessagesLoaded = createMemo(() => {
               metadata: {
                 displayText: isFirstSkillCommand ? fullDisplayText : "",
                 command: seg.cmd,
+                ...(designSystem ? { designSystem } : {}),
               }
             })
             isFirstSkillCommand = false
@@ -4066,10 +4060,10 @@ const sessionMessagesLoaded = createMemo(() => {
         promptText = artifactFolderPrefix + "\n" + promptText
       }
 
-      const textPart: TextPartInput = { 
-        type: "text", 
+      const textPart: TextPartInput = {
+        type: "text",
         text: promptText,
-        metadata: { displayText: displayText },
+        ...(displayText || designSystem ? { metadata: { ...(displayText ? { displayText } : {}), ...(designSystem ? { designSystem } : {}) } } : {}),
       }
       
       console.log("[sendMessage] textPart:", textPart)
@@ -4089,7 +4083,7 @@ const sessionMessagesLoaded = createMemo(() => {
         name: "send-message",
         extend: JSON.stringify({
           hasAttachment: fileParts.length > 0 || localManifest.length > 0,
-          ...(injectedDesignSystem ? { designSystem: injectedDesignSystem } : {}),
+          ...(designSystem ? { designSystem } : {}),
         }),
       })
       
@@ -4161,14 +4155,17 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
 
-    let injectedDesignSystem: string | undefined
+   
+    let designSystem: string | undefined
     if (!hasSessionView()) {
-      const designSystem = designSystemSelected()
-      if (designSystem && !mentions.some(m => m.type === "skill" && m.name === designSystem)) {
-        injectedDesignSystem = designSystem
-        text = `​@${designSystem}​ ` + text
-        mentions = [{ type: 'skill', name: designSystem, label: designSystem, id: designSystem, path: "" }, ...mentions]
-        tracker.interaction({ module: "design", name: "send-design-system", extend: JSON.stringify({ designSystem }) })
+      const selected = designSystemSelected()
+      if (selected) {
+        designSystem = selected
+        if (!mentions.some(m => m.type === "skill" && m.name === selected)) {
+          text = `​@${selected}​ ` + text
+          mentions = [{ type: 'skill', name: selected, label: selected, id: selected, path: "" }, ...mentions]
+          tracker.interaction({ module: "design", name: "send-design-system", extend: JSON.stringify({ designSystem: selected }) })
+        }
       }
     }
     
@@ -4395,7 +4392,7 @@ const sessionMessagesLoaded = createMemo(() => {
             setPatternBlockMatching(false)
             // 不清空 lastEnriched*MsgId：跳过历史中已处理过的旧 <pattern-match>/<module-list>，
             // 仅当 agent 本轮输出新的 match/module-list 时才重新触发匹配弹窗
-            await sendMessage(existingChildId, text, capturedModelKey, mentions, injectedDesignSystem)
+            await sendMessage(existingChildId, text, capturedModelKey, mentions, designSystem)
           } else {
             // 首次进入：创建新的 ict_pattern 子 session
             lastEnrichedPatternMatchMsgId = null
@@ -4412,12 +4409,12 @@ const sessionMessagesLoaded = createMemo(() => {
               setPatternSubPhase("match")
               setPatternMatches(null)
               sync.session.sync(patternChildSession.id).catch(() => {})
-              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions, injectedDesignSystem)
+              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions, designSystem)
             }
           }
         }
       } else {
-        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem, attachmentSnapshot)
+        await sendMessage(sid, text, capturedModelKey, mentions, designSystem, attachmentSnapshot)
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
