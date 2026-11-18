@@ -11,6 +11,7 @@ import { useFileComponent } from "../context/file"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
 import { createEffect, createMemo, createSignal, For, on, ParentProps, Show } from "solid-js"
+import type { JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { AssistantParts, Message, MessageDivider, PART_MAPPING, type UserActions } from "./message-part"
@@ -155,6 +156,7 @@ export function SessionTurn(
     active?: boolean
     status?: SessionStatus
     onUserInteracted?: () => void
+    renderContextOverflow?: () => JSX.Element
     classes?: {
       root?: string
       content?: string
@@ -527,9 +529,11 @@ export function SessionTurn(
                 </div>
               </Show>
               <Show when={error()}>
-                <Card variant="error" class="error-card">
-                  {errorText()}
-                </Card>
+                <Show when={error()?.name === "ContextOverflowError" && props.renderContextOverflow} fallback={
+                  <Card variant="error" class="error-card">{errorText()}</Card>
+                }>
+                  {props.renderContextOverflow?.()}
+                </Show>
               </Show>
             </div>
           </Show>

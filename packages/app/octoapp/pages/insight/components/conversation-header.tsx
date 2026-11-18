@@ -46,7 +46,6 @@ export function ConversationHeader(
       tokens: number | undefined
       limit?: number
       usage: number | undefined
-      blocked: boolean
       disabled: boolean
       onCompact: () => void
     }
@@ -334,16 +333,9 @@ export function ConversationHeader(
                     <div class="insight-token-tooltip-copy">
                       <p>
                         当前对话 Session 上下文
-                        {context().blocked
-                          ? "已超过100%"
-                          : (context().usage ?? 0) >= 80
-                            ? "已超过80%"
-                            : context().usage === undefined ? "用量暂不可用" : `已使用${context().usage}%`}{" "}
-                        (<span classList={{ "is-critical": (context().usage ?? 0) >= 80 }}>{context().tokens?.toLocaleString(language.intl()) ?? "--"}</span>{" "}
-                        / {context().limit?.toLocaleString(language.intl()) ?? "--"})，
-                      </p>
-                      <p>
-                        建议点击“<button type="button" class="insight-token-tooltip-action" disabled={context().disabled} onClick={context().onCompact}>上下文压缩</button>”以继续对话。
+                        {context().usage === undefined ? "用量暂不可用" : `已使用${context().usage}%`}{" "}
+                        ({context().tokens?.toLocaleString(language.intl()) ?? "--"}{" "}
+                        / {context().limit?.toLocaleString(language.intl()) ?? "--"})
                       </p>
                     </div>
                   }
@@ -352,10 +344,10 @@ export function ConversationHeader(
                     type="button"
                     class="shrink-0 flex items-center justify-center"
                     classList={{ "cursor-pointer": !context().disabled, "cursor-not-allowed": context().disabled }}
-                    style={{ background: "transparent", border: "none", padding: "0" }}
+                    style={{ "--border-weak-base": "rgba(0,0,0,0.1)", background: "transparent", border: "none", padding: "0" }}
                     disabled={context().disabled}
                     onClick={context().onCompact}
-                    aria-label={context().usage === undefined ? "用量暂不可用，点击压缩上下文" : `上下文已使用 ${context().usage}%，点击压缩上下文`}
+                    aria-label={context().usage === undefined ? "上下文用量暂不可用，点击压缩上下文" : `上下文已使用 ${context().usage}%，点击压缩上下文`}
                   >
                     <ContextUsageCircle percentage={context().usage} />
                   </button>
