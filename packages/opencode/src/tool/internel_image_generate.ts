@@ -584,6 +584,12 @@ function imageUrlFromRefImage(value: unknown) {
   return remoteImageUrl((value as JsonRecord).image_base64)
 }
 
+function imageUrlFromVideoListImage(value: unknown) {
+  if (typeof value === "string") return remoteImageUrl(value)
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  return remoteImageUrl((value as JsonRecord).image) ?? imageUrlFromRefImage(value)
+}
+
 function isRenderableImageUrl(url: string) {
   if (!url) return false
   return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
@@ -1509,10 +1515,18 @@ function getVideoAspectRatio(input: ImageGenerateInput) {
   return "16:9"
 }
 
-async function getVideoFrames(input: ImageGenerateInput) {
-  const referenceImages = (await Promise.all(
+function getVideoInputMode(input: ImageGenerateInput) {
+  return extraString(input, "videoInputMode") === "multi-reference" ? "multi-reference" : "first-last-frame"
+}
+
+async function getVideoReferenceImages(input: ImageGenerateInput) {
+  return (await Promise.all(
     (input.referenceImages ?? []).map((item) => resolveImageInputDataUrl(item).catch(() => undefined)),
   )).filter((item): item is string => Boolean(item))
+}
+
+async function getVideoFrames(input: ImageGenerateInput) {
+  const referenceImages = await getVideoReferenceImages(input)
   const firstFrame = extraString(input, "firstFrame")
   const lastFrame = extraString(input, "lastFrame")
   const resolvedFirstFrame = firstFrame ? await resolveImageInputDataUrl(firstFrame) : undefined
@@ -1524,7 +1538,6 @@ async function getVideoFrames(input: ImageGenerateInput) {
 }
 
 async function buildVideoRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
-  const frames = await getVideoFrames(input)
   const baseArgs = {
     prompt: input.prompt,
     aspect_ratio: getVideoAspectRatio(input),
@@ -1533,6 +1546,20 @@ async function buildVideoRequestBody(input: ImageGenerateInput, context: Interna
     mode: getVideoMode(input),
     resolution: getVideoResolution(input),
   }
+  if (getVideoInputMode(input) === "multi-reference") {
+    const images = await getVideoReferenceImages(input)
+    if (images.length === 0) throw new Error("Multi-reference video generation requires at least one reference image.")
+    return {
+      user: { idx: context.userIdx },
+      task_type: "multi-i2v_seedance",
+      args: {
+        tag_name: "图生视频",
+        ...baseArgs,
+        image_list: images.map((item) => ({ image: dataUrlToBase64(item) })),
+      },
+    }
+  }
+  const frames = await getVideoFrames(input)
   if (extraString(input, "videoMode") === "first_last_frame" && !frames.firstFrame) {
     throw new Error("Image-to-video generation requires a first frame.")
   }
@@ -1621,6 +1648,16 @@ function compactInputWithHistory(input: ImageGenerateInput, historyArgs?: JsonRe
     }
   }
   if (input.capability === "video.generate") {
+    if (getVideoInputMode(input) === "multi-reference") {
+      const imageList = Array.isArray(historyArgs.image_list) ? historyArgs.image_list : []
+      const referenceImages = imageList
+        .map((item: unknown) => imageUrlFromVideoListImage(item))
+        .filter((item): item is string => Boolean(item))
+      return {
+        ...input,
+        referenceImages: referenceImages.length > 0 ? referenceImages : input.referenceImages,
+      }
+    }
     const firstFrame = remoteImageUrl(historyArgs.image)
     const lastFrame = remoteImageUrl(historyArgs.image_tail)
     return {
@@ -1683,6 +1720,16 @@ function compactRequestWithHistory(requestBody: JsonRecord, capability: StudioCa
     return next
   }
   if (capability === "video.generate") {
+    if (Array.isArray((args as JsonRecord).image_list)) {
+      const historyImageList = Array.isArray(historyArgs.image_list) ? historyArgs.image_list : []
+      const current = (args as JsonRecord).image_list as unknown[]
+      ;(args as JsonRecord).image_list = current.map((item: unknown, index: number) => {
+        const url = imageUrlFromVideoListImage(historyImageList[index])
+        if (!url || !item || typeof item !== "object" || Array.isArray(item)) return item
+        return { ...(item as JsonRecord), image: url }
+      })
+      return next
+    }
     const firstFrame = remoteImageUrl(historyArgs.image)
     const lastFrame = remoteImageUrl(historyArgs.image_tail)
     if (firstFrame) (args as JsonRecord).image = firstFrame
@@ -1721,6 +1768,15 @@ function compactRequestWithInputMedia(requestBody: JsonRecord, input: ImageGener
     return next
   }
   if (capability === "video.generate") {
+    if (Array.isArray((args as JsonRecord).image_list)) {
+      const current = (args as JsonRecord).image_list as unknown[]
+      ;(args as JsonRecord).image_list = current.map((item: unknown, index: number) => {
+        const replacement = input.referenceImages?.[index]
+        if (!replacement || replacement.startsWith("data:image/") || !item || typeof item !== "object" || Array.isArray(item)) return item
+        return { ...(item as JsonRecord), image: replacement }
+      })
+      return next
+    }
     const firstFrame = typeof input.extra?.firstFrame === "string" ? input.extra.firstFrame : input.referenceImages?.[0]
     const lastFrame = typeof input.extra?.lastFrame === "string" ? input.extra.lastFrame : input.referenceImages?.[1]
     if (firstFrame && !firstFrame.startsWith("data:image/")) (args as JsonRecord).image = firstFrame
