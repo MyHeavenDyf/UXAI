@@ -106,6 +106,13 @@ export const STUDIO_VIDEO_MODES = [
   { label: "超长视频", value: "ultra-long" },
 ] satisfies { label: string; value: StudioVideoMode }[]
 
+export type StudioVideoInputMode = "first-last-frame" | "multi-reference"
+
+export const STUDIO_VIDEO_INPUT_MODES = [
+  { label: "首尾帧", value: "first-last-frame", icon: "/studio/rectangle_split.png" },
+  { label: "多图参考", value: "multi-reference", icon: "/studio/ai_area.png" },
+] satisfies { label: string; value: StudioVideoInputMode; icon?: string }[]
+
 export function workspaceModeForCapability(capability: StudioCapability): Exclude<StudioMode, "preview"> | undefined {
   if (capability === "image.upscale") return "hd"
   if (capability === "image.cutout") return "cutout"

@@ -138,6 +138,94 @@ describe("Seedream provider request", () => {
   })
 })
 
+describe("internal video task types", () => {
+  test("switches task_type between i2v, multi-i2v and t2v by input mode", async () => {
+    const requests: unknown[] = []
+    using server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        if (new URL(request.url).pathname === "/create_task") {
+          requests.push(await request.json())
+          return Response.json({ resp_code: 200, task_id: `video-test-${requests.length}` })
+        }
+        return Response.json({ resp_code: 200, result: [] })
+      },
+    })
+    const previous = {
+      IMAGE_CREATE_TASK_URL: process.env.IMAGE_CREATE_TASK_URL,
+      IMAGE_GET_HISTORY_URL: process.env.IMAGE_GET_HISTORY_URL,
+    }
+    using environment = {
+      [Symbol.dispose]() {
+        Object.entries(previous).forEach(([key, value]) => {
+          if (value === undefined) {
+            delete process.env[key]
+            return
+          }
+          process.env[key] = value
+        })
+      },
+    }
+    process.env.IMAGE_CREATE_TASK_URL = new URL("/create_task", server.url).href
+    process.env.IMAGE_GET_HISTORY_URL = new URL("/get_history", server.url).href
+
+    const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+    const image = `data:image/png;base64,${base64}`
+    const inputs = [
+      {
+        capability: "video.generate",
+        prompt: "First and last frame",
+        extra: { videoMode: "first_last_frame", firstFrame: image, lastFrame: image },
+      },
+      {
+        capability: "video.generate",
+        prompt: "Multi reference",
+        referenceImages: [image, image, image],
+        extra: { videoMode: "first_last_frame", videoInputMode: "multi-reference" },
+      },
+      { capability: "video.generate", prompt: "Text to video", extra: { videoMode: "text" } },
+    ] satisfies ImageGenerateInput[]
+    const tasks = await Promise.all(inputs.map((input) => createInternalGeneration({
+      ...input,
+      extra: { ...input.extra, userIdx: "video-test-user" },
+    })))
+
+    expect(tasks.map((task) => task.model)).toEqual(["i2v_seedance", "multi-i2v_seedance", "t2v_seedance"])
+    expect(requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        task_type: "i2v_seedance",
+        args: expect.objectContaining({
+          tag_name: "图生视频",
+          prompt: "First and last frame",
+          image: base64,
+          image_tail: base64,
+        }),
+      }),
+      expect.objectContaining({
+        task_type: "multi-i2v_seedance",
+        args: expect.objectContaining({
+          tag_name: "图生视频",
+          prompt: "Multi reference",
+          image_list: [{ image: base64 }, { image: base64 }, { image: base64 }],
+        }),
+      }),
+      expect.objectContaining({
+        task_type: "t2v_seedance",
+        args: expect.objectContaining({ prompt: "Text to video" }),
+      }),
+    ]))
+  })
+
+  test("rejects multi-reference video without reference images", async () => {
+    await expect(createInternalGeneration({
+      capability: "video.generate",
+      prompt: "No references",
+      extra: { videoInputMode: "multi-reference", userIdx: "video-test-user" },
+    })).rejects.toThrow("Multi-reference video generation requires at least one reference image.")
+  })
+})
+
 describe("internal image query task failures", () => {
   test("uses the provider result error message", () => {
     expect(queryTaskFailureMessage({
