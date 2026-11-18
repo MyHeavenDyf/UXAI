@@ -6050,10 +6050,12 @@ const sessionMessagesLoaded = createMemo(() => {
       >
 
         {/* ── 左栏：对话面板 ──── */}
-        <Show when={!hideChat()}>
+        {/* 焦点模式改为 CSS 隐藏而非卸载：局部修改「确认/下一项」经 appendToMainComposer/
+            submitMainComposer 依赖主 composer (proseMirrorRef1/2)，卸载后 ref 失活会静默丢消息 */}
           <div
             classList={{ "flex": true, "flex-col": true, "overflow-hidden": true, "make-chat-folded": ml.rightCollapsed() || ml.rightManuallyHidden() }}
             style={{
+              display: hideChat() ? "none" : "flex",
               "z-index": 11,
               background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
               outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
@@ -6913,7 +6915,6 @@ onPreview={(url) => {
             </Show>
 
         </div>
-        </Show>
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
         <Show when={gridHasContent() && !hideChat() && !ml.rightCollapsed() && !ml.rightManuallyHidden()}>
