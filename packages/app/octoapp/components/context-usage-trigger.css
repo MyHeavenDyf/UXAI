@@ -1,0 +1,20 @@
+[data-component="tooltip"].octo-context-usage-tooltip {
+  box-sizing: border-box;
+  width: 381px;
+  max-width: calc(100vw - 24px);
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: #fff;
+  color: #191919;
+  box-shadow: 0 2px 24px rgba(0, 0, 0, 0.12);
+  font-family: "HarmonyOS Sans SC 2025", "HarmonyOS Sans SC", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+.octo-context-usage-tooltip p {
+  margin: 0;
+}
