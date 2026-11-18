@@ -1,11 +1,12 @@
 /**
- * InsightTurn 可见 user 消息判定(供 userMessages 过滤 / Fix 8 发送后自愈 / Fix 9 切换校验共用)。
+ * InsightTurn 可见 user 消息判定(供 userMessages 过滤 / Fix 8 发送后自愈 / Fix 9 切换校验共用)
+ * + 自动压缩回填轮判定(isHiddenCompactionTurn)。
  *
  * 运行: bun test --preload ./happydom.ts ./octoapp/pages/make/utils/visible-message.test.ts(在 packages/app 下)
  */
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { isVisibleUserMessage } from "./visible-message"
+import { isVisibleUserMessage, isHiddenCompactionTurn } from "./visible-message"
 
 const sessionID = "ses_1"
 
@@ -87,5 +88,56 @@ describe("isVisibleUserMessage", () => {
     expect(
       isVisibleUserMessage(userMessage("msg_1"), [compactionPart("prt_1", "msg_1"), textPart("prt_2", "msg_1")]),
     ).toBe(true)
+  })
+})
+
+describe("isHiddenCompactionTurn", () => {
+  test("replay: text part 带 metadata.compaction_replay 判定为隐藏轮", () => {
+    expect(
+      isHiddenCompactionTurn([{ type: "text", text: "做个落地页", metadata: { compaction_replay: true } }]),
+    ).toBe(true)
+  })
+
+  test("replay 轮同时带附件占位 part 也判定为隐藏轮", () => {
+    expect(
+      isHiddenCompactionTurn([
+        { type: "text", text: "做个落地页", metadata: { compaction_replay: true } },
+        { type: "text", text: "[Attached image/png: a.png]", synthetic: true, metadata: { compaction_replay: true } },
+      ]),
+    ).toBe(true)
+  })
+
+  test("continue: synthetic text 带 metadata.compaction_continue 判定为隐藏轮", () => {
+    expect(
+      isHiddenCompactionTurn([
+        { type: "text", text: "Continue if you have next steps", synthetic: true, metadata: { compaction_continue: true } },
+      ]),
+    ).toBe(true)
+  })
+
+  test("普通消息不为隐藏轮", () => {
+    expect(isHiddenCompactionTurn([{ type: "text", text: "hi" }])).toBe(false)
+    expect(isHiddenCompactionTurn(undefined)).toBe(false)
+    expect(isHiddenCompactionTurn([])).toBe(false)
+  })
+
+  test("含 compaction part 的消息优先走压缩 turn 逻辑,不在此隐藏", () => {
+    expect(
+      isHiddenCompactionTurn([
+        { type: "compaction", auto: false },
+        { type: "text", text: "/compact", synthetic: true, metadata: { compaction_continue: true } },
+      ]),
+    ).toBe(false)
+  })
+
+  test("synthetic 但无 compaction_continue 标记不为隐藏轮(手动 /compact 回显等)", () => {
+    expect(isHiddenCompactionTurn([{ type: "text", text: "/compact", synthetic: true }])).toBe(false)
+  })
+
+  test("metadata 非对象或标记非 true 不判定为隐藏轮", () => {
+    expect(isHiddenCompactionTurn([{ type: "text", text: "hi", metadata: null }])).toBe(false)
+    expect(
+      isHiddenCompactionTurn([{ type: "text", text: "hi", metadata: { compaction_replay: "true" } }]),
+    ).toBe(false)
   })
 })
