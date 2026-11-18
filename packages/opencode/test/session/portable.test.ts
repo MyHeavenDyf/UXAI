@@ -33,6 +33,51 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test("clamps negative token counts from legacy archives", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((service) => service.create({ title: "Legacy token counts" }))
+      const user = await runSession((service) => service.updateMessage({
+        id: MessageID.ascending(), sessionID: session.id, role: "user", agent: "octo_make",
+        time: { created: 1 }, model: { modelID: ModelID.make("test"), providerID: ProviderID.make("test") },
+      }))
+      const assistant = await runSession((service) => service.updateMessage({
+        id: MessageID.ascending(), sessionID: session.id, role: "assistant", parentID: user.id,
+        agent: "octo_make", mode: "octo_make", modelID: ModelID.make("test"), providerID: ProviderID.make("test"),
+        time: { created: 2, completed: 3 }, path: { cwd: source.path, root: source.path }, cost: 0,
+        tokens: { input: 10, output: 20, reasoning: 30, cache: { read: 40, write: 50 } },
+      }))
+      await runSession((service) => service.updatePart({
+        id: PartID.ascending(), messageID: assistant.id, sessionID: session.id, type: "step-finish",
+        reason: "stop", cost: 0,
+        tokens: { input: 10, output: 20, reasoning: 30, cache: { read: 40, write: 50 } },
+      }))
+      return AppRuntime.runPromise(
+        exportPortableSession({ sessionID: session.id, output: path.join(source.path, "legacy-tokens.zip") }),
+      )
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    manifest.sessions[0].messages[1].info.tokens.input = -504
+    manifest.sessions[0].messages[1].info.tokens.cache.write = -12
+    manifest.sessions[0].messages[1].parts[0].tokens.output = -3
+    zip.file("manifest.json", JSON.stringify(manifest))
+    await Bun.write(exported.output, await zip.generateAsync({ type: "uint8array" }))
+
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const result = await AppRuntime.runPromise(importPortableSession(exported.output))
+      const messages = await runSession((service) => service.messages({ sessionID: result.sessionID }))
+      expect(messages[1].info.role).toBe("assistant")
+      if (messages[1].info.role !== "assistant") return
+      expect(messages[1].info.tokens).toEqual({ input: 0, output: 20, reasoning: 30, cache: { read: 40, write: 0 } })
+      expect(messages[1].parts[0]).toMatchObject({
+        type: "step-finish",
+        tokens: { input: 10, output: 0, reasoning: 30, cache: { read: 40, write: 50 } },
+      })
+    } })
+  })
+
   test.each([
     ["octo_studio", 0],
     ["octo_make", 9],
