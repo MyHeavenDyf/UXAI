@@ -12,6 +12,9 @@ export function UpdateDescription(props: { releaseNotes?: string }) {
         .octo-update-dialog-description {
           margin: 12px 0 0;
           min-height: 63px;
+          max-height: 63px;
+          overflow-y: auto;
+          overflow-wrap: anywhere;
           white-space: pre-wrap;
           font-size: 14px;
           line-height: 21px;
