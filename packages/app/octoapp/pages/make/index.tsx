@@ -1041,6 +1041,7 @@ const sessionMessagesLoaded = createMemo(() => {
             }
           ])
         } else if (partType === "tool") {
+          lastToolActivityAt = Date.now()
           setLastDeltaTime(Date.now())
           setBlockTime(0)
         }
@@ -1563,6 +1564,9 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching() || patternChildBusy())
+  // retry 也是生成中状态：InsightTurn 的 active 需接受 retry，否则重试等待期间
+  // 阻塞提示/已执行时间/生成中卡片全部隐藏，模型长时间重试时用户得不到任何反馈
+  const sessionActive = (status: SessionStatus | undefined) => status?.type === "busy" || status?.type === "retry"
   const contextCompactionDisabled = effectiveBusy
 
   async function executeSessionCommand(input: Parameters<typeof sdk.client.session.command>[0]) {
@@ -1746,21 +1750,31 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── 阻塞检测计时器 ────────────────────────────────────────────
   const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
   const [blockTime, setBlockTime] = createSignal(0)
+ 
+  const TOOL_STALE_MS = 300_000
+  const [toolStale, setToolStale] = createSignal(false)
+  let lastToolActivityAt = Date.now()
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
-    if (effectiveBusy() && !hasQuestion && !hasRunningTool()) {
+    if (effectiveBusy() && !hasQuestion) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
-        const blockedMs = Date.now() - lastDeltaTime()
-        if (blockedMs > 3000) {
-          setBlockTime(Math.floor(blockedMs / 1000))
+        const childActive = [...childSessionIDs()].some((id) => sync.data.session_status[id]?.type === "busy")
+        if (hasRunningTool() && (childActive || Date.now() - lastToolActivityAt <= TOOL_STALE_MS)) {
+          setBlockTime(0)
+          setToolStale(false)
+          return
         }
+        setToolStale(hasRunningTool())
+        const blockedMs = Date.now() - lastDeltaTime()
+        setBlockTime(blockedMs > 3000 ? Math.floor(blockedMs / 1000) : 0)
       }, 1000)
     } else {
       if (blockTimer) { clearInterval(blockTimer); blockTimer = undefined }
       setLastDeltaTime(Date.now())
       setBlockTime(0)
+      setToolStale(false)
     }
     onCleanup(() => { if (blockTimer) clearInterval(blockTimer) })
   })
@@ -6522,7 +6536,7 @@ onPreview={(url) => {
                         sessionID={userMessages()[0].sessionID || params.id!}
                         messageID={userMessages()[0].id}
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
-                        active={sync.data.session_status[userMessages()[0].sessionID ?? params.id!]?.type === "busy"}
+                        active={sessionActive(sync.data.session_status[userMessages()[0].sessionID ?? params.id!])}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -6537,7 +6551,7 @@ onPreview={(url) => {
                         compactDisabled={contextCompactionDisabled()}
                         onCompact={() => confirmCompactContext(userMessages()[0].sessionID || params.id!)}
                         hasQuestionRequest={!!questionRequest()}
-                        hasRunningTool={hasRunningTool()}
+                        hasRunningTool={hasRunningTool() && !toolStale()}
                         onFilesRefresh={() => {
                           setFilesRefreshKey(k => k + 1)
                           void historyController.onFileRefresh(tabStore.tabs())
@@ -6562,7 +6576,7 @@ onPreview={(url) => {
                             sessionID={messageSessionID}
                             messageID={msg.id}
                             status={sync.data.session_status[messageSessionID] ?? sessionStatus()}
-                            active={sync.data.session_status[messageSessionID]?.type === "busy"}
+                            active={sessionActive(sync.data.session_status[messageSessionID])}
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}
                             onAbort={halt}
@@ -6577,7 +6591,7 @@ onPreview={(url) => {
                             compactDisabled={contextCompactionDisabled()}
                             onCompact={() => confirmCompactContext(messageSessionID)}
                             hasQuestionRequest={!!questionRequest()}
-                            hasRunningTool={hasRunningTool()}
+                            hasRunningTool={hasRunningTool() && !toolStale()}
                             onFilesRefresh={() => {
                               setFilesRefreshKey(k => k + 1)
                               void historyController.onFileRefresh(tabStore.tabs())

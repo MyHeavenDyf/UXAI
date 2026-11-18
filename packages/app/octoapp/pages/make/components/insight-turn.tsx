@@ -1067,7 +1067,7 @@ const stateStatus = state.status as string | undefined
     if (!textPart?.text) return []
 
     const text = textPart.text
-    const ts = props.status.type === "busy" ? new Date(0) : new Date()
+    const ts = props.status.type !== "idle" ? new Date(0) : new Date()
 
     // Use regex scan to find ALL artifact headers (completed + in-progress)
     const headers = scanArtifactHeaders(text)
@@ -1932,24 +1932,26 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 阻塞提示 — 渐进式显示（question 状态或工具执行时不显示） */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest && !props.hasRunningTool}>
+      {/* 阻塞提示 — 渐进式显示（question 状态或工具执行时不显示；retry 时立即显示重试提示） */}
+      <Show when={showGenerating() && !props.hasQuestionRequest && !props.hasRunningTool && (props.status.type === "retry" || (!!props.blockTime && props.blockTime >= 60))}>
         {(() => {
-          const bt = props.blockTime!
-          const isWarning = bt >= 180
+          const bt = props.blockTime ?? 0
+          const accent = props.status.type === "retry" || bt >= 180
           return (
             <div class="mx-3 px-4 py-2 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",
-              border: isWarning ? "1px solid rgba(255, 177, 46, 0.3)" : "1px solid rgba(200, 200, 200, 0.2)",
-              background: isWarning ? "rgba(255, 177, 46, 0.08)" : "rgba(200, 200, 200, 0.05)",
+              border: accent ? "1px solid rgba(255, 177, 46, 0.3)" : "1px solid rgba(200, 200, 200, 0.2)",
+              background: accent ? "rgba(255, 177, 46, 0.08)" : "rgba(200, 200, 200, 0.05)",
             }}>
-              <span class="text-sm" style={{ color: isWarning ? "#b34700" : "#6e737a" }}>
-                {isWarning
-                  ? `模型超过 ${formatBlockTime(bt)} 没有响应，建议重新请求`
-                  : "模型响应较慢，请耐心等待..."
+              <span class="text-sm" style={{ color: accent ? "#b34700" : "#6e737a" }}>
+                {props.status.type === "retry"
+                  ? `连接中断，正在重试（第 ${props.status.attempt} 次）...`
+                  : bt >= 180
+                    ? `模型超过 ${formatBlockTime(bt)} 没有响应，建议重新请求`
+                    : "模型响应较慢，请耐心等待..."
                 }
               </span>
-              <Show when={isWarning && props.onAbort}>
+              <Show when={bt >= 180 && props.onAbort}>
                 <Button
                   variant="secondary"
                   size="small"
