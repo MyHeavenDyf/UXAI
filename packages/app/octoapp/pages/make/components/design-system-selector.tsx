@@ -22,7 +22,7 @@ export function DesignSystemSelector(props: {
       when={!props.displayOnly}
       fallback={
         <span
-          class="flex items-center gap-1.5 min-w-0 max-w-[180px] overflow-hidden bg-[#f3f3f3] px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium cursor-not-allowed opacity-50"
+          class="flex items-center gap-1.5 min-w-0 min-h-[1lh] max-w-[180px] overflow-hidden bg-[#f3f3f3] px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium cursor-not-allowed opacity-50"
           aria-disabled="true"
           title={props.selected ?? DESIGN_SYSTEM_NONE}
         >
