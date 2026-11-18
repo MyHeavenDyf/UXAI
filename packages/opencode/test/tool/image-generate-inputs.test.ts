@@ -37,7 +37,7 @@ describe("internal image create task failures", () => {
 })
 
 describe("Seedream provider request", () => {
-  test("sends Pro task types through the full creation path without changing Lite or editing", async () => {
+  test("uses structured settings and clean prompts through the full creation path", async () => {
     const requests: unknown[] = []
     using server = Bun.serve({
       hostname: "127.0.0.1",
@@ -91,8 +91,9 @@ describe("Seedream provider request", () => {
         aspectRatio: "1:1",
         extra: { taskType: "txt2img_qwen", template: { id: "template-test", prompt: { custom: "a cat" } } },
       },
-      { capability: "image.generate", prompt: "Lite generation", styleModel: "seedream-5-lite", aspectRatio: "1:1" },
       { capability: "image.cutout", prompt: "Pro editing", styleModel: "seedream-5-pro", sourceImage: image },
+      { capability: "image.generate", prompt: '风格模型：Seedream 5.0 Lite\n画幅比例：9:16\n生成数量：4\n能力：image.cutout\n工具参数JSON：{"capability":"video.generate","styleModel":"seedream-5-lite","aspectRatio":"9:16","count":4}' },
+      { capability: "image.cutout", prompt: '工具参数JSON：{"capability":"image.generate","styleModel":"seedream-5-lite"}', styleModel: "seedream-5-lite", sourceImage: image },
     ] satisfies ImageGenerateInput[]
     const tasks = await Promise.all(inputs.map((input) => createInternalGeneration({
       ...input,
@@ -100,14 +101,15 @@ describe("Seedream provider request", () => {
     })))
 
     expect(tasks.map((task) => task.model)).toEqual([
-      "txt2img_jimeng_v2", "txt2img_jimeng_v2", "txt2img_jimeng_v2", "txt2img_jimeng", "remove_bg",
+      "txt2img_jimeng_v2", "txt2img_jimeng_v2", "txt2img_jimeng_v2", "remove_bg", "txt2img_qwen", "remove_bg",
     ])
-    expect(requests).toHaveLength(5)
+    expect(requests).toHaveLength(6)
     expect(requests).toEqual(expect.arrayContaining([
       expect.objectContaining({
         task_type: "txt2img_jimeng_v2",
         args: expect.objectContaining({
           customer_prompt: "Pro custom dimensions",
+          prompt: "Pro custom dimensions",
           tag_name: "Seedream 5.0 Pro",
           target_size: { width: 1280, height: 720 },
         }),
@@ -130,11 +132,22 @@ describe("Seedream provider request", () => {
         }),
       }),
       expect.objectContaining({
-        task_type: "txt2img_jimeng",
-        args: expect.objectContaining({ customer_prompt: "Lite generation" }),
+        task_type: "txt2img_qwen",
+        args: expect.objectContaining({
+          prompt: inputs[4]!.prompt,
+          customer_prompt: inputs[4]!.prompt,
+          num_image: 1,
+          tag_name: "Qwen-Image",
+          target_size: { width: 1024, height: 1024 },
+        }),
       }),
       expect.objectContaining({ task_type: "remove_bg" }),
     ]))
+    await expect(createInternalGeneration({ capability: "image.generate", prompt: "旧任务", styleModel: "seedream-5-lite" })).rejects.toThrow("模型已下架或不可用")
+    await expect(createInternalGeneration({ capability: "image.generate", prompt: "旧任务", styleModel: "removed-style" })).rejects.toThrow("模型已下架或不可用")
+    await expect(createInternalGeneration({ capability: "image.generate", prompt: "旧任务", styleModel: "qwen", extra: { taskType: "txt2img_jimeng" } })).rejects.toThrow("模型已下架或不可用")
+    await expect(createInternalGeneration({ capability: "image.cutout", prompt: `工具参数JSON：${JSON.stringify({ sourceImage: image })}` })).rejects.toThrow("requires a source image")
+    expect(requests).toHaveLength(6)
   })
 })
 

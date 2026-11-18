@@ -128,12 +128,13 @@ test.each(["seedream-5-lite", "seedream-5-pro"])("recommendation leaves %s selec
   } finally { value.dispose() }
 })
 
-test("the model menu shows Pro before Lite and filters both with the same permission", () => {
+test("the model menu hides retired Lite and filters Pro by permission", () => {
   const value = setup("seedream-5-pro")
   try {
     value.setState("menu", "style")
-    expect(Array.from(value.container.querySelectorAll(".studio-style-option")).slice(0, 3).map((node) => node.getAttribute("title")))
-      .toEqual(["Seedream 5.0 Pro", "Seedream 5.0 Lite", "千问"])
+    expect(Array.from(value.container.querySelectorAll(".studio-style-option")).slice(0, 2).map((node) => node.getAttribute("title")))
+      .toEqual(["Seedream 5.0 Pro", "千问"])
+    expect(value.container.querySelector('[title="Seedream 5.0 Lite"].studio-style-option')).toBeNull()
     value.setState("seedream", false)
     expect(value.container.querySelector('[title="Seedream 5.0 Pro"].studio-style-option')).toBeNull()
     expect(value.container.querySelector('[title="Seedream 5.0 Lite"].studio-style-option')).toBeNull()

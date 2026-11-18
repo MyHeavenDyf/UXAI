@@ -12,6 +12,7 @@ import type {
 } from "@/studio/image-provider"
 import { Instance } from "@/project/instance"
 import * as Log from "@opencode-ai/core/util/log"
+import { historicalStudioModelUnavailableMessage, studioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
 
 const METHOD = "POST"
 const DEFAULT_USER_IDX = ""
@@ -1234,60 +1235,14 @@ export function getInternalStyleConfig(styleModel?: string): InternalStyleConfig
   )
 }
 
-function extractStudioToolSettings(prompt: string): JsonRecord {
-  const match = prompt.match(/工具参数JSON：(\{[^\n]+\})/)
-  if (!match) return {}
-
-  try {
-    return JSON.parse(match[1]!) as JsonRecord
-  } catch {
-    return {}
-  }
-}
-
 function getStudioAspectRatio(input: ImageGenerateInput): StudioAspectRatio | undefined {
-  const settings = extractStudioToolSettings(input.prompt)
-  const value =
-    input.aspectRatio ??
-    (typeof settings.aspectRatio === "string" ? settings.aspectRatio : undefined) ??
-    input.prompt.match(/画幅比例：([0-9]+:[0-9]+)/)?.[1]
+  const value = input.aspectRatio
   if (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9", "21:9"].includes(value ?? "")) return value as StudioAspectRatio
   return undefined
 }
 
-function getStudioStyleModel(input: ImageGenerateInput) {
-  const settings = extractStudioToolSettings(input.prompt)
-  return (
-    input.styleModel ??
-    (typeof settings.styleModel === "string" ? settings.styleModel : undefined) ??
-    input.prompt.match(/风格模型：([^\n]+)/)?.[1]?.trim()
-  )
-}
-
-function getStudioCapability(input: ImageGenerateInput): StudioCapability {
-  const settings = extractStudioToolSettings(input.prompt)
-  const value =
-    (typeof settings.capability === "string" ? settings.capability : undefined) ??
-    input.prompt.match(/能力：([^\n]+)/)?.[1]?.trim() ??
-    input.capability
-  if (
-    value === "image.generate" ||
-    value === "video.generate" ||
-    value === "image.upscale" ||
-    value === "image.cutout" ||
-    value === "image.inpaint" ||
-    value === "image.outpaint" ||
-    value === "image.fusion"
-  ) return value
-  return "image.generate"
-}
-
 function getStudioCount(input: ImageGenerateInput) {
-  const settings = extractStudioToolSettings(input.prompt)
-  const value =
-    input.count ??
-    (typeof settings.count === "number" ? settings.count : undefined) ??
-    Number(input.prompt.match(/生成数量：([1-4])/)?.[1])
+  const value = input.count
   if (value === 1 || value === 2 || value === 3 || value === 4) return value
   return 1
 }
@@ -1324,9 +1279,6 @@ function buildPrompt(input: ImageGenerateInput) {
   return [
     input.prompt,
     conversationContext ? `上一轮生成摘要：\n${conversationContext}` : undefined,
-    input.styleModel ? `风格模型：${input.styleModel}` : undefined,
-    input.aspectRatio ? `画幅比例：${input.aspectRatio}` : undefined,
-    input.count ? `生成数量：${input.count}` : undefined,
   ]
     .filter((item): item is string => Boolean(item))
     .join("\n")
@@ -1409,11 +1361,7 @@ async function resolveImageInputDataUrl(value: string) {
 }
 
 async function getSourceImageDataUrl(input: ImageGenerateInput) {
-  const settings = extractStudioToolSettings(input.prompt)
-  const sourceImage =
-    input.sourceImage ??
-    input.referenceImages?.[0] ??
-    (typeof settings.sourceImage === "string" ? settings.sourceImage : undefined)
+  const sourceImage = input.sourceImage ?? input.referenceImages?.[0]
   if (!sourceImage) throw new Error("This Studio action requires a source image.")
   return resolveImageInputDataUrl(sourceImage)
 }
@@ -1624,7 +1572,7 @@ async function buildOutpaintRequestBody(input: ImageGenerateInput, context: Inte
 }
 
 async function buildInternalRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
-  const capability = getStudioCapability(input)
+  const capability = input.capability
   if (capability === "video.generate") return buildVideoRequestBody(input, context)
   if (capability === "image.upscale") return buildUpscaleRequestBody(input, context)
   if (capability === "image.cutout") return buildCutoutRequestBody(input, context)
@@ -1808,14 +1756,16 @@ function compactRequestWithInputMedia(requestBody: JsonRecord, input: ImageGener
 }
 
 export async function createInternalGeneration(input: ImageGenerateInput): Promise<ImageGenerationTask> {
-  const capability = getStudioCapability(input)
+  const capability = input.capability
+  const unavailableModelMessage = capability === "image.generate" && studioModelUnavailableMessage(input.styleModel ?? "qwen")
+  if (unavailableModelMessage) throw new Error(unavailableModelMessage)
   const toolAction = toolActionForCapability(capability)
   const createTaskUrl = env("IMAGE_CREATE_TASK_URL") ?? DEFAULT_CREATE_TASK_URL
   const historyUrl = env("IMAGE_GET_HISTORY_URL") ?? DEFAULT_GET_HISTORY
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
   const ignoredReferenceImages = resolveReferenceImages(input)
   const generationMode: InternalTaskType = "txt2img"
-  const styleModel = getStudioStyleModel(input)
+  const styleModel = input.styleModel
   const styleConfig = getInternalStyleConfig(styleModel)
   const configuredTargetSize = getInternalTargetSize(styleModel, getStudioAspectRatio(input))
 
@@ -1835,6 +1785,8 @@ export async function createInternalGeneration(input: ImageGenerateInput): Promi
     targetSize,
     taskType,
   })
+  const unavailableTaskMessage = historicalStudioModelUnavailableMessage({ capability, request: requestBody })
+  if (unavailableTaskMessage) throw new Error(unavailableTaskMessage)
   const requestTaskType = typeof requestBody.task_type === "string" ? requestBody.task_type : taskType
   const debugRequest = {
     url: createTaskUrl,

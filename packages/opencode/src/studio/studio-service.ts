@@ -1,4 +1,5 @@
 import { executeJimengImageGenerate, summarizeJimengOutput } from "@/tool/jimeng_image_generate"
+import { historicalStudioModelUnavailableMessage, studioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
 import {
   cancelInternalGeneration,
   createInternalGeneration,
@@ -2815,6 +2816,8 @@ export function createGeneration(input: StudioGenerationRequest): Promise<Studio
 }
 
 async function createGenerationImpl(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
+  const unavailableModelMessage = input.capability === "image.generate" && studioModelUnavailableMessage(input.styleModel ?? "qwen")
+  if (unavailableModelMessage) throw new Error(unavailableModelMessage)
   const sessionID = SessionID.zod.parse(input.sessionID)
   const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
   if (!session) throw new Error(`Studio session not found: ${sessionID}`)
@@ -2932,6 +2935,8 @@ async function rebootGenerationImpl(id: string): Promise<StudioGenerationResult 
       throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
 
     const data = generationRequest(record)
+    const unavailableModelMessage = historicalStudioModelUnavailableMessage({ capability: record.capability, request: record.request })
+    if (unavailableModelMessage) throw new Error(unavailableModelMessage)
     const reboot = await rebootInternalGeneration({
       taskId: record.provider_task_id,
       userIdx: data.input.extra && typeof data.input.extra.userIdx === "string" ? data.input.extra.userIdx : undefined,

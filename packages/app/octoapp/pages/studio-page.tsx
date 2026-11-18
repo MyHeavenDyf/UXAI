@@ -2,6 +2,7 @@ import "./studio/studio.css"
 import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSuccess, studioPermissionState } from "./studio/studio-permission-store"
 import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
+import { historicalStudioStyleModel, studioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
 import { tracker } from "@/utils/tracker"
 import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
 import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js"
@@ -111,6 +112,7 @@ import {
   isStudioGenerationStatusRegression,
   isPromptExpansionGeneration,
   studioRegenerationExtra,
+  studioGenerationModelUnavailableMessage,
   recordValue,
   STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
@@ -1952,9 +1954,18 @@ function StudioPageContent() {
     capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.inpaint" || capability() === "image.outpaint",
   )
   function resultRequiresSeedreamPermission(item?: StudioGenerationResult) {
-    return Boolean(item?.capability === "image.generate" && styleModelRequiresSeedreamPermission(item.styleModel ?? item.model))
+    return Boolean(item?.capability === "image.generate" && styleModelRequiresSeedreamPermission(historicalStudioStyleModel(item) ?? ""))
+  }
+  function checkGenerationModelAvailable(item: StudioGenerationResult) {
+    const message = studioGenerationModelUnavailableMessage(item)
+    if (!message) return true
+    showFloatingNotice("info", message)
+    return false
   }
   function resultRegenerateDisabled(item?: StudioGenerationResult) {
+    // Retired tasks remain clickable so their action can explain why the model is unavailable.
+    if (item && studioGenerationModelUnavailableMessage(item))
+      return recommendationMode.taskBlocked()
     return recommendationMode.taskBlocked() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
   }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
@@ -2590,8 +2601,12 @@ function StudioPageContent() {
 
   function applyStyleTemplate(template: StudioStyleTemplateListItem) {
     if (recommendationActive() || recommendationMode.taskBlocked()) return
-    expansionReview.dismiss()
     const targetModel = styleTemplateTargetModel(canUseSeedream(), styleModel())
+    if (!targetModel) {
+      showFloatingNotice("info", "当前模型已下架不可用，请选择其他模型。")
+      return
+    }
+    expansionReview.dismiss()
     seedreamAtSnapshot = undefined
     batch(() => {
       setSelectedStyleTemplate(template)
@@ -3368,7 +3383,7 @@ function StudioPageContent() {
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
         mentionImages: stringRecordValue(recordValue(extra, "mentionImages")),
         extra: studioRegenerationExtra(extra),
-        styleModel: styleModelId(stringValue(input, "styleModel")),
+        styleModel: styleModelId(historicalStudioStyleModel(result)),
         aspectRatio: nextAspectRatio,
         count: nextCount,
         width: result.width,
@@ -3408,7 +3423,7 @@ function StudioPageContent() {
         ? result.detailPrompt
         : stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
       mentionImages: stringRecordValue(recordValue(extra, "mentionImages")),
-      styleModel: styleModelId(stringValue(input, "styleModel") ?? result.styleModel ?? result.model),
+      styleModel: styleModelId(historicalStudioStyleModel(result)),
       aspectRatio: nextAspectRatio,
       count: nextCount,
       width: result.width,
@@ -3519,6 +3534,10 @@ function StudioPageContent() {
     if (!template || !canRestore() || !canRestoreReview() || !canRestoreDraft()) return
 
     const targetModel = styleTemplateTargetModel(canUseSeedream(), draft.styleModel ?? styleModel())
+    if (!targetModel) {
+      showFloatingNotice("info", "当前模型已下架不可用，请选择其他模型。")
+      return
+    }
     const templatePrompt = templateUsagePromptRecord(result)
     const restorableReferences = templateRestorableUserReferences(template, draft)
     const restoredAssets = await restoredImageAssets(
@@ -3596,6 +3615,7 @@ function StudioPageContent() {
   }
 
   async function editGenerationDraft(result: StudioGenerationResult) {
+    if (!checkGenerationModelAvailable(result)) return
     if (recommendationMode.taskBlocked()) return
     const canRestore = recommendationMode.capture()
     if (result.capability !== "image.generate" && result.capability !== "video.generate") return
@@ -4234,7 +4254,9 @@ function StudioPageContent() {
     }
   }
 
-  async function rebootStudioGeneration(id: string) {
+  async function rebootStudioGeneration(result: StudioGenerationResult) {
+    if (!checkGenerationModelAvailable(result)) return
+    const id = result.id
     if (rebootingGenerationIDs().has(id) || recommendationMode.taskBlocked()) return
     const current = server.current
     if (!current) {
@@ -4366,6 +4388,11 @@ function StudioPageContent() {
     const consumesInput = overrides?.inputPolicy ? overrides.inputPolicy === "consume" : !overrides?.useRestoredInputs
     const nextCapability = overrides?.capability ?? capability()
     const nextStyleModel = overrides?.styleModel ?? styleModel()
+    const unavailableModelMessage = nextCapability === "image.generate" && studioModelUnavailableMessage(nextStyleModel)
+    if (unavailableModelMessage) {
+      showFloatingNotice("info", unavailableModelMessage)
+      return
+    }
     const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
     const nextWidth = overrides?.width ?? customWidth()
     const nextHeight = overrides?.height ?? customHeight()
@@ -4638,6 +4665,11 @@ function StudioPageContent() {
   }
 
   function runStyleTemplateGeneration(template: StudioStyleTemplateListItem) {
+    const targetModel = styleTemplateTargetModel(canUseSeedream(), styleModel())
+    if (!targetModel) {
+      showFloatingNotice("info", "当前模型已下架不可用，请选择其他模型。")
+      return
+    }
     const error = styleTemplateSubmitError()
     if (error) {
       showFloatingNotice("info", error)
@@ -4669,7 +4701,7 @@ function StudioPageContent() {
       detailTitle: buildStudioDisplayPrompt(displayPrompt),
       refinedPrompt: finalPrompt,
       effectivePrompt: finalPrompt,
-      styleModel: styleTemplateTargetModel(canUseSeedream(), styleModel()),
+      styleModel: targetModel,
       mentionImages,
       ...(referenceImages ? { referenceImages } : {}),
       extra: {
@@ -5202,6 +5234,7 @@ function StudioPageContent() {
   function regenerateCurrentResult() {
     const current = canvasResult() ?? result()
     if (!current) return
+    if (!checkGenerationModelAvailable(current)) return
     if (resultRegenerateDisabled(current)) return
     tracker.interaction({
       module: "studio",
@@ -5680,7 +5713,7 @@ function StudioPageContent() {
                 refreshingGenerationIDs={refreshingGenerationIDs()}
                 onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
                 onEditGeneration={(generation) => void editGenerationDraft(generation)}
-                onRebootGeneration={(generationID) => void rebootStudioGeneration(generationID)}
+                onRebootGeneration={(generation) => void rebootStudioGeneration(generation)}
                 onRefreshGeneration={(generationID) => void refreshStudioGeneration(generationID)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
