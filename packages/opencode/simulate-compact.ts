@@ -6,7 +6,7 @@
 import {
   clipTailToolOutputs,
   conversationWithin,
-  preserveRecentBudget,
+  targetBudget,
   toolClipCapTokens,
 } from "./src/session/compaction"
 import { toModelMessages, type MessageV2 } from "./src/session/message-v2"
@@ -25,7 +25,7 @@ const TOOLS = 21790
 const FIXED_ESTIMATE = 500 // buildPrompt+SUMMARY_TEMPLATE 固定开销的近似值
 const SUMMARY_FLOOR = 2_000
 
-const cfg = {} as Parameters<typeof preserveRecentBudget>[0]["cfg"]
+const cfg = {} as Parameters<typeof targetBudget>[0]["cfg"]
 
 const model = (context: number) =>
   ({
@@ -121,7 +121,8 @@ async function selectMirror(
   clip = true,
 ): Promise<SelectOutcome> {
   const usableTokens = Math.floor(mdl.limit.context * 0.85)
-  const budget = preserveRecentBudget({ cfg, model: mdl })
+  // 镜像 targetBudget:固定成本扣除后按剩余空间收紧保尾(与 compaction.ts select 同口径)
+  const budget = targetBudget({ cfg, model: mdl, contextTokens: { system: SYSTEM, tools: TOOLS, usable: usableTokens } }).tailBudget
   const cap = clip ? toolClipCapTokens(usableTokens) : Number.POSITIVE_INFINITY
   const all: Array<{ start: number; end: number }> = []
   for (let i = 0; i < messages.length; i++) {
@@ -177,12 +178,13 @@ async function scenario(name: string, head: MessageV2.WithParts[], limits: numbe
   for (const limit of limits) {
     const mdl = model(limit)
     const usable = Math.floor(limit * 0.85)
-    const budget = preserveRecentBudget({ cfg, model: mdl })
+    const t = targetBudget({ cfg, model: mdl, contextTokens: { system: SYSTEM, tools: TOOLS, usable } })
+    const budget = t.tailBudget
     const cap = toolClipCapTokens(usable)
     const outcome = await selectMirror(head, mdl)
     const oldSelect = await selectMirror(head, mdl, false)
 
-    console.log(`\n--- 模型上限 ${limit} | usable ${usable} | 保尾预算 ${budget} | 工具输出阈值 ${cap} ---`)
+    console.log(`\n--- 模型上限 ${limit} | usable ${usable} | 目标线 ${t.target}(fixed ${t.fixed}, 可动 ${t.available}) | 保尾预算 ${budget} | 摘要预算 ${t.summaryBudget}${t.fallback ? "(小模型兜底)" : ""} | 工具输出阈值 ${cap} ---`)
     console.log(`select(新): ${JSON.stringify(outcome)}`)
     console.log(`select(旧): ${JSON.stringify(oldSelect)}`)
     if (oldSelect.kind === "empty-tail" && outcome.kind !== "empty-tail")
@@ -211,7 +213,9 @@ async function scenario(name: string, head: MessageV2.WithParts[], limits: numbe
       console.log(`  skill 重复注入折叠: ${dup} 份`)
     }
     const projected = SYSTEM + TOOLS + SUMMARY_FLOOR + tailFloor
+    const projectedTarget = SYSTEM + TOOLS + t.summaryBudget + tailFloor
     console.log(`压缩后投影: system+tools+摘要+尾部 ≈ ${projected} → ${projected < usable ? "上下文复活 ✓" : "仍超限 ✗"}`)
+    console.log(`目标线投影: system+tools+摘要预算+实际尾部 ≈ ${projectedTarget} vs 目标 ${t.target} → ${projectedTarget <= t.target ? "达标 ✓" : "超线(best-effort)"}`)
   }
   return
 }
