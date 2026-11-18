@@ -10,16 +10,25 @@
 }
 .insight-addon-mode {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
-  gap: 8px;
-  margin: 8px 16px 0;
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: #eef2ff;
-  color: #3346ab;
-  font-size: 13px;
+  gap: 6px;
+  max-width: calc(100% - 32px);
+  margin: 10px 16px 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(10, 89, 247, 0.08);
+  color: #0a59f7;
+  font-size: 12px;
+  line-height: 1.5;
 }
-.insight-addon-mode button { cursor: pointer; padding: 0 4px; }
+.insight-addon-mode > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.insight-addon-mode button { flex-shrink: 0; cursor: pointer; font-size: 14px; line-height: 1; }
 .insight-addon-pending {
   position: absolute;
   bottom: 100%;

@@ -87,7 +87,15 @@ describe("加号引用操作", () => {
     const typed = base.apply(base.tr.insertText("draft text"))
     const state = typed.apply(typed.tr.setSelection(TextSelection.create(typed.doc, 1, 6)))
     const added = state.apply(insertAddonMentions(state, [{ type: "skill", name: "research", label: "research" }]))
-    expect(getDocTextWithMentions(added.doc)).toBe("@research  text")
+    expect(getDocTextWithMentions(added.doc)).toBe("@research text")
+    expect(added.selection.from).toBe(3)
+  })
+  test("连续插入技能后继续输入，技能与正文之间各保留一个空格", () => {
+    const base = initial()
+    const skills = ["research", "summary"].map(name => ({ type: "skill" as const, name, label: name }))
+    const added = skills.reduce((state, skill) => state.apply(insertAddonMentions(state, [skill])), base)
+    const typed = added.apply(added.tr.insertText("继续分析"))
+    expect(getDocTextWithMentions(typed.doc)).toBe("@research @summary 继续分析")
   })
   test("批量插入按路径去重，同名文件互不混淆，按路径删除", () => {
     const state = initial().apply(insertAddonMentions(initial(), [file("/a.txt"), file("/b.txt"), file("/a.txt")]))
@@ -100,7 +108,7 @@ describe("加号引用操作", () => {
     const typed = base.apply(base.tr.insertText("前文 @普通文字 后文"))
     const state = typed.apply(typed.tr.setSelection(TextSelection.create(typed.doc, 4)))
     const next = state.apply(insertAddonMentions(state, [{ type: "skill", name: "research", label: "research" }]))
-    expect(getDocTextWithMentions(next.doc)).toContain("@research")
+    expect(getDocTextWithMentions(next.doc)).toBe("前文 @research @普通文字 后文")
     expect(next.doc.textContent).toContain("@普通文字 后文")
   })
   test("一次资产多文件插入能整体撤销重做，保留资产身份", () => {

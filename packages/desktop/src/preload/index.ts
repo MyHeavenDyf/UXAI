@@ -88,6 +88,8 @@ const api: ElectronAPI = {
   // copyFileToProjectDir 的字节版:内存 blob 直接写进 <baseDir>/<relDir>/;返回落地绝对路径。
   writeFileToProjectDir: (buffer, baseDir, relDir, filename) =>
     ipcRenderer.invoke("write-file-to-project-dir", buffer, baseDir, relDir, filename),
+  // 代码工作区「拉取/提交代码」:在 cwd 执行白名单 git 子命令;git 非零退出也 resolve(带 code/stdout/stderr),spawn 级失败才 reject。
+  gitCommand: (cwd, args) => ipcRenderer.invoke("git-command", cwd, args),
   downloadResourceToTemp: (url, namespace, filename, baseDir, sessionId) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir, sessionId),
   // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/.octo/tmps/(预会话落地区,主进程 fs.copyFile);返回落地路径。

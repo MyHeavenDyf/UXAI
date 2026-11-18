@@ -2,6 +2,7 @@ import { useFilteredList } from "@opencode-ai/ui/hooks"
 // import { Button } from "@opencode-ai/ui/button"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Switch } from "@opencode-ai/ui/switch"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TextField } from "@opencode-ai/ui/text-field"
@@ -110,15 +111,24 @@ export const SettingsModels: Component = () => {
                               {item.isExternal ? <span class="shrink-0 w-[40px] h-[20px] inline-flex items-center justify-center rounded-[2px] bg-[#fef5e8] text-[12px] text-[#191919]">{language.t("model.tag.external")}</span> : null}
                             </div>
                             <div style={{ "flex-shrink": 0 }}>
-                              <Switch
-                                checked={models.visible(key)}
-                                onChange={(checked) => {
-                                  models.setVisibility(key, checked)
-                                }}
-                                hideLabel
+                              <Tooltip
+                                inactive={!models.apiKeyMissing(key)}
+                                value={language.t("provider.apiKey.missing")}
+                                placement="top"
                               >
-                                {item.name}
-                              </Switch>
+                                <div class="inline-flex" tabIndex={models.apiKeyMissing(key) ? 0 : undefined}>
+                                  <Switch
+                                    disabled={models.apiKeyMissing(key)}
+                                    checked={models.visible(key)}
+                                    onChange={(checked) => {
+                                      models.setVisibility(key, checked)
+                                    }}
+                                    hideLabel
+                                  >
+                                    {item.name}
+                                  </Switch>
+                                </div>
+                              </Tooltip>
                             </div>
                           </div>
                         )

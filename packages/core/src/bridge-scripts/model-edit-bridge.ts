@@ -4,6 +4,7 @@ function me_runBridge() {
   var me_enabled = false;
   var me_componentFlag = null;
   var me_htmlFlag = null;
+  var me_includeDocumentSelector = false;
   var me_annotateNextId = -1;
 
   var me_depth = 0;
@@ -99,6 +100,23 @@ function me_runBridge() {
     return parts.join(' > ').replace(/ > >>> > /g, ' >>> ');
   }
 
+  function me_documentSelector(el) {
+    var parts = [];
+    for (var cur = el; cur && cur !== document.body; cur = cur.parentElement) {
+      var tag = cur.localName;
+      if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(tag)) return;
+      if (/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(cur.id) && document.querySelectorAll('#' + cur.id).length === 1) {
+        return [tag + '#' + cur.id].concat(parts).join(' > ');
+      }
+      var index = 1;
+      for (var sibling = cur.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+        if (sibling.localName === tag && sibling.namespaceURI === cur.namespaceURI) index++;
+      }
+      parts.unshift(tag + ':nth-of-type(' + index + ')');
+    }
+    if (cur === document.body) return ['body'].concat(parts).join(' > ');
+  }
+
   function me_ensureAnnotatedId(el) {
     if (!el || !el.getAttribute) return null;
     var id = el.getAttribute('data-od-id');
@@ -156,6 +174,7 @@ function me_runBridge() {
     var styles = {};
     var styleProps = ['fontFamily','fontSize','fontWeight','color','textAlign','lineHeight','letterSpacing','width','height','minHeight','gap','flexDirection','justifyContent','alignItems','backgroundColor','opacity','padding','paddingTop','paddingRight','paddingBottom','paddingLeft','margin','marginTop','marginRight','marginBottom','marginLeft','border','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth','borderStyle','borderColor','borderRadius','boxShadow','filter','backdropFilter','backgroundImage','overflow','borderTopLeftRadius','borderTopRightRadius','borderBottomRightRadius','borderBottomLeftRadius','verticalAlign'];
     styleProps.forEach(function(p) { styles[p] = computed[p] || ''; });
+    if (me_includeDocumentSelector) styles.display = computed.display || '';
     var attributes = {};
     var attrNames = ['class','id','href','src','alt','title','data-od-label','aria-label','data-icon-name','data-icon-id','data-icon-custom','data-icon-src','data-icon-size','data-icon-style','data-icon-color'];
     if (me_htmlFlag) attrNames.push(me_htmlFlag);
@@ -167,7 +186,8 @@ function me_runBridge() {
       text: (elementKind === 'mixed' ? directText : allText).trim().slice(0, 200), selector: me_buildSelector(el),
       htmlHint: el.outerHTML.slice(0, Math.min(200, el.outerHTML.indexOf('>') + 1)),
       isLayoutContainer: el.children.length > 0, elementKind: elementKind, selectionKind: selectionKind,
-      componentType: componentType || undefined, htmlType: htmlType || undefined
+      componentType: componentType || undefined, htmlType: htmlType || undefined,
+      ...(me_includeDocumentSelector && window.parent === window.top ? { documentSelector: me_documentSelector(el) } : {})
     };
   }
 
@@ -249,6 +269,41 @@ function me_runBridge() {
     }
   }
 
+  // 滚动位置自愈：sessionStorage 持久化，重载后自动恢复（局部修改保存触发 iframe 重载后回到用户浏览位置）。
+  // key 用 pathname（不含 ?v=refreshKey，query 每次刷新都变）；local://（桌面）与 srcdoc（web, allow-same-origin）
+  // 的 sessionStorage 均跨 reload 持久。
+  var me_scrollKey = 'od-scroll:' + location.pathname;
+  var me_scrollTimer = null;
+  function me_saveScroll() {
+    if (me_scrollTimer) return;
+    me_scrollTimer = setTimeout(function() {
+      me_scrollTimer = null;
+      if (!me_enabled) return; // 只记录局部修改会话内的滚动
+      try { sessionStorage.setItem(me_scrollKey, JSON.stringify({ x: window.scrollX || 0, y: window.scrollY || 0 })); } catch (e) {}
+    }, 150);
+  }
+  window.addEventListener('scroll', me_saveScroll, true);
+
+  // 注入即恢复（bridge 是文档脚本，load 前执行；内容可能未渲染完 → rAF 重试至多 120 帧）
+  (function() {
+    var saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(me_scrollKey) || 'null'); } catch (e) {}
+    if (!saved || (!saved.x && !saved.y)) return;
+    var n = 0;
+    var root = document.documentElement;
+    var prevBehavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto'; // 页面可能启用 smooth 滚动（html{scroll-behavior:smooth}），逐帧重试会与其打架，恢复期间禁用
+    (function tryScroll() {
+      window.scrollTo(saved.x || 0, saved.y || 0);
+      var maxY = Math.max(0, root.scrollHeight - window.innerHeight);
+      if (Math.abs(window.scrollY - saved.y) <= 2 || saved.y >= maxY - 2 || ++n > 120) {
+        root.style.scrollBehavior = prevBehavior;
+        return;
+      }
+      requestAnimationFrame(tryScroll);
+    })();
+  })();
+
   function me_applyMode(enabled) {
     me_enabled = enabled;
     document.documentElement.toggleAttribute('data-od-edit-mode', me_enabled);
@@ -278,6 +333,7 @@ function me_runBridge() {
     if (d.type === 'od:model-edit-mode') {
       me_componentFlag = d.componentFlag || null;
       me_htmlFlag = d.htmlFlag || null;
+      me_includeDocumentSelector = d.includeDocumentSelector === true;
       me_applyMode(d.enabled);
       me_forwardToNestedIframes(d);
       return;

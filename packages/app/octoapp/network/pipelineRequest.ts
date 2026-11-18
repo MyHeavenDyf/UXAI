@@ -182,6 +182,8 @@ export type AddUserProjectBody = {
   productLine?: string
   product?: string
   version?: string
+  designOwner?: string
+  designDl?: string
 }
 
 // 数据看板统计: onboarding 确定时上报用户项目选择(octoAiStatis 前缀, POST body)。

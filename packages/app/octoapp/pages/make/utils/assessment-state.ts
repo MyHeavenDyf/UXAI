@@ -229,21 +229,24 @@ export function clearAssessmentTurn() {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-export async function harvestAssessmentReview(): Promise<void> {
+
+export async function harvestAssessmentReview(busyNow: () => boolean): Promise<void> {
   const turn = assessmentTurn()
   if (!turn) return
   const reviewPath = computeAssessmentReviewPath(turn.filePath, turn.skillName)
   const api = getDesktopApi()
   if (!reviewPath || !api?.readFileBuffer) return
-  // 采集结果打点：有没有生成评审数据 + 成功时的条数（skill 字段可区分 DMG预审 的预期未产出）。
+  // 采集结果打点：有没有生成评审数据 + 成功时的条数（skill 区分 DMG预审；age = 回合耗时）。
   const track = (fields: Record<string, unknown>) =>
-    tracker.interaction({ module: "design", name: "assessment-harvest", extend: JSON.stringify({ skill: turn.skillName, ...fields }) })
+    tracker.interaction({ module: "design", name: "assessment-harvest", extend: JSON.stringify({ skill: turn.skillName, age: Date.now() - turn.sentAt, ...fields }) })
   const stillCurrent = () => assessmentTurn() === turn
   let raw: unknown
   try {
+
     let buf = await api.readFileBuffer(reviewPath)
     for (let i = 0; i < 3 && !buf; i++) {
       await sleep(800)
+      if (busyNow()) return
       buf = await api.readFileBuffer(reviewPath)
     }
     if (!buf) {
@@ -255,11 +258,10 @@ export async function harvestAssessmentReview(): Promise<void> {
         track({ ok: false, reason: "file-missing-in-folder" })
         return
       }
-      if (Date.now() - turn.sentAt > 3 * 60 * 1000) {
-        if (!stillCurrent()) return
-        setAssessmentTurn(null)
-        track({ ok: false, reason: "file-missing" })
-      }
+      if (busyNow()) return
+      if (!stillCurrent()) return
+      setAssessmentTurn(null)
+      track({ ok: false, reason: "file-missing" })
       return
     }
     raw = JSON.parse(new TextDecoder().decode(buf))

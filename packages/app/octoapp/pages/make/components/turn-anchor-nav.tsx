@@ -1,5 +1,5 @@
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { createEffect, on, onCleanup, For, Show } from "solid-js"
+import { createEffect, on, onCleanup, untrack, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createEventListener } from "@solid-primitives/event-listener"
 import { useData } from "@opencode-ai/ui/context"
@@ -49,13 +49,14 @@ export function TurnAnchorNav(props: {
     const vp = props.viewport()
     const content = props.content()
     if (!vp || !content) return
-    if (pendingClick) {
-      const settled = Math.abs(vp.scrollTop - pendingClick.top) <= SETTLE_EPSILON
-      const expired = Date.now() - pendingClick.at > PENDING_TIMEOUT_MS
+    const pending = pendingClick
+    if (pending) {
+      const settled = Math.abs(vp.scrollTop - pending.top) <= SETTLE_EPSILON
+      const expired = Date.now() - pending.at > PENDING_TIMEOUT_MS
       if (!settled && !expired) return
       if (settled) {
-        setState("activeId", pendingClick.id)
-        stickyClick = pendingClick.id
+        setState("activeId", pending.id)
+        stickyClick = pending.id
         pendingClick = undefined
         scrollRailToActive()
         return
@@ -121,14 +122,14 @@ export function TurnAnchorNav(props: {
         setState("tip", null)
         pendingClick = undefined
         stickyClick = undefined
-        updateActive()
+        untrack(updateActive)
       },
     ),
   )
 
   createEffect(() => {
     props.messages.length
-    updateActive()
+    untrack(updateActive)
   })
 
   const handleClick = (msg: Message) => {

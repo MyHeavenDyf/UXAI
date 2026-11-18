@@ -532,9 +532,11 @@ window.addEventListener('message',function(ev){
 
 export const EDIT_BRIDGE_SCRIPT = `<script data-od-edit-bridge>(function(){
 var editEnabled = false;
+var editSvgRoot = false;
 var lastSelectedId = null;
 var TEXT_PROPS=['textContent'];
 var ATTR_PROPS=['href','src','alt'];
+var SVG_CHILD_TAGS = ['path','circle','rect','line','polyline','polygon','g','defs','use','text','tspan','linearGradient','radialGradient','stop','filter','mask','clippath','pattern','symbol','image','foreignobject','ellipse'];
 
 function caretRangeFromClick(ev){
   try{
@@ -616,6 +618,70 @@ function buildSelector(el) {
     cur = cur.parentElement;
   }
   return parts.join(' > ');
+}
+
+function buildXPath(el) {
+  var parts = [];
+  var cur = el;
+  while (cur && cur.nodeType === 1) {
+    var id = cur.getAttribute && cur.getAttribute('id');
+    if (id) {
+      parts.unshift('//*[@id="' + id + '"]');
+      return parts.join('/');
+    }
+    var tag = cur.tagName ? cur.tagName.toLowerCase() : '*';
+    var parent = cur.parentElement;
+    if (!parent) {
+      parts.unshift('/' + tag);
+      return parts.join('/');
+    }
+    var nth = 1, count = 0;
+    for (var i = 0; i < parent.children.length; i++) {
+      if (parent.children[i].tagName === cur.tagName) {
+        count++;
+        if (parent.children[i] === cur) nth = count;
+      }
+    }
+    parts.unshift(count > 1 ? tag + '[' + nth + ']' : tag);
+    cur = parent;
+  }
+  return parts.join('/');
+}
+
+// CSS selector：就近真实 id（非 el-N 运行时标注）以裸 #id 锚点截断，
+// 否则 tag + class（≤3 个、过滤 6 位 hex 类）+ 同名兄弟 >1 时 :nth-of-type(n)。
+// nth-of-type 序号取同名兄弟中的序号（comment 版取全部子元素序号，与语义错位）。
+function buildCssSelector(el) {
+  var parts = [];
+  var cur = el;
+  while (cur && cur !== document.body) {
+    if (cur.id && !/^el-\d+$/.test(cur.id)) {
+      parts.unshift('#' + CSS.escape(cur.id));
+      return parts.join(' > ');
+    }
+    var part = cur.tagName.toLowerCase();
+    var classAttr = cur.getAttribute('class');
+    if (classAttr) {
+      var classes = classAttr.split(' ').filter(function(c) {
+        return c && !/^[._]?[a-f0-9]{6,}$/i.test(c);
+      }).slice(0, 3);
+      if (classes.length > 0) {
+        part += '.' + classes.map(function(c) { return CSS.escape(c); }).join('.');
+      }
+    }
+    var parent = cur.parentElement;
+    if (parent) {
+      var siblings = Array.prototype.filter.call(parent.children, function(c) {
+        return c.tagName === cur.tagName;
+      });
+      if (siblings.length > 1) {
+        part += ':nth-of-type(' + (Array.prototype.indexOf.call(siblings, cur) + 1) + ')';
+      }
+    }
+    parts.unshift(part);
+    cur = cur.parentElement;
+  }
+  return parts.length > 0 ? parts.join(' > ') : 'body';
 }
 
 var annotateNextId = -1;
@@ -729,6 +795,8 @@ function getManualEditTarget(el) {
     attributes: attributes,
     styles: styles,
     selector: buildSelector(el),
+    xpath: buildXPath(el),
+    cssSelector: buildCssSelector(el),
     htmlHint: el.outerHTML.slice(0, Math.min(200, el.outerHTML.indexOf('>') + 1)),
     isLayoutContainer: el.children.length > 0,
     outerHtml: el.outerHTML.slice(0, 500)
@@ -834,7 +902,7 @@ window.addEventListener('message', function(ev) {
   var d = ev && ev.data;
   if (!d) return;
   if (ev.source !== window.parent && ev.source !== window) {
-    if (d.type === 'od:edit-selected' || d.type === 'od:rect-update') {
+    if (d.type === 'od:edit-selected' || d.type === 'od:rect-update' || d.type === 'od:element-html') {
       window.parent.postMessage(d, '*');
       return;
     }
@@ -847,6 +915,7 @@ window.addEventListener('message',function(ev){
   
   if(d.type==='od:edit-mode'){
     editEnabled = d.enabled;
+    editSvgRoot = !!d.svgRoot;
     document.documentElement.toggleAttribute('data-od-edit-mode', editEnabled);
     if(editEnabled){
       annotateRendered();
@@ -859,6 +928,18 @@ window.addEventListener('message',function(ev){
       document.body.removeEventListener('dblclick',handleEditDoubleClick,true);
       clearSelectedTarget();
     }
+    return;
+  }
+  if(d.type==='od:get-element-html'){
+    var gel=document.querySelector('[data-od-id="'+d.id+'"]');
+    if(gel){
+      window.parent.postMessage({type:'od:element-html',id:d.id,html:gel.outerHTML},'*');
+    } else { eb_forwardToNestedIframes(d); }
+    return;
+  }
+  if(d.type==='od:edit-deselect'){
+    clearSelectedTarget();
+    eb_forwardToNestedIframes(d);
     return;
   }
   
@@ -879,7 +960,7 @@ window.addEventListener('message',function(ev){
         if(typeof value!=='string'||value.trim()===''){
           previewEl.style.removeProperty(cssName);
         }else{
-          previewEl.style.setProperty(cssName,value.trim());
+          previewEl.style.setProperty(cssName,value.trim(),d.important===true?'important':'');
         }
       }
       window.parent.postMessage({
@@ -948,6 +1029,13 @@ function handleEditSingleClick(ev){
   clearSelectedTarget();
   
   var el=ev.target;
+  if(editSvgRoot&&el&&el.tagName){
+    var clickTag=el.tagName.toLowerCase();
+    if(SVG_CHILD_TAGS.indexOf(clickTag)>=0){
+      var svgRoot=el.closest('svg');
+      if(svgRoot)el=svgRoot;
+    }
+  }
   while(el&&el!==document.documentElement){
     var target=getManualEditTarget(el);
     if(target){

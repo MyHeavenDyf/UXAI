@@ -1,5 +1,7 @@
 # Insight 打点清单
 
+2026-11-17：三个服务端产物事件的 extend.files 新增可选 fileName、extension。write/edit/Shell 取路径末段；MCP 取资源 name 末段，无有效名称则省略。extension 小写、不带点，无扩展名为空串；不上传目录，不改变事件名与去重，历史事件不回填。详见盘点的服务端产物章节。
+
 记录 insight agent 已埋入的所有打点，新增/变更打点时同步维护此表。
 
 接入规范见 [`/docs/tracker.md`](../../../../../../docs/tracker.md)。实施方案与映射规则见 [`tracking-plan.md`](./tracking-plan.md)。

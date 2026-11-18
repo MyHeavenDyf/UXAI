@@ -804,6 +804,46 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // 「拉取/提交代码」:在指定目录执行白名单 git 子命令。
+  ipcMain.handle(
+    "git-command",
+    async (
+      _event: IpcMainInvokeEvent,
+      cwd: string,
+      args: string[],
+    ): Promise<{ ok: boolean; code: number; stdout: string; stderr: string }> => {
+      const allowed = new Set(["remote", "pull", "add", "commit", "push"])
+      // 允许前导 -c 配置对
+      const allowedCfg = new Set(["push.default=upstream"])
+      if (typeof cwd !== "string" || !isAbsolute(cwd)) throw new Error(`GIT_CWD_REJECTED: ${cwd}`)
+      const rest = Array.isArray(args) ? [...args] : []
+      while (rest.length >= 2 && rest[0] === "-c") {
+        if (typeof rest[1] !== "string" || !allowedCfg.has(rest[1])) {
+          throw new Error(`GIT_ARGS_REJECTED: ${JSON.stringify(args)}`)
+        }
+        rest.splice(0, 2)
+      }
+      if (typeof rest[0] !== "string" || !allowed.has(rest[0])) {
+        throw new Error(`GIT_ARGS_REJECTED: ${JSON.stringify(args)}`)
+      }
+      return await new Promise((resolve, reject) => {
+        execFile(
+          "git",
+          args,
+          { cwd, encoding: "utf-8", windowsHide: true, maxBuffer: 10 * 1024 * 1024 },
+          (err, stdout, stderr) => {
+            if (err && typeof err.code !== "number") {
+              log.error("[octo:git] spawn failed", { cwd, args: args.join(" "), reason: err.message })
+              reject(err)
+              return
+            }
+            resolve({ ok: !err, code: err ? (err.code as number) : 0, stdout: stdout ?? "", stderr: stderr ?? "" })
+          },
+        )
+      })
+    },
+  )
+
   ipcMain.handle(
     "download-resource-to-temp",
     async (

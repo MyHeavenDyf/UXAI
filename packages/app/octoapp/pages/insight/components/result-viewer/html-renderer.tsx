@@ -1,11 +1,14 @@
 import { HtmlLocalEditor } from "./html-local-editor"
-import { createMemo, createSignal, createEffect, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, createEffect, onCleanup, untrack, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { stripCodeFence } from "../../utils/detect"
 import { createStore } from "solid-js/store"
-import { injectCommentBridge } from "@opencode-ai/core/bridge-scripts"
+import { annotateElementsWithIdsBrowser, injectCommentBridge } from "@opencode-ai/core/bridge-scripts"
+import { injectInsightEditBridge } from "../../utils/html-edit-preview"
 import { useHtmlReview } from "./html-review"
 import { HtmlCommentLayer } from "./html-comment-layer"
+import { resolvePreviewStyles } from "../../utils/html-preview-resources"
+import { isElectronDesktop } from "../../utils/insight-file-api"
 
 // 沙箱 iframe 预览模型生成的 HTML(不可信内容),对齐业界客户端预览标准做法:
 // 用 blob URL 作为 iframe.src,而不是 srcdoc。
@@ -14,23 +17,53 @@ import { HtmlCommentLayer } from "./html-comment-layer"
 // blob URL 让文档拥有自己的真实地址(blob:...),#锚点 解析成 blob:...#x 属同文档跳转(只滚动、不导航),
 // 锚点/相对路径/history 自然正常;相比 data: URL 无 base64 膨胀与长度上限,更适合大 HTML。
 // sandbox 保持 allow-scripts(不加 allow-same-origin):脚本可跑,源为不透明源,碰不到主站 DOM/存储。
-export function HtmlRenderer(props: { content: string; onReady?: () => void }): JSX.Element {
+export function HtmlRenderer(props: { content: string; filePath?: string; onReady?: () => void }): JSX.Element {
   const html = createMemo(() => stripCodeFence(props.content).trim())
   const [blobUrl, setBlobUrl] = createSignal("")
   const review = useHtmlReview()
   const [frame, setFrame] = createStore<{ element?: HTMLIFrameElement }>({})
   const commentsEnabled = createMemo(() => !!review?.comments())
 
+  let retained: { content: string; source: string } | undefined
+  let url = ""
+  let pendingContent: string | undefined
+  const retainPreview = (content: string, source: string) => {
+    retained = { content, source }
+    pendingContent = content === props.content ? undefined : content
+  }
+  const source = createMemo(() => {
+    if (retained?.content === props.content) return retained.source
+    return review?.history() && html() ? annotateElementsWithIdsBrowser(html()) : html()
+  })
+  onCleanup(() => { if (url) URL.revokeObjectURL(url) })
+  const syncEditMode = () => frame.element?.contentWindow?.postMessage({
+    type: "od:model-edit-mode", enabled: !!review?.state.editing, includeDocumentSelector: true,
+  }, "*")
+  createEffect(syncEditMode)
+
   createEffect(() => {
-    const src = html()
+    const path = isElectronDesktop() ? props.filePath : undefined
+    const documentSource = source()
+    const editable = !!review?.history()
+    const commenting = commentsEnabled()
+    const content = props.content
+    // 消费一次本预览的保存通知；外部更新仍以新文件重建 iframe。
+    if (url && pendingContent === content) {
+      pendingContent = undefined
+      return
+    }
+    pendingContent = undefined
+    retained = undefined
+    if (url) URL.revokeObjectURL(url)
+    url = ""
+    const src = resolvePreviewStyles(documentSource, path)
     if (!src) {
       setBlobUrl("")
       return
     }
-    const url = URL.createObjectURL(new Blob([commentsEnabled() ? injectCommentBridge(src) : src], { type: "text/html; charset=utf-8" }))
+    const preview = editable ? injectInsightEditBridge(src) : src
+    url = URL.createObjectURL(new Blob([commenting ? injectCommentBridge(preview) : preview], { type: "text/html; charset=utf-8" }))
     setBlobUrl(url)
-    // 内容变化前 / 组件卸载时回收,避免 blob 泄漏
-    onCleanup(() => URL.revokeObjectURL(url))
   })
 
   return (
@@ -42,26 +75,27 @@ export function HtmlRenderer(props: { content: string; onReady?: () => void }): 
         </div>
       }
     >
-      <Show when={!review?.state.editing} fallback={<HtmlLocalEditor content={props.content} onReady={props.onReady} />}>
-      <div class="relative w-full h-full">
-      <iframe ref={element => setFrame("element", element)}
-        src={blobUrl()}
-        onLoad={() => { if (blobUrl()) props.onReady?.() }}
-        sandbox="allow-scripts"
-        title="HTML preview"
-        style={{
-          width: "100%",
-          height: "100%",
-          border: "none",
-          background: "white",
-          display: "block",
-        }}
-      />
-      <Show when={commentsEnabled()}>
-        <HtmlCommentLayer frame={frame.element} content={html()} />
-      </Show>
+      <div class="relative w-full h-full" classList={{ "insight-html-local-editor": !!review?.state.editing }}>
+        <iframe ref={element => setFrame("element", element)}
+          src={blobUrl()}
+          onLoad={() => { if (blobUrl()) { syncEditMode(); props.onReady?.() } }}
+          sandbox="allow-scripts"
+          title="HTML preview"
+          style={{
+            width: "100%",
+            height: "100%",
+            border: "none",
+            background: "white",
+            display: "block",
+          }}
+        />
+        <Show when={commentsEnabled()}>
+          <HtmlCommentLayer frame={frame.element} content={html()} />
+        </Show>
+        <Show when={review?.state.editing && frame.element && blobUrl()} keyed>
+          {(_url) => <HtmlLocalEditor frame={frame.element!} content={untrack(() => props.content)} source={untrack(source)} onRetainPreview={retainPreview} />}
+        </Show>
       </div>
-      </Show>
     </Show>
   )
 }

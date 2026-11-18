@@ -13,8 +13,12 @@ export type SubtypeCapabilities = {
     archive: FeatureFlag
     history: FeatureFlag
     download: FeatureFlag
+    /** 下载按钮形态："default" = 保存到资产库新下拉（缺省）；"legacy" = 原下载按钮（自定义下载 subtype 显式声明） */
+    downloadUI?: "default" | "legacy"
     fullscreen: FeatureFlag
     assessment: FeatureFlag
+    /** 3D 场景编辑（scene3d 产物专用；index.3d.html 是 FIXED 容器，编辑器内置在 iframe 内） */
+    scene3dEdit?: FeatureFlag
   }
   history?: {
     files: string[]
@@ -89,6 +93,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: false,
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: false,
     }
@@ -107,6 +112,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },
@@ -128,6 +134,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },
@@ -152,6 +159,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },
@@ -201,6 +209,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },
@@ -223,6 +232,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },
@@ -271,6 +281,37 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     },
     history: {
       files: ['.'],
+    },
+  },
+
+  // 3d: generate-3d-scene skill 产物（index.3d.html 离线预览 + source/ 源码）。
+  // index.3d.html 是 FIXED 容器，内置 3D 编辑器；保存复制 scene3d-changes 到剪贴板，
+  // 由 host 读剪贴板包源码定位 prompt 发给 AI 回写 scene-data.json。
+  // subtype 名 '3d' 来自 extractSubtypeFromFilename("index.3d.html") → "3d"
+  // （与 index.gts.html → "gts" 约定一致）。
+  // 不开 modelEdit（3D 元素非 DOM 组件）、不开 localEdit（不可直接改 HTML）。
+  '3d': {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: false,
+      modelEdit: false,
+      drawEdit: false,
+      canvasEdit: false,
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
+      download: true,
+      fullscreen: true,
+      assessment: false,
+      scene3dEdit: { enabled: true, editOnly: true },
+    },
+    // files 仅供文档说明；实际快照文件集由 scene3d handler 的 onHistoryTrigger 决定
+    //（index.3d.html + preview/scene-data.js + source/public/scene3d/scene-data.json）。
+    history: {
+      files: ['.', 'preview/scene-data.js', 'source/public/scene3d/scene-data.json'],
+      agentTurnRecord: 'turn',
     },
   }
 }

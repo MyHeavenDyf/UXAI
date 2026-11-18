@@ -5,7 +5,7 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, docFromJSON, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { DesignStrategyIcon } from "./components/addon-menu/icons"
-import { encodeAssetUrl, getAssetDisplayName, hasAssetParseSource, joinUrl } from "./components/addon-menu/asset-library"
+import { encodeAssetUrl, getAssetDisplayName, hasAssetParseSource, isAssetArchiveDocPath, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
 import { type PanelSkill, type SkillConfig, lookupDisplayName } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
@@ -115,7 +115,7 @@ import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, ty
 import { setAssessmentContext, harvestAssessmentReview, pauseAssessment, pendingAssessment } from "./utils/assessment-state"
 import { processMentions } from "./utils/mention-processor"
 import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
-import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
+import { autoSaveArtifact, inferArtifactFilePath, sanitizeFilename } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
 import { saveSessionTabs, loadSessionTabs } from "./utils/tab-state-store"
@@ -1696,8 +1696,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (lastBusyState && !busy && id) {
       // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
       setFilesRefreshKey(k => k + 1)
-      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态
-      void harvestAssessmentReview()
+      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态。
+      void harvestAssessmentReview(() => effectiveBusy())
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -1937,6 +1937,26 @@ const sessionMessagesLoaded = createMemo(() => {
     if (choice !== undefined) return choice
     const preset = skillConfig().designSystemSkills?.selectedSkillName
     return preset && designSystemOptions().includes(preset) ? preset : null
+  })
+
+  // 存量对话页展示：创建会话时选中的设计系统 —— 主 session 首条可见用户消息的 skill part
+  // （state.input.name）匹配设计系统列表（注入时 chip 前置 → 首个匹配即创建时选择；
+  // 消息推导跨设备可用，旧会话/创建时未选 → 无匹配 → null → displayOnly 仅图标）
+  const sessionDesignSystem = createMemo(() => {
+    const sid = params.id
+    if (!sid) return null
+    const firstUser = sortMessages(
+      ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => isVisibleUserMessage(m, sync.data.part[m.id])),
+    )[0]
+    if (!firstUser) return null
+    const parts = (sync.data.part?.[firstUser.id] ?? []) as Array<Record<string, unknown>>
+    const opts = designSystemOptions()
+    return (
+      parts
+        .filter((p) => p.type === "tool" && (p.tool as string | undefined) === "skill")
+        .map((p) => (p.state as { input?: { name?: string } } | undefined)?.input?.name)
+        .find((name) => name && opts.includes(name)) ?? null
+    )
   })
 
   // ── Slash Command List ──
@@ -3710,7 +3730,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string, attachmentSnapshot?: Attachment[]) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -3793,14 +3813,11 @@ const sessionMessagesLoaded = createMemo(() => {
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
-
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
-      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
       
       // Clear mention selections after processing
       setMentionSelections([])
       
-      const done = attachments().filter(a => a.status === "done")
+      const done = (attachmentSnapshot ?? attachments()).filter(a => a.status === "done")
 
       // 附件从 tmps 搬进 session/uploads（原子 rename IPC，与 insight 一致）
       const movedPaths = new Map<string, string>()
@@ -3850,6 +3867,9 @@ const sessionMessagesLoaded = createMemo(() => {
       // [Workspace] 段(禁 artifact 内容输出/授权改项目文件)与其 strategy-field/
       // design-plan 表单流程直接冲突,normal 的 [Artifact Folder] 对纯对话流程只是噪音。
       const artifactFolderPrefix = inPlanSession ? "" : await buildArtifactFolderPrefix(sessionId)
+
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
 
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
@@ -4192,6 +4212,7 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     try {
       let sid = submitSessionId
+      let attachmentSnapshot: Attachment[] | undefined
       if (!sid) {
         const dir = sdk.directory
         if (!dir) {
@@ -4316,6 +4337,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
 
         await movePendingUploadsToSession(session.id)
+        attachmentSnapshot = attachments()
 
       // 如果用户没有手动选择 spec，检查是否有存量配置
       if (SPEC_SELECTOR_VISIBLE && !selectedSpecDisplay()) {
@@ -4396,7 +4418,7 @@ const sessionMessagesLoaded = createMemo(() => {
           }
         }
       } else {
-        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem)
+        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem, attachmentSnapshot)
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
@@ -5097,8 +5119,8 @@ const sessionMessagesLoaded = createMemo(() => {
     let buffer: ArrayBuffer
     let downloadName: string
     if (file.type === 40) {
-      // type 40: 下载路径 = s3BaseUrl + '/' + docPath;带 parse 字段时改用 parse 源文件
-      const useParse = hasAssetParseSource(file)
+      // type 40: 下载路径 = s3BaseUrl + '/' + docPath;带 parse 字段时改用 parse 源文件。
+      const useParse = hasAssetParseSource(file) && !isAssetArchiveDocPath(file.docPath)
       const remotePath = useParse ? file.parseDocPath! : file.docPath
       if (!remotePath) throw new Error("缺少 docPath,无法下载")
       downloadName = remotePath
@@ -5137,16 +5159,17 @@ const sessionMessagesLoaded = createMemo(() => {
 
     if (isZip) {
       try {
-        // Extract into uploads/<file.fileName> (dedup with (N) suffix via dirExists); archive not kept
+        // Extract into uploads/<sanitized file.fileName> (dedup with (N) suffix via dirExists); archive not kept
         const JSZip = (await import("jszip")).default
         const zip = await JSZip.loadAsync(buffer)
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
-        let folderName = file.fileName
+        const safeBaseName = sanitizeFilename(file.fileName)
+        let folderName = safeBaseName
         let counter = 1
         if (api.dirExists) {
           while (await api.dirExists([dir, folderName].join(sep))) {
-            folderName = `${file.fileName} (${counter})`
+            folderName = `${safeBaseName} (${counter})`
             counter++
           }
         }
@@ -5154,7 +5177,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
         for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
           if (zipEntry.dir) continue
-          const normalized = relativePath.replace(/\//g, sep)
+          const normalized = relativePath
+            .split("/")
+            .map((seg) => seg.replace(/[\\/:*?"<>|#%]/g, "_"))
+            .join(sep)
           const content = await zipEntry.async("uint8array")
           await api.writeFileBuffer([folderPath, normalized].join(sep), content.buffer as ArrayBuffer)
         }
@@ -5172,11 +5198,11 @@ const sessionMessagesLoaded = createMemo(() => {
     // Non-ZIP: type 40 的 fileName 自带后缀(spec line 77,带 parse 字段时后缀改 md),直接用;type 30 的 fileName 不含后缀,追加 version 的扩展名
     let saveName: string
     if (file.type === 40) {
-      saveName = getAssetDisplayName(file)
+      saveName = sanitizeFilename(getAssetDisplayName(file))
     } else {
       const dot = downloadName.lastIndexOf(".")
       const ext = dot > 0 ? downloadName.slice(dot) : ""
-      saveName = `${file.fileName}${ext}`
+      saveName = sanitizeFilename(`${file.fileName}${ext}`)
     }
     const finalName = await resolveUniqueFilename(dir, saveName)
     const destPath = [dir, finalName].join(sep)
@@ -6354,7 +6380,7 @@ onPreview={(url) => {
                           onChange={handleFileInputChange}
                         />
                         <AddonMenu
-                          items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                          items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                           slots={[
                             {
                               key: "designStrategy",
@@ -6399,6 +6425,7 @@ onPreview={(url) => {
                           artifactFiles={artifactFilesMirror()}
                           productId={projectSelection()?.product?.id}
                           productAssetsDisabledReason={productAssetsDisabledReason()}
+                          assetLibraryDisabledReason={productAssetsDisabledReason()}
                           onDownloadProductAsset={downloadProductAsset}
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
@@ -6807,7 +6834,7 @@ onPreview={(url) => {
                         onChange={handleFileInputChange}
                       />
                       <AddonMenu
-                        items={["skills", "productAssets", "designFiles", "designStrategy", "patternPage", "addAttachment"]}
+                        items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                         slots={[
                           {
                             key: "designStrategy",
@@ -6852,6 +6879,7 @@ onPreview={(url) => {
                         artifactFiles={artifactFilesMirror()}
                         productId={projectSelection()?.product?.id}
                         productAssetsDisabledReason={productAssetsDisabledReason()}
+                        assetLibraryDisabledReason={productAssetsDisabledReason()}
                         onDownloadProductAsset={downloadProductAsset}
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
@@ -6876,9 +6904,14 @@ onPreview={(url) => {
                             }
                           }}
                        >
-                        <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
-                      </ModelSelectorPopover>
-                    </div>
+                         <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
+                       </ModelSelectorPopover>
+                      <DesignSystemSelector
+                        options={designSystemOptions()}
+                        selected={sessionDesignSystem()}
+                        displayOnly
+                      />
+                     </div>
 <IconButton
                        data-action="prompt-submit"
                        type="submit"

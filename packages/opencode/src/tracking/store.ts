@@ -8,7 +8,7 @@ import {
   ArtifactTaskTable as Task,
   ArtifactReceiptTable as Receipt,
 } from "./delivery.sql"
-import { fileFact, hash, record, string, type MCPFacts } from "./facts"
+import { fileDetails, fileFact, hash, record, string, type MCPFacts } from "./facts"
 import { resolveOutputType } from "./output-type"
 import type { ScriptFacts } from "./scripts"
 
@@ -111,6 +111,7 @@ export function collect(part: MessageV2.ToolPart) {
         identity: string,
         type: string,
         source: string,
+        fileName: string,
         tool?: string,
       ) => {
         const id = hash(owner.root_session_id, owner.root_message_id, name, identity)
@@ -141,7 +142,7 @@ export function collect(part: MessageV2.ToolPart) {
                   name,
                   path: "/insight",
                   extend: JSON.stringify({
-                    files: [{ type, count: 1, ...(tool ? { tool } : {}) }],
+                    files: [{ type, count: 1, ...fileDetails(fileName), ...(tool ? { tool } : {}) }],
                     eventId: id,
                     sessionId: owner.root_session_id,
                     messageId: owner.root_message_id,
@@ -160,7 +161,7 @@ export function collect(part: MessageV2.ToolPart) {
       }
       const file = fileFact(part.tool, state.input, state.metadata, turn.directory)
       if (file) {
-        enqueue(turn, file.name, file.identity, file.type, part.tool)
+        enqueue(turn, file.name, file.identity, file.type, part.tool, file.fileName)
         receipt("file-enqueued")
         return
       }
@@ -171,7 +172,7 @@ export function collect(part: MessageV2.ToolPart) {
             for (const target of script.files) {
               if (!target.operation || target.reason !== "verified-change") continue
               const fact = fileFact(target.operation, { filePath: target.path }, {}, turn.directory)
-              if (fact) enqueue(turn, fact.name, fact.identity, fact.type, "script")
+              if (fact) enqueue(turn, fact.name, fact.identity, fact.type, "script", fact.fileName)
             }
           }
           receipt(script?.reason ?? "script-targets-not-declared")
@@ -241,6 +242,7 @@ export function collect(part: MessageV2.ToolPart) {
           hash(mcp.provider, taskID, item.id || `manifest-slot:${index}`),
           resolveOutputType(item.name, item.mime),
           "mcp",
+          item.name,
           item.tool || task?.tool || mcp.tool,
         ),
       )

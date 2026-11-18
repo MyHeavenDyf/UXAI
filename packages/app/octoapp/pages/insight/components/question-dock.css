@@ -8,6 +8,13 @@
  * (--surface-raised-stronger-non-alpha / --text-strong / --background-base 等)都钉成浅色字面量,
  * 并用 color-scheme: light 防止 textarea 等 UA 控件被按暗色渲染。 */
 
+/* 借用输入区两侧的留白并在顶部留出投影空间，避免滚动容器裁剪问题框阴影。 */
+.octo-input-docks:has(> .octo-question-dock) {
+  margin-inline: -16px;
+  padding-inline: 16px;
+  padding-top: 16px;
+}
+
 .octo-question-dock {
   --octo-q-blue: #0a59f7; /* 应用通用蓝,与 permission-dock 同源 */
   --octo-q-ink: rgba(0, 0, 0, 0.9);

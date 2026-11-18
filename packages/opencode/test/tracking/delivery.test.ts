@@ -22,7 +22,7 @@ import {
   ArtifactTaskTable as Tasks,
 } from "../../src/tracking/delivery.sql"
 import { begin, collect, recover, inherit } from "../../src/tracking/store"
-import { mcpFacts, fileFact } from "../../src/tracking/facts"
+import { fileDetails, mcpFacts, fileFact } from "../../src/tracking/facts"
 import {
   claim,
   finish,
@@ -133,6 +133,18 @@ test("write/edit preserve names, same turn/file dedup, next turn counts again", 
       .sort(),
   ).toEqual(["artifact-file-edit", "artifact-file-write", "artifact-file-write"])
   expect(rows()[0].payload.account).toBe("original-account")
+  for (const event of rows()) {
+    expect(JSON.parse((event.payload.datas as { extend: string }[])[0].extend).files[0]).toMatchObject({ fileName: "report.md", extension: "md" })
+  }
+})
+
+test("artifact names omit directories and signed URLs and preserve display case", () => {
+  expect(fileDetails("C:\\private\\报告.XLSX")).toEqual({ fileName: "报告.XLSX", extension: "xlsx" })
+  expect(fileDetails("/private/结果.pdf")).toEqual({ fileName: "结果.pdf", extension: "pdf" })
+  expect(fileDetails("README")).toEqual({ fileName: "README", extension: "" })
+  expect(fileDetails(".gitignore")).toEqual({ fileName: ".gitignore", extension: "" })
+  expect(fileDetails("")).toEqual({})
+  expect(fileDetails("https://host/secret.pdf?token=secret")).toEqual({})
 })
 
 test("failed tool, scripts, manual edits and non-Insight turns do not create events", () => {
@@ -480,6 +492,8 @@ test("MCP waits for user query; multiple files, rotated URLs and changed account
   collect(mcp(query, "get_task_result", result("completed")))
   collect(mcp(query, "get_task_result", result("completed", "renewed")))
   expect(rows()).toHaveLength(2)
+  expect(rows().map((item) => JSON.parse((item.payload.datas as { extend: string }[])[0].extend).files[0].fileName).sort()).toEqual(["one.md", "two.csv"])
+  expect(rows().map((item) => JSON.parse((item.payload.datas as { extend: string }[])[0].extend).files[0].extension).sort()).toEqual(["csv", "md"])
   expect(
     rows().every(
       (item) =>

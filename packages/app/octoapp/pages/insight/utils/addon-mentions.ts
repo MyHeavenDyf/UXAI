@@ -25,9 +25,17 @@ export function insertAddonMentions(state: EditorState, selections: MentionSelec
     tr.setSelection(TextSelection.near(tr.doc.resolve(tr.selection.to)))
   }
   const from = tr.selection.from
+  const before = tr.selection.$from.nodeBefore
+  const after = tr.selection.$to.nodeAfter
+  const spaceBeforeSkill = nodes[0].attrs.type === "skill"
+    && (before?.type.name === "mention" || (before?.isText && !/\s$/.test(before.text ?? "")))
+  const reuseSpaceAfterSkill = nodes.at(-2)?.attrs.type === "skill" && after?.text?.startsWith(" ")
+  if (reuseSpaceAfterSkill) nodes.pop()
   tr.replaceSelectionWith(nodes[0])
   if (nodes.length > 1) tr.insert(tr.selection.from, Fragment.from(nodes.slice(1)))
-  tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(tr.doc.content.size, from + nodes.reduce((n, node) => n + node.nodeSize, 0)))))
+  if (spaceBeforeSkill) tr.insert(from, state.schema.text(" "))
+  const end = from + nodes.reduce((n, node) => n + node.nodeSize, 0) + Number(!!spaceBeforeSkill) + Number(!!reuseSpaceAfterSkill)
+  tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(tr.doc.content.size, end))))
   return tr
 }
 
