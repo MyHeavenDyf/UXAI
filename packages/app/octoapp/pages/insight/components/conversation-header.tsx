@@ -6,7 +6,6 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useSync } from "@/context/sync"
@@ -24,7 +23,7 @@ import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogCreateGroup } from "@/components/dialog-create-group"
 import { SessionContextMenu } from "@/components/session-context-menu"
 import { useMakeGroupsContext } from "@/context/make-groups"
-import { ContextUsageCircle } from "@/components/context-usage-circle"
+import { ContextUsageTrigger } from "@/components/context-usage-trigger"
 
 /**
  * ConversationHeader —— Insight 对话面板顶部的会话标题栏
@@ -323,35 +322,7 @@ export function ConversationHeader(
             </Show>
             <Show when={!title.editing && props.context}>
               {(context) => (
-                <Tooltip
-                  placement="top"
-                  gutter={8}
-                  arrow
-                  interactive
-                  contentClass="insight-token-tooltip"
-                  value={
-                    <div class="insight-token-tooltip-copy">
-                      <p>
-                        当前对话 Session 上下文
-                        {context().usage === undefined ? "用量暂不可用" : `已使用${context().usage}%`}{" "}
-                        ({context().tokens?.toLocaleString(language.intl()) ?? "--"}{" "}
-                        / {context().limit?.toLocaleString(language.intl()) ?? "--"})
-                      </p>
-                    </div>
-                  }
-                >
-                  <button
-                    type="button"
-                    class="shrink-0 flex items-center justify-center"
-                    classList={{ "cursor-pointer": !context().disabled, "cursor-not-allowed": context().disabled }}
-                    style={{ "--border-weak-base": "rgba(0,0,0,0.1)", background: "transparent", border: "none", padding: "0" }}
-                    disabled={context().disabled}
-                    onClick={context().onCompact}
-                    aria-label={context().usage === undefined ? "上下文用量暂不可用，点击压缩上下文" : `上下文已使用 ${context().usage}%，点击压缩上下文`}
-                  >
-                    <ContextUsageCircle percentage={context().usage} />
-                  </button>
-                </Tooltip>
+                <ContextUsageTrigger {...context()} locale={language.intl()} />
               )}
             </Show>
           </div>

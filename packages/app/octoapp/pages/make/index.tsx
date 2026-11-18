@@ -97,8 +97,7 @@ import { createTabStore, type ResultTab } from "./components/result-viewer/tab-s
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
-import { ContextUsageCircle } from "@/components/context-usage-circle"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { ContextUsageTrigger } from "@/components/context-usage-trigger"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { createSnapshotStore } from "./utils/snapshot-store"
@@ -6113,51 +6112,17 @@ const sessionMessagesLoaded = createMemo(() => {
                     </h1>
                   </Show>
                   <Show when={!titleState.editing && params.id}>
-                    <Tooltip
-                      placement="top"
-                      gutter={8}
-                      arrow
-                      interactive
-                      contentClass="make-token-tooltip"
-                      value={
-                        <div class="make-token-tooltip-copy">
-                          <p>
-                            当前对话 Session 上下文
-                            {contextUsage() === undefined ? "用量暂不可用" : `已使用${contextUsage()}%`} {" "}
-                            (
-                            {contextTokens()?.toLocaleString(language.intl()) ?? "--"}{" "}
-                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})
-                          </p>
-                        </div>
-                      }
-                    >
-                      <button
-                        type="button"
-                        class="shrink-0 flex items-center justify-center"
-                        classList={{
-                          "cursor-pointer": !contextCompactionDisabled(),
-                          "cursor-not-allowed": contextCompactionDisabled(),
-                        }}
-                        style={{
-                          "--border-weak-base": "rgba(0,0,0,0.1)",
-                          background: "transparent",
-                          border: "none",
-                          padding: "0",
-                        }}
-                        disabled={contextCompactionDisabled()}
-                        onClick={() => {
-                          const sessionID = params.id
-                          if (sessionID) confirmCompactContext(sessionID)
-                        }}
-                        aria-label={
-                          contextUsage() === undefined
-                            ? "上下文用量暂不可用，点击压缩上下文"
-                            : `上下文已使用 ${contextUsage()}%，点击压缩上下文`
-                        }
-                      >
-                        <ContextUsageCircle percentage={contextUsage()} />
-                      </button>
-                    </Tooltip>
+                    <ContextUsageTrigger
+                      usage={contextUsage()}
+                      tokens={contextTokens()}
+                      limit={contextLimit()}
+                      locale={language.intl()}
+                      disabled={contextCompactionDisabled()}
+                      onCompact={() => {
+                        const sessionID = params.id
+                        if (sessionID) confirmCompactContext(sessionID)
+                      }}
+                    />
                   </Show>
                 </div>
                 <button
