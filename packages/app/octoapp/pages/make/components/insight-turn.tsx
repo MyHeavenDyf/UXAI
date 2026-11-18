@@ -12,6 +12,7 @@ import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../u
 import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
 import { collectRevertedFiles, buildRevertDraft, revertSkillsFromConfig, revertDocToClipboard, writeRichClipboard, type RevertDraftPart } from "../utils/restore-draft"
 import { ARTIFACT_TYPE_MAP, parseAllArtifactsFromText } from "../utils/artifact-cards"
+import { isHiddenCompactionTurn } from "../utils/visible-message"
 import { autoSaveArtifact, SAVEABLE_ARTIFACT_TYPES } from "../utils/artifact-auto-save"
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
@@ -648,6 +649,11 @@ export function InsightTurn(props: {
     const parts = partStore?.[props.messageID] ?? []
     return parts.some((p) => p.type === "compaction")
   })
+
+  // 自动压缩回填轮(compaction_replay / compaction_continue):压缩后服务端重建的用户消息。
+  // 不渲染用户气泡(否则看起来像"自动重发了上次发送的内容"),改显示分割线提示;
+  // 续跑的 assistant 回复挂在该轮之下,仍正常渲染。
+  const isReplayTurn = createMemo(() => isHiddenCompactionTurn(partStore?.[props.messageID] ?? []))
 
   // 压缩完成 = 摘要 assistant 消息(summary: true)已 finish 且无 error,与标准 session-turn 判定一致
   const compacted = createMemo(() =>
@@ -1366,8 +1372,14 @@ const stateStatus = state.status as string | undefined
 
   return (
     <div class="octo-make-turn flex flex-col gap-4" data-turn-id={props.messageID} style={{ "user-select": "text" }}>
+      {/* 自动压缩回填轮:不显示用户气泡,以分割线提示续跑 */}
+      <Show when={isReplayTurn()}>
+        <div data-slot="session-turn-compaction">
+          <MessageDivider label="上下文已自动压缩，继续生成" />
+        </div>
+      </Show>
       {/* 用户消息气泡（右侧对齐）+ hover 回退图标 / 确认面板 */}
-      <Show when={userText() || userAttachments().length > 0}>
+      <Show when={!isReplayTurn() && (userText() || userAttachments().length > 0)}>
         <div class="octo-revert-zone px-3">
         <div class="flex flex-col items-end gap-4">
           <Show when={userAttachments().length > 0}>

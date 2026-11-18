@@ -138,7 +138,7 @@ import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
-import { isVisibleUserMessage } from "./utils/visible-message"
+import { isVisibleUserMessage, isHiddenCompactionTurn } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限;
@@ -2872,7 +2872,8 @@ const sessionMessagesLoaded = createMemo(() => {
       const dir = sdk.directory
       if (!dir) throw new Error("No directory")
       const userMsgs = userMessages()
-      const lastUserMsg = userMsgs[userMsgs.length - 1]
+      // 跳过自动压缩回填轮(replay/continue),取真正的最后一条用户输入
+      const lastUserMsg = userMsgs.findLast((m) => !isHiddenCompactionTurn(sync.data.part[m.id]))
       const rawText = lastUserMsg ? (sync.data.part[lastUserMsg.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n") : ""
       const userInput = rawText.replace(/^[\s\S]*?---\n/, "").trim()
       setPatternUserInput(userInput)
@@ -3048,7 +3049,8 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!dir) throw new Error("No directory")
 
       const userMsgs = userMessages()
-      const lastUserMsg = userMsgs[userMsgs.length - 1]
+      // 跳过自动压缩回填轮(replay/continue),取真正的最后一条用户输入
+      const lastUserMsg = userMsgs.findLast((m) => !isHiddenCompactionTurn(sync.data.part[m.id]))
       const rawText = lastUserMsg
         ? (sync.data.part[lastUserMsg.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
         : composerText
