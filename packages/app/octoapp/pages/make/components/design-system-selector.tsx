@@ -4,6 +4,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { MODEL_TRIGGER_BASE_CLASS } from "@/components/dialog-select-model"
 import { IconPaintPalette, IconSizeCheckmark } from "../icons"
+import "./design-system-selector.css"
 
 export const DESIGN_SYSTEM_NONE = "不使用设计系统"
 
@@ -57,7 +58,7 @@ export function DesignSystemSelector(props: {
             style="box-shadow: 0 4px 12px rgba(0,0,0,0.16)"
           >
             <Kobalte.Title class="sr-only">选择设计系统</Kobalte.Title>
-            <ScrollView class="max-h-[260px]">
+            <ScrollView class="ds-options-scroll">
               <For each={items()}>
                 {(item) => (
                   <button
