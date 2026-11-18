@@ -71,6 +71,7 @@ const api: ElectronAPI = {
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
   fastuiPreviewOpen: (target) => ipcRenderer.invoke("fastui-preview-open", target),
   fastuiPreviewRestart: (target) => ipcRenderer.invoke("fastui-preview-restart", target),
+  fastuiPreviewPrepare: (target) => ipcRenderer.invoke("fastui-preview-prepare", target),
   fastuiResolve: (target) => ipcRenderer.invoke("fastui-resolve", target),
   fastuiProjectOf: (target) => ipcRenderer.invoke("fastui-project-of", target),
   fastuiExportZip: (target) => ipcRenderer.invoke("fastui-export-zip", target),

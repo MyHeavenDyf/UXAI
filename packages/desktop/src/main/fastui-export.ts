@@ -109,6 +109,8 @@ export async function resolveScript(
   skillDir?: string,
   env?: PathEnv,
   skillName: string = SKILL_NAME,
+  /** 要找的脚本;接手流程(fastui-prepare.ts)找 new-session.mjs,用的是同一条定位链 */
+  scriptName: string = "export-zip.mjs",
 ): Promise<string | null> {
   const homeDir = env?.homeDir ?? homedir()
   // 后半截**刻意用 `||` 而不是 `??`**:空串的 XDG_CONFIG_HOME 要当成"没设",这跟 server 侧
@@ -130,17 +132,17 @@ export async function resolveScript(
   const tried: string[] = []
   for (const dir of candidates) {
     if (!dir) continue
-    const script = join(dir, "scripts", "export-zip.mjs")
+    const script = join(dir, "scripts", scriptName)
     if (existsSync(script)) return script
     tried.push(script)
   }
   // 用户看到的是一句话,定位要靠这里 —— 把试过的路径都记上,省掉一轮来回问
-  log.warn("[fastui] 定位不到导出脚本", { workspaceDir, skillName, serverKnown: !!serverInfo, tried })
+  log.warn("[fastui] 定位不到 skill 脚本", { workspaceDir, skillName, scriptName, serverKnown: !!serverInfo, tried })
   return null
 }
 
-/** 解析 §5.1.1 的契约行:stdout 只放契约行,过程输出在 stderr */
-function parseContract(stdout: string) {
+/** 解析 §5.1.1 的契约行:stdout 只放契约行,过程输出在 stderr。接手流程(fastui-prepare.ts)复用 */
+export function parseContract(stdout: string) {
   const fields: Record<string, string> = {}
   let result: string | null = null
   for (const line of stdout.split(/\r?\n/)) {

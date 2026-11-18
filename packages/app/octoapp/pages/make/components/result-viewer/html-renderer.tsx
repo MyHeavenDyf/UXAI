@@ -2292,12 +2292,18 @@ return (
           <Show
             when={fastui().phase === "error" ? (fastui() as FastuiPreviewError) : undefined}
             fallback={
-              <>
+              <Show
+                when={fastui().phase !== "preparing"}
+                fallback={
+                  // 分享导入的工程在本机接手(octo-agent SPEC-DES-009 §3.5);首装可能要几分钟,不沿用「通常十几秒」
+                  <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>首次在本机打开，正在准备预览环境…</div>
+                }
+              >
                 <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>正在编译预览…</div>
                 <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
                   首次打开需要启动本地服务，通常十几秒，请稍候。
                 </div>
-              </>
+              </Show>
             }
           >
             {(err) => (

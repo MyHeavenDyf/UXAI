@@ -182,11 +182,24 @@ function digest(value: Uint8Array) {
   return createHash("sha256").update(value).digest("hex")
 }
 
+// fastui / chart skill 的工程标记:接收方靠它认出工程,点预览时在本机补环境后起服务(octo-agent SPEC-DES-009)。
+// 精确到文件名,不放开其他点开头的文件。导出过滤与导入校验共用 isProjectFile,两边同时生效。
+const PORTABLE_ALLOWED_HIDDEN = new Set([".octo-fastui.json"])
+// fastui / chart 的运行时目录:日志与带本机 pid / 端口的服务记录,换台机器没有意义(octo-agent SPEC-DES-009)。
+// 两种导出范围都排除;session 范围本身不过滤点开头的文件,不能只靠 isProjectFile。
+const PORTABLE_EXCLUDED_DIRS = new Set([".octo-fastui"])
+
 function isProjectFile(value: string, legacy = false) {
   return value
     .replaceAll("\\", "/")
     .split("/")
-    .every((part) => part && !(legacy ? /\0/ : /[\0:]/).test(part) && !part.startsWith(".") && part !== "node_modules")
+    .every(
+      (part) =>
+        part &&
+        !(legacy ? /\0/ : /[\0:]/).test(part) &&
+        (!part.startsWith(".") || PORTABLE_ALLOWED_HIDDEN.has(part)) &&
+        part !== "node_modules",
+    )
 }
 
 async function listFiles(root: string, project = false, blacklist: readonly string[] = []) {
@@ -194,6 +207,7 @@ async function listFiles(root: string, project = false, blacklist: readonly stri
   const visit = async (directory: string): Promise<void> => {
     const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
+      if (entry.isDirectory() && PORTABLE_EXCLUDED_DIRS.has(entry.name)) continue
       if (project && !isProjectFile(entry.name, true)) continue
       const target = path.join(directory, entry.name)
       if (isExcludedPortableFile(target, blacklist)) continue
