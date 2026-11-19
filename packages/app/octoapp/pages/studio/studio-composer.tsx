@@ -2030,7 +2030,9 @@ function StyleMenu(props: {
                 return (
                   <Tooltip
                     inactive={!description}
-                    placement="top"
+                    placement="bottom-start"
+                    flip={false}
+                    getAnchorRect={(anchor) => anchor?.querySelector(".studio-style-description")?.getBoundingClientRect()}
                     gutter={10}
                     openDelay={0}
                     arrow

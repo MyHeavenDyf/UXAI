@@ -12,7 +12,7 @@ export const STUDIO_CAPABILITIES: { id: StudioCapability; label: string; descrip
 ]
 
 const styleModelPresentation: Record<string, { icon: string; color: string }> = {
-  "seedream-5-pro": { icon: "/studio/studio_seedream.webp", color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
+  "seedream-5-pro": { icon: "/studio/studio_seedream_v2.svg", color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
   qwen: { icon: "/studio/studioModel1.png", color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
   "bd-icon": { icon: "/studio/studioModel2.png", color: "linear-gradient(135deg, #5eead4, #3b82f6)" },
   portrait: { icon: "/studio/studioModel3.png", color: "linear-gradient(135deg, #f59e0b, #fde68a)" },
