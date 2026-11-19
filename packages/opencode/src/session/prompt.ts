@@ -19,7 +19,6 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { CompactionDebug } from "./compaction-debug"
 import { MessageDebug } from "./message-debug"
-import { AutoCompactDebug } from "./auto-compact-debug"
 import { Bus } from "../bus"
 import { ProviderTransform } from "@/provider/transform"
 import { SystemPrompt } from "./system"
@@ -868,88 +867,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         sessionID: input.sessionID,
         phase: input.phase,
         outcome: input.outcome,
-        note: `request assembly failed: ${error instanceof Error ? error.message : String(error)}`,
-        model: `${input.model.providerID}/${input.model.id}`,
-        system: [],
-        modelMsgs: [],
-        activeTools: {},
-      })
-    })
-
-    // 自动压缩触发埋点:每次 compaction.create({ auto: true }) 前落盘一份完整请求快照,
-    // 用于排查压缩后上下文仍超阈值导致的循环压缩(auto-compact 目录下 auto_compact_*.txt)。
-    const dumpAutoCompactTrigger = Effect.fn("SessionPrompt.dumpAutoCompactTrigger")(function* (input: {
-      sessionID: SessionID
-      session: Session.Info
-      model: Provider.Model
-      trigger: string
-      tokens?: MessageV2.Assistant["tokens"]
-      overflow?: boolean
-    }) {
-      const exit = yield* Effect.gen(function* () {
-        const modelLabel = `${input.model.providerID}/${input.model.id}`
-        const cfg = yield* config.get()
-        const usable = usableContext({ cfg, model: input.model })
-        const limit = input.model.limit.input ?? input.model.limit.context
-        const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
-        const compactions = messages.reduce(
-          (count, msg) => count + msg.parts.filter((part) => part.type === "compaction").length,
-          0,
-        )
-        const lastUser = messages.findLast((message) => message.info.role === "user")?.info
-        const lastAssistant = messages.findLast((message) => message.info.role === "assistant")?.info
-        const agent = lastUser?.role === "user" ? yield* agents.get(lastUser.agent) : undefined
-        if (!lastUser || lastUser.role !== "user" || !lastAssistant || lastAssistant.role !== "assistant" || !agent) {
-          yield* AutoCompactDebug.dump({
-            sessionID: input.sessionID,
-            trigger: input.trigger,
-            tokens: input.tokens,
-            limit,
-            usable,
-            compactions,
-            overflow: input.overflow,
-            note: `context not assemblable (lastUser=${lastUser?.role ?? "none"}, lastAssistant=${lastAssistant?.role ?? "none"}, agent=${agent?.name ?? "missing"})`,
-            model: modelLabel,
-            system: [],
-            modelMsgs: [],
-            activeTools: {},
-          })
-          return
-        }
-        const request = yield* prepareRequest({
-          messages,
-          lastUser,
-          agent,
-          session: input.session,
-          model: input.model,
-          processor: {
-            message: lastAssistant,
-            updateToolCall: () => Effect.succeed(undefined),
-            completeToolCall: () => Effect.succeed(undefined),
-          },
-          onStructuredOutput: () => {},
-        })
-        yield* AutoCompactDebug.dump({
-          sessionID: input.sessionID,
-          trigger: input.trigger,
-          tokens: input.tokens,
-          limit,
-          usable,
-          compactions,
-          overflow: input.overflow,
-          model: modelLabel,
-          system: [...(agent.prompt ? [agent.prompt] : SystemPrompt.provider(input.model)), ...request.system],
-          modelMsgs: request.modelMsgs,
-          activeTools: request.activeTools,
-        })
-      }).pipe(Effect.exit)
-      if (Exit.isSuccess(exit)) return
-      const error = Cause.squash(exit.cause)
-      yield* elog.warn("auto compact trigger dump failed", { error })
-      yield* AutoCompactDebug.dump({
-        sessionID: input.sessionID,
-        trigger: input.trigger,
-        overflow: input.overflow,
         note: `request assembly failed: ${error instanceof Error ? error.message : String(error)}`,
         model: `${input.model.providerID}/${input.model.id}`,
         system: [],
@@ -2024,13 +1941,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             lastFinished.modelID === model.id &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
-            yield* dumpAutoCompactTrigger({
-              sessionID,
-              session,
-              model,
-              trigger: "loop-overflow-check",
-              tokens: lastFinished.tokens,
-            })
+            // 信号失真放行(compaction_noop 续跑)后不再重复触发压缩:全账已复核为放得下,
+            // 重复压缩只会再次 no-op;估算真超限时由 preflight(已带 compactionAttempted)诚实拒绝。
+            const noopContinue =
+              msgs.findLast((message) => message.info.role === "user")?.parts.some(
+                (part) => "metadata" in part && part.metadata?.["compaction_noop"] === true,
+              ) ?? false
+            if (noopContinue) {
+              log.warn("loop-overflow-check skipped after no-op recalculated continue", {
+                sessionID,
+                reported: lastFinished.tokens.input + lastFinished.tokens.cache.read + lastFinished.tokens.cache.write,
+              })
+              continue
+            }
             yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
             continue
           }
@@ -2193,18 +2116,23 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               if (!AUTOMATIC_COMPACTION_ENABLED) return "break" as const
               const overflowTokens =
                 handle.message.tokens.input + handle.message.tokens.cache.read + handle.message.tokens.cache.write
-              yield* dumpAutoCompactTrigger({
-                sessionID,
-                session,
-                model,
-                trigger: handle.message.finish
-                  ? "processor-post-step"
-                  : overflowTokens > 0
-                    ? "processor-halt-overflow"
-                    : "processor-preflight",
-                tokens: handle.message.tokens,
-                overflow: !handle.message.finish,
-              })
+              // 信号失真放行(compaction_noop 续跑)后的 post-step 超限不再重复触发压缩:
+              // 全账已复核为放得下,重复压缩只会再次 no-op 并以 error 收场;估算真超限时
+              // 由 preflight(已带 compactionAttempted)诚实拒绝。provider 硬拒(halt-overflow,
+              // finish 未落)不在此列,仍走 overflow 压缩。
+              const noopContinue =
+                handle.message.finish !== undefined &&
+                (lastUserMsg?.parts.some(
+                  (part) => "metadata" in part && part.metadata?.["compaction_noop"] === true,
+                ) ??
+                  false)
+              if (noopContinue) {
+                yield* slog.warn("post-step auto compaction skipped after no-op recalculated continue", {
+                  sessionID,
+                  reported: overflowTokens,
+                })
+                return "continue" as const
+              }
               yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,

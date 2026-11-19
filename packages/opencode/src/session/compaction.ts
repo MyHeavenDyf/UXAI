@@ -182,6 +182,10 @@ const replayTextPart = (part: MessageV2.TextPart, budget: number): MessageV2.Tex
 })
 
 /** 保尾中单个工具输出的 token 配额阈值:可用上限越大,可完整保留的工具输出越多。 */
+
+// 纯提纯出口的连续失败计数(session 级,进程内):摘要连续两次仍压不回预算后不再
+// 重复燃烧摘要请求,后续触发直接走诚实拒绝;成功压回预算则清零。
+const refinementFailures = new Map<SessionID, number>()
 export const toolClipCapTokens = (usableTokens: number) =>
   Math.max(TAIL_TOOL_CLIP_MIN_TOKENS, Math.floor(usableTokens * TAIL_TOOL_CLIP_SHARE))
 
@@ -790,7 +794,8 @@ export const layer: Layer.Layer<
         })
 
       // 自动续跑合成消息(autocontinue 插件可禁用):正常路径与纯裁剪出口共用。
-      const writeContinueMessage = Effect.fnUntraced(function* () {
+      // noop 标记用于信号失真放行后的续跑:prompt 侧据此跳过重复压缩触发。
+      const writeContinueMessage = Effect.fnUntraced(function* (options?: { noop?: boolean }) {
         const info = yield* provider.getProvider(userMessage.model.providerID)
         if (
           !(yield* plugin.trigger(
@@ -832,7 +837,10 @@ export const layer: Layer.Layer<
           // Internal marker for auto-compaction followups so provider plugins
           // can distinguish them from manual post-compaction user prompts.
           // This is not a stable plugin contract and may change or disappear.
-          metadata: { compaction_continue: true },
+          metadata: {
+            compaction_continue: true,
+            ...(options?.noop ? { compaction_noop: true } : {}),
+          },
           synthetic: true,
           text,
           time: {
@@ -840,6 +848,71 @@ export const layer: Layer.Layer<
             end: Date.now(),
           },
         } satisfies MessageV2.TextPart)
+      })
+
+      /**
+       * 纯提纯出口:仅重写锚定摘要(无新对话内容可折入),把超预算的前次摘要降密度压回
+       * summaryBudget。结构校验 + 一次收紧重试(重试产物不再复查体积,渐进收敛交给下轮
+       * 触发);永不硬截断 —— 关键事实(Goal/Next Steps/Critical Context)优先保留,
+       * 细节分节合并降密度。草稿消息流式生成后立即删除,内容由调用方原地写回旧摘要消息
+       * (不动锚点、不新建消息,避免旧摘要对泄漏回上下文)。返回 undefined 表示生成失败
+       * 或结构无效(调用方走诚实拒绝)。
+       */
+      const refinePreviousSummary = Effect.fnUntraced(function* (previous: string) {
+        const promptFor = (fixes: string[]) =>
+          [
+            ...fixes,
+            `Rewrite the anchored summary below denser so another coding agent can continue the work. It is currently ~${Token.estimate(previous)} tokens, over its ~${target.summaryBudget}-token budget.`,
+            "Preserve every critical fact: active tasks, key decisions, file paths, errors being fixed, and next steps.",
+            "Compress the detail sections: merge related bullets and drop stale or superseded details. Prefer fewer, denser bullets.",
+            `Keep the total summary under ~${target.summaryBudget} tokens.`,
+            SUMMARY_TEMPLATE,
+            "<previous-summary>",
+            previous,
+            "</previous-summary>",
+          ].join("\n\n")
+        const attempt = Effect.fnUntraced(function* (fixes: string[]) {
+          const msg = summaryMessage()
+          yield* session.updateMessage(msg)
+          const processor = yield* processors.create({
+            assistantMessage: msg,
+            sessionID: input.sessionID,
+            model,
+          })
+          const result = yield* processor.process({
+            user: userMessage,
+            agent,
+            sessionID: input.sessionID,
+            tools: {},
+            system: [],
+            messages: [{ role: "user", content: [{ type: "text", text: promptFor(fixes) }] }],
+            model,
+          })
+          const stored = (yield* session.messages({ sessionID: input.sessionID })).find(
+            (item) => item.info.id === msg.id,
+          )
+          const summary = stored ? summaryText(stored) : undefined
+          yield* session.removeMessage({ sessionID: input.sessionID, messageID: msg.id })
+          if (!summary || processor.message.error || result === "stop") return undefined
+          const repaired = CompactionSummary.repair(summary)
+          const final = repaired.summary
+          if (!final || !CompactionSummary.validate(final).valid) return undefined
+          return { summary: final, tokens: Token.estimate(final) }
+        })
+        const first = yield* attempt([])
+        if (!first) return undefined
+        const validation = CompactionSummary.validate(first.summary)
+        if (validation.missingCore.length === 0 && first.tokens <= Math.ceil(target.summaryBudget * SUMMARY_OVER_BUDGET))
+          return first
+        // 结构修复与体量收紧共用一次重试;重试失败时保留首次产物(渐进收敛,不硬截断)。
+        return (
+          (yield* attempt([
+            ...(validation.missingCore.length > 0
+              ? [`Your previous summary was missing required sections: ${validation.missingCore.join(", ")}.`]
+              : []),
+            `Your previous summary was about ${first.tokens} tokens, over the ~${target.summaryBudget}-token budget. Shorten it to under the budget while keeping every required section.`,
+          ])) ?? first
+        )
       })
 
       /**
@@ -896,8 +969,9 @@ export const layer: Layer.Layer<
       // 修复「no-op 压缩」:select 判定"有效体积装得下保尾"(fits-budget / no-turns /
       // tail-turns-disabled)时,超限大头必然是尚未落盘的超配额工具输出 —— 估算口径
       // 按占位符计,但标记只在压缩成功路径打,直接拒绝会让巨型输出纹丝不动并终止会话。
-      // 先清除再判定:清得出且有效体积放得下 → 纯裁剪压缩出口;一个都清不出 → 压力真实
-      // 落在 system+tools 或用户正文,保留诚实拒绝。
+      // 清得出且有效体积放得下 → 纯裁剪压缩出口;清不出时按全账核算(固定成本 + 可压缩
+      // 历史 + 前次摘要实长 + 余量):摘要主导 → 纯提纯出口,全账放得下 → 信号失真放行
+      // (触发口径与可行性口径不一致时不再误杀);其余保留诚实拒绝,话术点名真实主导项。
       if (selected.tail_start_id === undefined && !selected.emptyTail) {
         const historyTokens = yield* estimateEffective({ messages: compactable, model, cfg })
         const cleared = yield* clearOversizedToolOutputs({
@@ -914,13 +988,135 @@ export const layer: Layer.Layer<
           replay = undefined
           return yield* finishClipOnly(cleared, `no-op-${selected.noop ?? "fits-budget"}`)
         }
+        const summaryTokens = previousSummary ? Token.estimate(previousSummary) : 0
+        const fullBase = fixedTokens + historyTokens + summaryTokens
+        const fullAccount = fullBase + Math.max(FLOOR_MARGIN_MIN, Math.ceil(fullBase * FLOOR_MARGIN_SHARE))
+
+        // 纯提纯出口:前次摘要超预算且主导全账压力 → 只重写锚定摘要(降密度,不截断),
+        // 提纯结果原地写回旧摘要消息的文本 —— 不动锚点、不新建消息(锚点指向保尾首条会
+        // 让旧摘要对泄漏回 filterCompacted 的连续保留窗口)。提纯后按新全账决定续跑或
+        // 诚实拒绝;连续两次仍压不回预算则不再燃烧摘要请求。
+        if (
+          selected.noop === "fits-budget" &&
+          !input.overflow &&
+          previousSummary &&
+          summaryTokens > Math.ceil(target.summaryBudget * SUMMARY_OVER_BUDGET) &&
+          input.contextTokens &&
+          fullAccount >= input.contextTokens.usable &&
+          (refinementFailures.get(input.sessionID) ?? 0) < 2
+        ) {
+          const refined = yield* refinePreviousSummary(previousSummary)
+          if (refined) {
+            const pair = prior.at(-1)!
+            const oldSummary = history[pair.assistantIndex]!
+            const textParts = oldSummary.parts.filter((item): item is MessageV2.TextPart => item.type === "text")
+            if (textParts[0]) yield* session.updatePart({ ...textParts[0], text: refined.summary })
+            yield* Effect.forEach(
+              textParts.slice(1),
+              (part) =>
+                session.removePart({
+                  sessionID: input.sessionID,
+                  messageID: oldSummary.info.id,
+                  partID: part.id,
+                }),
+              { discard: true },
+            )
+            const refinedBase = fixedTokens + historyTokens + refined.tokens
+            const refinedAccount =
+              refinedBase + Math.max(FLOOR_MARGIN_MIN, Math.ceil(refinedBase * FLOOR_MARGIN_SHARE))
+            if (refined.tokens <= Math.ceil(target.summaryBudget * SUMMARY_OVER_BUDGET))
+              refinementFailures.delete(input.sessionID)
+            else refinementFailures.set(input.sessionID, (refinementFailures.get(input.sessionID) ?? 0) + 1)
+            log.warn("compaction refinement exit", {
+              sessionID: input.sessionID,
+              previous_tokens: summaryTokens,
+              refined_tokens: refined.tokens,
+              history_tokens: historyTokens,
+              summary_message: oldSummary.info.id,
+              projected: refinedAccount,
+            })
+            EventV2.run(SessionEvent.Compaction.Ended.Sync, {
+              sessionID: input.sessionID,
+              timestamp: DateTime.makeUnsafe(Date.now()),
+              text: refined.summary,
+              include: history[pair.userIndex]!.info.id,
+            })
+            yield* bus.publish(Event.Compacted, { sessionID: input.sessionID })
+            if (refinedAccount < input.contextTokens.usable) {
+              replay = undefined
+              if (input.auto) yield* writeContinueMessage()
+              return "continue"
+            }
+            return yield* failSummary(
+              `Nothing to compact: the compactable history (~${historyTokens} tokens) fits entirely within the preserved-recent budget (${tailBudget} tokens). The re-condensed previous summary (~${refined.tokens} tokens, down from ~${summaryTokens}) still keeps the projected context at ~${refinedAccount} tokens, at or above the ${input.contextTokens.usable}-token usable limit. Start a new session or reduce the attached content.`,
+            )
+          }
+          refinementFailures.set(input.sessionID, (refinementFailures.get(input.sessionID) ?? 0) + 1)
+        }
+
+        // 信号失真放行:全账(含前次摘要)放得下 → 触发信号按估算/cache 口径失真处理,
+        // 写中性通知(非 summary 消息,不进锚定链、不触发 filterCompacted 折叠)并继续
+        // 会话;续跑消息带 compaction_noop 标记,prompt 侧据此跳过重复压缩触发。
+        if (!input.overflow && input.contextTokens && fullAccount < input.contextTokens.usable) {
+          const notice = yield* session.updateMessage({
+            id: MessageID.ascending(),
+            role: "assistant",
+            parentID: input.parentID,
+            sessionID: input.sessionID,
+            mode: "compaction",
+            agent: "compaction",
+            variant: userMessage.model.variant,
+            path: {
+              cwd: ctx.directory,
+              root: ctx.worktree,
+            },
+            cost: 0,
+            tokens: {
+              output: 0,
+              input: 0,
+              reasoning: 0,
+              cache: { read: 0, write: 0 },
+            },
+            modelID: model.id,
+            providerID: model.providerID,
+            time: { created: Date.now() },
+            finish: "stop",
+          } satisfies MessageV2.Assistant)
+          yield* session.updatePart({
+            id: PartID.ascending(),
+            messageID: notice.id,
+            sessionID: input.sessionID,
+            type: "text",
+            text: `No compaction was needed: the recalculated context (~${fullAccount} tokens including the previous summary and safety margin) fits the ${input.contextTokens.usable}-token usable limit. The overflow signal was recalculated as noise and the session continues.`,
+            time: { start: Date.now(), end: Date.now() },
+          } satisfies MessageV2.TextPart)
+          log.warn("compaction no-op recalculated as noise, continuing", {
+            sessionID: input.sessionID,
+            reason: selected.noop,
+            full_account: fullAccount,
+            usable: input.contextTokens.usable,
+            history_tokens: historyTokens,
+            summary_tokens: summaryTokens,
+          })
+          replay = undefined
+          if (input.auto) yield* writeContinueMessage({ noop: true })
+          return "continue"
+        }
+
         const reason: Record<NonNullable<(typeof selected)["noop"]>, string> = {
           "tail-turns-disabled": "compaction.tail_turns is configured to keep the full history",
           "no-turns": "the conversation has no compactable user turns",
           "fits-budget": `the compactable history (~${historyTokens} tokens) fits entirely within the preserved-recent budget (${tailBudget} tokens)`,
         }
+        const dominance = input.contextTokens
+          ? summaryTokens >= Math.max(input.contextTokens.system, input.contextTokens.tools)
+            ? "; the previous summary dominates the remaining context — start a new session"
+            : input.contextTokens.tools >= input.contextTokens.system
+              ? "; reduce the toolset or switch to a larger-context model"
+              : "; shorten the system prompt or switch to a larger-context model"
+          : ""
         const pressure = input.contextTokens
-          ? ` The remaining context pressure sits outside the compactable history: system prompt ~${input.contextTokens.system} + tools ~${input.contextTokens.tools} tokens against a ${input.contextTokens.usable}-token usable limit; reduce the toolset or switch to a larger-context model.`
+          ? ` The remaining context pressure sits outside the compactable history: system prompt ~${input.contextTokens.system} + tools ~${input.contextTokens.tools}${summaryTokens ? ` + previous summary ~${summaryTokens}` : ""} tokens against a ${input.contextTokens.usable}-token usable limit${dominance}.`
           : ""
         const pending = input.overflow
           ? " The pending user message that triggered the overflow stays in the context; reduce or split it and try again."
@@ -931,6 +1127,8 @@ export const layer: Layer.Layer<
           history_tokens: historyTokens,
           tail_budget: tailBudget,
           cleared: cleared.length,
+          summary_tokens: summaryTokens,
+          full_account: fullAccount,
         })
         return yield* failSummary(`Nothing to compact: ${reason[selected.noop ?? "fits-budget"]}.${pending}${pressure}`)
       }
@@ -1118,6 +1316,19 @@ export const layer: Layer.Layer<
             )
           })
         : first
+      // 提纯体积闭环:收紧重试的产物同样复查 —— 仍超预算则接受落盘(渐进降密度,下轮
+      // 触发的纯提纯出口保证继续收敛)并告警,不再静默放过。
+      if (
+        attempt !== first &&
+        !!attempt.summary &&
+        Token.estimate(attempt.summary) > Math.ceil(target.summaryBudget * SUMMARY_OVER_BUDGET)
+      )
+        log.warn("compaction summary still over budget after retry, accepted for progressive refinement", {
+          sessionID: input.sessionID,
+          modelID: model.id,
+          summary_tokens: Token.estimate(attempt.summary!),
+          summary_budget: target.summaryBudget,
+        })
       const msg = attempt.msg
       const processor = attempt.processor
       const result = attempt.result

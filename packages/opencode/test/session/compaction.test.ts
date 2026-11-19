@@ -1808,6 +1808,268 @@ describe("session.compaction.process", () => {
     })
   })
 
+  test("recalculates a fits-budget no-op as noise and continues when the full account fits", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const ask = await user(session.id, "hello")
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true })
+
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: parent!,
+                messages: msgs,
+                sessionID: session.id,
+                auto: true,
+                // 全账(fixed 22k + history ~0 + margin)低于 usable:触发信号按估算/cache
+                // 口径失真处理,写中性通知并继续,不再以 "Nothing to compact" 终止会话
+                contextTokens: { system: 10_000, tools: 12_000, usable: 25_500 },
+              }),
+            ),
+          )
+
+          expect(result).toBe("continue")
+          const all = await svc.messages({ sessionID: session.id })
+          const part = all
+            .find((item) => item.info.id === parent)
+            ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
+          // 不设锚点:历史原样保留,中性通知不进锚定链
+          expect(part?.tail_start_id).toBeUndefined()
+          expect(all.find((item) => item.info.role === "assistant" && item.info.summary)).toBeUndefined()
+          const notice = all.find(
+            (item) =>
+              item.info.role === "assistant" &&
+              item.parts.some((p) => p.type === "text" && p.text.includes("No compaction was needed")),
+          )
+          if (notice?.info.role === "assistant") {
+            expect(notice.info.finish).toBe("stop")
+            expect(notice.info.summary).toBeUndefined()
+            expect(notice.info.error).toBeUndefined()
+          }
+          // 自动续跑消息带 compaction_noop 标记,prompt 侧据此跳过重复压缩触发
+          expect(
+            all.at(-1)?.parts.some(
+              (p) =>
+                p.type === "text" &&
+                p.metadata?.["compaction_noop"] === true &&
+                p.metadata?.["compaction_continue"] === true,
+            ),
+          ).toBe(true)
+          const filtered = MessageV2.filterCompacted(MessageV2.stream(session.id))
+          expect(filtered.map((m) => m.info.id)).toContain(ask.id)
+          expect(filtered.map((m) => m.info.id)).toContain(notice!.info.id)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("re-condenses an oversized previous summary through the refinement exit", async () => {
+    const stub = llm()
+    let captured = ""
+    stub.push(
+      reply("refined summary", (input) => {
+        captured = JSON.stringify(input.messages)
+      }),
+    )
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const keep = await user(session.id, "keep this turn")
+        const keepReply = await assistant(session.id, keep.id, tmp.path)
+        // 前一轮压缩留下的巨型摘要(~80k tokens,远超 summaryBudget)与指向 keep 的锚点
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+        const marker = (await svc.messages({ sessionID: session.id })).at(-1)
+        const markerPart = marker?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
+        await svc.updatePart({ ...markerPart!, tail_start_id: keep.id })
+        const oldSummary = await summaryAssistant(
+          session.id,
+          marker!.info.id,
+          tmp.path,
+          `huge summary ${"s".repeat(320_000)}`,
+        )
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true })
+
+        const rt = liveRuntime(stub.layer, wide())
+        try {
+          const msgs = MessageV2.filterCompacted(MessageV2.stream(session.id))
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: parent!,
+                messages: msgs,
+                sessionID: session.id,
+                auto: true,
+                // 摘要 80k 主导全账压力:fullAccount ~88k ≥ usable,提纯后 ~3k 放得下
+                contextTokens: { system: 1_000, tools: 1_000, usable: 30_000 },
+              }),
+            ),
+          )
+
+          expect(result).toBe("continue")
+          // 提纯提示词:锚定改写(无新对话段),前次摘要原文进 <previous-summary>
+          expect(captured).toContain("Rewrite the anchored summary below denser")
+          expect(captured).toContain("<previous-summary>")
+          expect(captured).toContain("huge summary")
+          const all = await svc.messages({ sessionID: session.id })
+          const part = all
+            .find((item) => item.info.id === parent)
+            ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
+          // 原地重写:不动锚点(标记保持惰性),不新建消息
+          expect(part?.tail_start_id).toBeUndefined()
+          const storedOld = all.find((item) => item.info.id === oldSummary.id)
+          const oldText = storedOld?.parts.find((item): item is MessageV2.TextPart => item.type === "text")
+          expect(oldText?.text).toContain("refined summary")
+          expect(oldText?.text).not.toContain("s".repeat(50))
+          // 旧摘要消息保留在上下文中(文本已提纯),保尾全量保留
+          const filtered = MessageV2.filterCompacted(MessageV2.stream(session.id))
+          expect(filtered.map((m) => m.info.id)).toContain(oldSummary.id)
+          expect(filtered.map((m) => m.info.id)).toContain(keep.id)
+          expect(filtered.map((m) => m.info.id)).toContain(keepReply.id)
+          const rendered = JSON.stringify(
+            await MessageV2.toModelMessages(filtered, createModel({ context: 100_000, output: 32_000 })),
+          )
+          expect(rendered).toContain("refined summary")
+          expect(rendered).not.toContain("s".repeat(50))
+          // 提纯成功后照常自动续跑
+          expect(
+            all.at(-1)?.parts.some(
+              (p) => p.type === "text" && p.metadata?.["compaction_continue"] === true,
+            ),
+          ).toBe(true)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("stops honestly after refinement when the re-condensed summary still cannot fit", async () => {
+    const stub = llm()
+    stub.push(reply("refined summary"))
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const keep = await user(session.id, "keep this turn")
+        await assistant(session.id, keep.id, tmp.path)
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+        const marker = (await svc.messages({ sessionID: session.id })).at(-1)
+        const markerPart = marker?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
+        await svc.updatePart({ ...markerPart!, tail_start_id: keep.id })
+        await summaryAssistant(session.id, marker!.info.id, tmp.path, `huge summary ${"s".repeat(320_000)}`)
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true })
+
+        const rt = liveRuntime(stub.layer, wide())
+        try {
+          const msgs = MessageV2.filterCompacted(MessageV2.stream(session.id))
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: parent!,
+                messages: msgs,
+                sessionID: session.id,
+                auto: true,
+                // usable 2.3k:即使提纯到 ~150 tokens,固定成本 2k + margin 也放不下
+                contextTokens: { system: 1_000, tools: 1_000, usable: 2_300 },
+              }),
+            ),
+          )
+
+          // 提纯产物原地保留在旧摘要消息(渐进收敛,下轮继续压),但当轮诚实拒绝且话术点名摘要
+          expect(result).toBe("stop")
+          const all = await svc.messages({ sessionID: session.id })
+          const fail = all.findLast((item) => item.info.role === "assistant" && item.info.summary && item.info.error)
+          if (fail?.info.role === "assistant") {
+            expect(JSON.stringify(fail.info.error)).toContain("re-condensed previous summary")
+            expect(JSON.stringify(fail.info.error)).toContain("2300-token usable limit")
+          }
+          expect(
+            all.some(
+              (item) =>
+                item.info.role === "assistant" &&
+                item.info.summary &&
+                !item.info.error &&
+                item.parts.some((p) => p.type === "text" && p.text.includes("refined summary")),
+            ),
+          ).toBe(true)
+          const part = all
+            .find((item) => item.info.id === parent)
+            ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
+          expect(part?.tail_start_id).toBeUndefined()
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("stops burning refinement requests after two consecutive over-budget refinements", async () => {
+    const stub = llm()
+    // 每轮提纯:首次 ~20k tokens 超预算 → 收紧重试仍 ~20k → 接受落盘但计数累加
+    for (let i = 0; i < 4; i++) stub.push(reply("z".repeat(40_000)))
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const keep = await user(session.id, "keep this turn")
+        await assistant(session.id, keep.id, tmp.path)
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+        const marker = (await svc.messages({ sessionID: session.id })).at(-1)
+        const markerPart = marker?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
+        await svc.updatePart({ ...markerPart!, tail_start_id: keep.id })
+        await summaryAssistant(session.id, marker!.info.id, tmp.path, `huge summary ${"s".repeat(320_000)}`)
+
+        const rt = liveRuntime(stub.layer, wide())
+        try {
+          const run = async () => {
+            await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true })
+            const msgs = MessageV2.filterCompacted(MessageV2.stream(session.id))
+            return rt.runPromise(
+              SessionCompaction.Service.use((svc) =>
+                svc.process({
+                  parentID: msgs.at(-1)!.info.id,
+                  messages: msgs,
+                  sessionID: session.id,
+                  auto: true,
+                  contextTokens: { system: 1_000, tools: 1_000, usable: 2_300 },
+                }),
+              ),
+            )
+          }
+          expect(await run()).toBe("stop")
+          expect(await run()).toBe("stop")
+          // 第三轮:连续两次未压回预算 → 不再发起摘要请求,直接诚实拒绝并点名摘要主导
+          expect(await run()).toBe("stop")
+          const fail = (await svc.messages({ sessionID: session.id })).findLast(
+            (item) => item.info.role === "assistant" && item.info.summary && item.info.error,
+          )
+          if (fail?.info.role === "assistant") {
+            const error = JSON.stringify(fail.info.error)
+            expect(error).toContain("previous summary dominates")
+            expect(error).not.toContain("re-condensed previous summary")
+          }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
   test("clips an oversized pending message on overflow replay to the replay budget", async () => {
     const stub = llm()
     stub.push(reply("summary"))
@@ -3329,7 +3591,8 @@ describe("session.compaction.summary sizing", () => {
                 messages: msgs,
                 sessionID: session.id,
                 auto: false,
-                contextTokens: { system: 10_000, tools: 12_000, usable: 25_500 },
+                // 全账(fixed 22k + margin)≥ usable:真压力,保留诚实拒绝并点名来源
+                contextTokens: { system: 10_000, tools: 12_000, usable: 23_500 },
               }),
             ),
           )
@@ -3342,7 +3605,8 @@ describe("session.compaction.summary sizing", () => {
             const error = JSON.stringify(summary.info.error)
             expect(error).toContain("system prompt ~10000")
             expect(error).toContain("tools ~12000")
-            expect(error).toContain("25500-token usable limit")
+            expect(error).toContain("23500-token usable limit")
+            expect(error).toContain("reduce the toolset")
           }
         } finally {
           await rt.dispose()
