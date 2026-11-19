@@ -192,13 +192,12 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
     : "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
   const iconSize = () => props.tab.fromAttachment ? 16 : 14
   const disabled = () => review?.disabled() || (props.loadState === "loading" ? "HTML 内容加载中" : props.loadState === "error" ? "请先重新加载 HTML" : "")
-  const editLabel = () => review?.state.editing ? "退出修改" : "局部修改"
   createEffect(() => { review?.key(); props.tab.viewMode; setState("open", false) })
   return <Show when={props.tab.type === "html" && review}>
-    <Tooltip value={editLabel()} placement="top">
+    <Tooltip value="局部修改" placement="top">
       <button type="button" class={`${buttonClass()} insight-local-edit-toggle`} disabled={!!disabled() || review?.editDisabled()}
         aria-pressed={review?.state.editing} classList={{ "octo-viewport-btn-active": review?.state.editing }}
-        onClick={() => review?.toggleEdit()}><IconLocalModify size={iconSize()} /><span>{editLabel()}</span></button>
+        onClick={() => review?.toggleEdit()}><IconLocalModify size={iconSize()} /><span>局部修改</span></button>
     </Tooltip>
     <Tooltip value={disabled() || "标注"} placement="top">
       <button type="button" class={buttonClass()} disabled={!!disabled() || review?.state.busy}
