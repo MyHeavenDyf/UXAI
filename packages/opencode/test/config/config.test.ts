@@ -228,6 +228,87 @@ test("updates global config and omits empty shell key in json", async () => {
   }
 })
 
+test.each([
+  { extension: "json", update: true },
+  { extension: "jsonc", update: true },
+  { extension: "json", update: false },
+  { extension: "jsonc", update: false },
+])(
+  "loads and saves provider/plugin aliases without reviving deleted models ($extension, update=$update)",
+  async ({ extension, update }) => {
+    await using tmp = await tmpdir()
+    const file = path.join(tmp.path, `octo.${extension}`)
+    const text = JSON.stringify(
+      {
+        providers: {
+          custom: { models: { removed: { name: "Removed" }, kept: { name: "Kept" } } },
+          other: { name: "Other" },
+        },
+        plugins: ["example-plugin"],
+        model: "custom/kept",
+      },
+      null,
+      2,
+    )
+    await Filesystem.write(file, extension === "jsonc" ? `// keep alias migration comment\n${text}` : text)
+    const prev = { config: Global.Path.config, octoConfig: Global.Path.octoConfig }
+    Object.assign(Global.Path, { config: tmp.path, octoConfig: tmp.path })
+    await clear(true)
+    try {
+      await Effect.runPromise(
+        Config.Service.use((svc) =>
+          Effect.gen(function* () {
+            const loaded = yield* svc.getGlobal()
+            expect(loaded.provider?.custom.models?.removed).toBeDefined()
+            expect(loaded.plugin).toEqual(["example-plugin"])
+            expect("providers" in loaded || "plugins" in loaded).toBe(false)
+            if (update) yield* svc.updateGlobal({ model: "custom/kept" })
+            yield* svc.replaceGlobalProvider("custom", { models: { kept: { name: "Kept" } } })
+            const reloaded = yield* svc.getGlobal()
+            expect(Object.keys(reloaded.provider?.custom.models ?? {})).toEqual(["kept"])
+            expect(reloaded.provider?.other.name).toBe("Other")
+            expect(reloaded.plugin).toEqual(["example-plugin"])
+          }),
+        ).pipe(Effect.scoped, Effect.provide(layer)),
+      )
+      const written = await Filesystem.readText(file)
+      const parsed = ConfigParse.jsonc(written, file) as Record<string, unknown>
+      expect("providers" in parsed).toBe(false)
+      expect("plugins" in parsed).toBe(false)
+      if (extension === "jsonc") expect(written).toContain("// keep alias migration comment")
+    } finally {
+      Object.assign(Global.Path, prev)
+      await clear(true)
+    }
+  },
+)
+
+test("loads plural providers and plugins from project config with relative plugin paths", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Filesystem.write(path.join(dir, "example-plugin.js"), "export default {}")
+      await writeConfig(dir, {
+        $schema: "https://opencode.ai/config.json",
+        providers: { custom: { models: { "222": { name: "222" } } } },
+        plugins: ["./example-plugin.js"],
+      })
+    },
+  })
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.provider?.custom.models?.["222"].name).toBe("222")
+      expect(
+        config.plugin?.some(
+          (spec) => ConfigPlugin.pluginSpecifier(spec) === pathToFileURL(path.join(tmp.path, "example-plugin.js")).href,
+        ),
+      ).toBe(true)
+      expect("providers" in config || "plugins" in config).toBe(false)
+    },
+  })
+})
+
 test("updates global config and omits empty shell key in jsonc", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

@@ -117,6 +117,8 @@ export type AgentSidebarProps = {
   onNewSession?: () => boolean | void
   /** Called after scrolling reveals more recent sessions. */
   onLoadMore?: (limit: number) => void
+  /** Whether to report the start of a server pagination request. Defaults to true. */
+  trackLoadMoreRequest?: boolean
 
   // ── Groups (optional, for make/design) ──
   /** Available groups. When provided, the context menu shows a "移动到分组" submenu. */
@@ -254,7 +256,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   // (insight sidebar) collapsing the recent section unmounts SessionList but
   // keeps the scroll container alive, so scrollHeight <= clientHeight holds
   // and the "viewport not filled" heuristic would otherwise keep fetching
-  // pages (and firing load-more-sessions) until the cursor is exhausted.
+  // pages until the cursor is exhausted.
   const [collapsed, setCollapsed] = createSignal(false)
 
   const [draggingSessionId, setDraggingSessionId] = createSignal<string | null>(null)
@@ -289,7 +291,9 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (collapsed() || loadingMoreSessions() || sessionCursor() === undefined) return
     const d = resolvedDir()
     if (!d || !props.fetchSessionPage) return
-    tracker.interaction({ module: props.trackerModule ?? "session", name: "load-more-sessions" })
+    if (props.trackLoadMoreRequest !== false) {
+      tracker.interaction({ module: props.trackerModule ?? "session", name: "load-more-sessions" })
+    }
     setLoadingMoreSessions(true)
     try {
       let cursor = sessionCursor()

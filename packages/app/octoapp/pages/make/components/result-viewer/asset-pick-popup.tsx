@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, createEffect, on, onMount, type JSX } from "solid-js"
 import type { ManualEditTarget } from "../../edit-mode/source-patches"
-import { encodeSelectorToBase64Url } from "../../utils/asset-upload"
+import { buildDefaultAssetName } from "../../utils/asset-upload"
 
 const MASK_COLOR = "rgba(0,0,0,0.3)"
 
@@ -27,10 +27,11 @@ export function AssetPickPopup(props: {
   let parentRef: HTMLDivElement | undefined
 
   // 元素切换（含首次选中）：重置实时 rect 与名称默认值，并重启位置追踪。
-  // 默认名 = 页面名 + "-" + css selector 的 base64url
+  // 默认名 = buildDefaultAssetName：页面名 + "-" + css selector 的 base64url，
+  // 总长 ≤ 95（加 ".html" 后缀 ≤ 100，规格上限含后缀；超长保页面名、selector 从头部截段）
   createEffect(on(() => props.element.id, () => {
     setLiveRect(null)
-    setName(props.pageName + "-" + encodeSelectorToBase64Url(props.element.cssSelector))
+    setName(buildDefaultAssetName(props.pageName, props.element.cssSelector))
     props.iframeRef?.contentWindow?.postMessage({ type: "od:track-rect", elementId: props.element.id }, "*")
   }))
 
@@ -166,6 +167,7 @@ export function AssetPickPopup(props: {
           value={name()}
           onInput={(e) => setName(e.currentTarget.value)}
           placeholder="请输入局部名称"
+          maxLength={95}
           style={{
             width: "100%",
             "box-sizing": "border-box",

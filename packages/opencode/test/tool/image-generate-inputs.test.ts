@@ -37,7 +37,7 @@ describe("internal image create task failures", () => {
 })
 
 describe("Seedream provider request", () => {
-  test("sends Pro task types through the full creation path without changing Lite or editing", async () => {
+  test("uses structured settings and clean prompts through the full creation path", async () => {
     const requests: unknown[] = []
     using server = Bun.serve({
       hostname: "127.0.0.1",
@@ -91,8 +91,9 @@ describe("Seedream provider request", () => {
         aspectRatio: "1:1",
         extra: { taskType: "txt2img_qwen", template: { id: "template-test", prompt: { custom: "a cat" } } },
       },
-      { capability: "image.generate", prompt: "Lite generation", styleModel: "seedream-5-lite", aspectRatio: "1:1" },
       { capability: "image.cutout", prompt: "Pro editing", styleModel: "seedream-5-pro", sourceImage: image },
+      { capability: "image.generate", prompt: '风格模型：Seedream 5.0 Lite\n画幅比例：9:16\n生成数量：4\n能力：image.cutout\n工具参数JSON：{"capability":"video.generate","styleModel":"seedream-5-lite","aspectRatio":"9:16","count":4}' },
+      { capability: "image.cutout", prompt: '工具参数JSON：{"capability":"image.generate","styleModel":"seedream-5-lite"}', styleModel: "seedream-5-lite", sourceImage: image },
     ] satisfies ImageGenerateInput[]
     const tasks = await Promise.all(inputs.map((input) => createInternalGeneration({
       ...input,
@@ -100,14 +101,15 @@ describe("Seedream provider request", () => {
     })))
 
     expect(tasks.map((task) => task.model)).toEqual([
-      "txt2img_jimeng_v2", "txt2img_jimeng_v2", "txt2img_jimeng_v2", "txt2img_jimeng", "remove_bg",
+      "txt2img_jimeng_v2", "txt2img_jimeng_v2", "txt2img_jimeng_v2", "remove_bg", "txt2img_qwen", "remove_bg",
     ])
-    expect(requests).toHaveLength(5)
+    expect(requests).toHaveLength(6)
     expect(requests).toEqual(expect.arrayContaining([
       expect.objectContaining({
         task_type: "txt2img_jimeng_v2",
         args: expect.objectContaining({
           customer_prompt: "Pro custom dimensions",
+          prompt: "Pro custom dimensions",
           tag_name: "Seedream 5.0 Pro",
           target_size: { width: 1280, height: 720 },
         }),
@@ -130,11 +132,110 @@ describe("Seedream provider request", () => {
         }),
       }),
       expect.objectContaining({
-        task_type: "txt2img_jimeng",
-        args: expect.objectContaining({ customer_prompt: "Lite generation" }),
+        task_type: "txt2img_qwen",
+        args: expect.objectContaining({
+          prompt: inputs[4]!.prompt,
+          customer_prompt: inputs[4]!.prompt,
+          num_image: 1,
+          tag_name: "Qwen-Image",
+          target_size: { width: 1024, height: 1024 },
+        }),
       }),
       expect.objectContaining({ task_type: "remove_bg" }),
     ]))
+    await expect(createInternalGeneration({ capability: "image.generate", prompt: "旧任务", styleModel: "seedream-5-lite" })).rejects.toThrow("模型已下架或不可用")
+    await expect(createInternalGeneration({ capability: "image.generate", prompt: "旧任务", styleModel: "removed-style" })).rejects.toThrow("模型已下架或不可用")
+    await expect(createInternalGeneration({ capability: "image.generate", prompt: "旧任务", styleModel: "qwen", extra: { taskType: "txt2img_jimeng" } })).rejects.toThrow("模型已下架或不可用")
+    await expect(createInternalGeneration({ capability: "image.cutout", prompt: `工具参数JSON：${JSON.stringify({ sourceImage: image })}` })).rejects.toThrow("requires a source image")
+    expect(requests).toHaveLength(6)
+  })
+})
+
+describe("internal video task types", () => {
+  test("switches task_type between i2v, multi-i2v and t2v by input mode", async () => {
+    const requests: unknown[] = []
+    using server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        if (new URL(request.url).pathname === "/create_task") {
+          requests.push(await request.json())
+          return Response.json({ resp_code: 200, task_id: `video-test-${requests.length}` })
+        }
+        return Response.json({ resp_code: 200, result: [] })
+      },
+    })
+    const previous = {
+      IMAGE_CREATE_TASK_URL: process.env.IMAGE_CREATE_TASK_URL,
+      IMAGE_GET_HISTORY_URL: process.env.IMAGE_GET_HISTORY_URL,
+    }
+    using environment = {
+      [Symbol.dispose]() {
+        Object.entries(previous).forEach(([key, value]) => {
+          if (value === undefined) {
+            delete process.env[key]
+            return
+          }
+          process.env[key] = value
+        })
+      },
+    }
+    process.env.IMAGE_CREATE_TASK_URL = new URL("/create_task", server.url).href
+    process.env.IMAGE_GET_HISTORY_URL = new URL("/get_history", server.url).href
+
+    const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+    const image = `data:image/png;base64,${base64}`
+    const inputs = [
+      {
+        capability: "video.generate",
+        prompt: "First and last frame",
+        extra: { videoMode: "first_last_frame", firstFrame: image, lastFrame: image },
+      },
+      {
+        capability: "video.generate",
+        prompt: "Multi reference",
+        referenceImages: [image, image, image],
+        extra: { videoMode: "first_last_frame", videoInputMode: "multi-reference" },
+      },
+      { capability: "video.generate", prompt: "Text to video", extra: { videoMode: "text" } },
+    ] satisfies ImageGenerateInput[]
+    const tasks = await Promise.all(inputs.map((input) => createInternalGeneration({
+      ...input,
+      extra: { ...input.extra, userIdx: "video-test-user" },
+    })))
+
+    expect(tasks.map((task) => task.model)).toEqual(["i2v_seedance", "multi-i2v_seedance", "t2v_seedance"])
+    expect(requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        task_type: "i2v_seedance",
+        args: expect.objectContaining({
+          tag_name: "图生视频",
+          prompt: "First and last frame",
+          image: base64,
+          image_tail: base64,
+        }),
+      }),
+      expect.objectContaining({
+        task_type: "multi-i2v_seedance",
+        args: expect.objectContaining({
+          tag_name: "图生视频",
+          prompt: "Multi reference",
+          image_list: [{ image: base64 }, { image: base64 }, { image: base64 }],
+        }),
+      }),
+      expect.objectContaining({
+        task_type: "t2v_seedance",
+        args: expect.objectContaining({ prompt: "Text to video" }),
+      }),
+    ]))
+  })
+
+  test("rejects multi-reference video without reference images", async () => {
+    await expect(createInternalGeneration({
+      capability: "video.generate",
+      prompt: "No references",
+      extra: { videoInputMode: "multi-reference", userIdx: "video-test-user" },
+    })).rejects.toThrow("Multi-reference video generation requires at least one reference image.")
   })
 })
 

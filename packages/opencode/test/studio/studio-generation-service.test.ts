@@ -7,13 +7,84 @@ import { MessageID, PartID, SessionID } from "@/session/schema"
 import { StudioGenerationTable } from "@/studio/studio-generation.sql"
 import { StudioHistoryTable } from "@/studio/studio-history.sql"
 import { materializeStudioGeneration } from "@/studio/studio-history-service"
-import { getGeneration, promptExpansionMessageMetadata } from "../../src/studio/studio-service"
+import { createGeneration, getGeneration, promptExpansionMessageMetadata, rebootGeneration } from "../../src/studio/studio-service"
 import { provideTestInstance, tmpdir } from "../fixture/fixture"
+import { STUDIO_STYLE_MODEL_CONFIG } from "@opencode-ai/core/studio/model-availability"
 
 // 历史视频记录曾把 provider 的 "std"/"pro" 模式写进 videoQualityMode，
 // 它与响应 schema 的 480/720/1080/4k 不兼容，会让 GET /studio/generations/:id 整个 400，
 // 历史资产详情面板因此永远 loading。这里锁住读取时的归一化行为。
 describe("Studio generation service", () => {
+  test.each(["seedream-5-lite", "Seedream 5.0 Lite", "removed-style"])("rejects creating or rebooting unconfigured %s tasks without modifying history", async (styleModel) => {
+    await using directory = await tmpdir()
+    await provideTestInstance({
+      directory: directory.path,
+      fn: async () => {
+        const now = Date.now()
+        const sessionID = SessionID.descending()
+        const id = "gen-retired-lite"
+        Database.use((db) => {
+          db.insert(SessionTable).values({
+            id: sessionID,
+            project_id: Instance.project.id,
+            slug: sessionID,
+            directory: Instance.directory,
+            title: "Retired Studio model",
+            version: "test",
+            agent: "octo_studio",
+            time_created: now,
+            time_updated: now,
+          }).run()
+          db.insert(StudioGenerationTable).values({
+            id,
+            session_id: sessionID,
+            directory: Instance.directory,
+            assistant_message_id: MessageID.ascending(),
+            tool_part_id: PartID.ascending(),
+            provider: "internel",
+            provider_task_id: "retired-provider-task",
+            capability: "image.generate",
+            status: "failed",
+            progress: 0,
+            request: { input: { capability: "image.generate", prompt: "旧任务", styleModel } },
+            next_poll_at: Number.MAX_SAFE_INTEGER,
+            time_created: now,
+            time_updated: now,
+          }).run()
+        })
+        const before = Database.use((db) => db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, id)).get())
+        await expect(createGeneration({ sessionID, capability: "image.generate", prompt: "旧任务", styleModel }))
+          .rejects.toThrow("模型已下架或不可用")
+        await expect(rebootGeneration(id)).rejects.toThrow("模型已下架或不可用")
+        expect(Database.use((db) => db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, id)).get())).toEqual(before)
+        expect(Database.use((db) => db.select().from(StudioGenerationTable).all())).toHaveLength(1)
+        expect((await getGeneration(id)).styleModel).toBe(styleModel)
+        const legacyRequest = {
+          input: { capability: "image.generate", prompt: "旧任务，无 styleModel 字段" },
+          task: { model: "txt2img_jimeng", request: { task_type: "txt2img_jimeng", args: { tag_name: "Seedream 5.0 Lite" } } },
+        }
+        Database.use((db) => db.update(StudioGenerationTable).set({ request: legacyRequest }).where(eq(StudioGenerationTable.id, id)).run())
+        await expect(rebootGeneration(id)).rejects.toThrow("模型已下架或不可用")
+        expect(Database.use((db) => db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, id)).get())).toMatchObject({
+          status: "failed", provider_task_id: "retired-provider-task", request: legacyRequest,
+        })
+        Database.use((db) => db.update(StudioGenerationTable).set({ request: { input: { capability: "image.generate", prompt: "风格模型：Seedream 5.0 Lite" } } }).where(eq(StudioGenerationTable.id, id)).run())
+        await expect(rebootGeneration(id)).rejects.toThrow("无法确认该历史任务使用的模型")
+        const index = 0
+        const model = STUDIO_STYLE_MODEL_CONFIG[index]!
+        STUDIO_STYLE_MODEL_CONFIG.splice(index, 1)
+        try {
+          await expect(createGeneration({ sessionID, capability: "image.generate", prompt: "旧任务", styleModel: model.id })).rejects.toThrow("模型已下架或不可用")
+          Database.use((db) => db.update(StudioGenerationTable).set({ request: { input: { capability: "image.generate", prompt: "旧任务", styleModel: model.id } } }).where(eq(StudioGenerationTable.id, id)).run())
+          await expect(rebootGeneration(id)).rejects.toThrow("模型已下架或不可用")
+        } finally {
+          STUDIO_STYLE_MODEL_CONFIG.splice(index, 0, model)
+        }
+        Database.use((db) => db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run())
+      },
+    })
+  })
+
   test("normalizes legacy videoQualityMode when reading a generation", async () => {
     await using directory = await tmpdir()
     await provideTestInstance({

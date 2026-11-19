@@ -1,5 +1,5 @@
 import type { StudioStyleTemplateListItem } from "./studio-style-template-menu"
-import { isSeedreamStyleModel, styleModelId } from "./data"
+import { isSeedreamStyleModel, isStyleModelAvailable, styleModelId } from "./data"
 
 export type StudioStyleDimensionId =
   | "tonal"
@@ -103,10 +103,11 @@ export function splitStyleTemplatePlayDescription(text: string) {
 }
 
 export function styleTemplateTargetModel(canUseSeedream: boolean, currentStyleModel?: string) {
+  if (currentStyleModel && !isStyleModelAvailable(currentStyleModel)) return
   const current = styleModelId(currentStyleModel)
   if (current && isSeedreamStyleModel(current)) return canUseSeedream ? current : "qwen"
   if (current === "qwen") return current
-  return canUseSeedream ? "seedream-5-lite" : "qwen"
+  return canUseSeedream ? "seedream-5-pro" : "qwen"
 }
 
 export function styleTemplateFinalPrompt(template: StudioStyleTemplateListItem, input: { custom: string; extraPrompt: string; mainPrompt: string }) {

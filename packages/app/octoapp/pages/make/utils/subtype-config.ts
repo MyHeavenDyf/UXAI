@@ -13,6 +13,8 @@ export type SubtypeCapabilities = {
     archive: FeatureFlag
     history: FeatureFlag
     download: FeatureFlag
+    /** 下载按钮形态："default" = 保存到资产库新下拉（缺省）；"legacy" = 原下载按钮（自定义下载 subtype 显式声明） */
+    downloadUI?: "default" | "legacy"
     fullscreen: FeatureFlag
     assessment: FeatureFlag
     /** 3D 场景编辑（scene3d 产物专用；index.3d.html 是 FIXED 容器，编辑器内置在 iframe 内） */
@@ -91,6 +93,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: false,
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: false,
     }
@@ -109,6 +112,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },
@@ -130,6 +134,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },
@@ -154,6 +159,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },
@@ -203,6 +209,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },
@@ -225,6 +232,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       archive: { enabled: true, editOnly: true },
       history: { enabled: true, editOnly: true },
       download: true,
+      downloadUI: "legacy",
       fullscreen: true,
       assessment: { enabled: true, editOnly: true },
     },

@@ -70,6 +70,13 @@ export function mcpFacts(provider: string, tool: string, result: unknown) {
 
 export type MCPFacts = ReturnType<typeof mcpFacts>
 
+export function fileDetails(value: string) {
+  if (!value || /^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return {}
+  const fileName = path.posix.basename(value.replaceAll("\\", "/"))
+  if (!fileName || fileName === "." || fileName === "..") return {}
+  return { fileName, extension: path.posix.extname(fileName).slice(1).toLowerCase() }
+}
+
 export function fileFact(
   tool: string,
   input: Record<string, unknown>,
@@ -84,6 +91,7 @@ export function fileFact(
   return {
     identity: implementation === path.win32 ? resolved.replaceAll("\\", "/").toLowerCase() : resolved,
     type: resolveOutputType(file),
+    fileName: fileDetails(file).fileName ?? "",
     name: tool === "write" ? "artifact-file-write" : "artifact-file-edit",
   }
 }

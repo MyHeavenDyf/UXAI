@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import JSZip from "jszip"
-import { encodeSelectorToBase64Url, isAssetLibraryLoggedIn, sanitizeAssetFileName, zipBlobToBase64 } from "./asset-upload"
+import { buildDefaultAssetName, encodeSelectorToBase64Url, isAssetLibraryLoggedIn, sanitizeAssetFileName, zipBlobToBase64 } from "./asset-upload"
 import { createPartialAssetsZip, extractHeadStyles } from "./html-assets-zip"
 
 describe("encodeSelectorToBase64Url", () => {
@@ -28,6 +28,36 @@ describe("encodeSelectorToBase64Url", () => {
       Uint8Array.from(atob(encoded.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)),
     )
     expect(decoded).toBe(selector)
+  })
+})
+
+describe("buildDefaultAssetName（Input 默认名，≤95——加 .html 后缀 ≤100）", () => {
+  const decodeB64Url = (s: string) =>
+    new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)))
+
+  test("短名不截断", () => {
+    expect(buildDefaultAssetName("p", "#a > span")).toBe(`p-${encodeSelectorToBase64Url("#a > span")}`)
+  })
+
+  test("超长 selector：保页面名，丢头部段保留元素尾段", () => {
+    const selector = `${"div." + "a".repeat(60)} > span.card`
+    const result = buildDefaultAssetName("p", selector)
+    expect(result.length).toBeLessThanOrEqual(95)
+    expect(result.startsWith("p-")).toBe(true)
+    // 编码部分解码后 = 丢弃头部段后的尾段（元素身份保留）
+    expect(decodeB64Url(result.slice(2))).toBe("span.card")
+  })
+
+  test("页面名自身超 95：截页面名，无 selector 部分", () => {
+    expect(buildDefaultAssetName("x".repeat(120), "#a > b")).toBe("x".repeat(95))
+  })
+
+  test("页面名 94：预算不足，只返回页面名", () => {
+    expect(buildDefaultAssetName("y".repeat(94), "#a")).toBe("y".repeat(94))
+  })
+
+  test("空 selector：只返回页面名", () => {
+    expect(buildDefaultAssetName("p", "")).toBe("p")
   })
 })
 
