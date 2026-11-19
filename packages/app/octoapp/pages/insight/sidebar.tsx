@@ -112,6 +112,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         sectionTitle="最近"
         newButtonText="新建对话"
         trackerModule="insight"
+        trackLoadMoreRequest={false}
         onLoadMore={(limit) => tracker.interaction({
           module: "insight",
           name: "session-load-more",
