@@ -66,6 +66,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { parseSharedSessionLink } from "./shared-session"
 import * as FastuiDevServer from "./fastui-devserver"
 import * as FastuiExport from "./fastui-export"
+import * as SkillRefresh from "./skill-refresh"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
@@ -426,6 +427,7 @@ async function initialize(storage: DesktopStorage) {
     // 自己算 `<octoConfig>/skill/` 会和 server 实际扫描目录对不上。重启成功后由
     // restartSidecar 重新设置。
     FastuiExport.setServerInfo({ url, username: "opencode", password })
+    SkillRefresh.setSkillRefreshServerInfo({ url, username: "opencode", password })
     serverReady.resolve({
       url,
       username: "opencode",
@@ -586,6 +588,7 @@ function handleSidecarExit(code: number) {
   logger.warn("sidecar exited", { code })
   // server 没了就别再问它要 skill 位置 —— 留着会让每次导出白等一个查询超时
   FastuiExport.setServerInfo(null)
+  SkillRefresh.setSkillRefreshServerInfo(null)
   // uptime 窗口已中断,旧 reset timer 不取消的话会在 crash 序列中途清零计数,
   // 耗尽保护被 ~45s 周期的 crash loop 无限绕过(E2E 实测踩过)
   cancelSidecarUptimeReset()
@@ -627,6 +630,11 @@ async function restartSidecar() {
     }
     server = listener
     FastuiExport.setServerInfo({
+      url: `http://${cfg.hostname}:${cfg.port}`,
+      username: "opencode",
+      password: cfg.password,
+    })
+    SkillRefresh.setSkillRefreshServerInfo({
       url: `http://${cfg.hostname}:${cfg.port}`,
       username: "opencode",
       password: cfg.password,
