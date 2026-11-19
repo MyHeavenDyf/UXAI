@@ -102,17 +102,11 @@ export function useTabModel(tab: TabName) {
     ),
   )
 
-  // Patch local.model.set to detect user-initiated selections
-  // and prevent automatic restoration from re-enabling hidden models.
-  // Only re-hide on restoration (no `recent` flag); user-initiated
-  // selections (recent=true, e.g. dropdown pick) must stay visible.
+  // Only explicit user selections should update the tab preference.
+  // Restoring a session can also update recents, so `recent` is not a user-action flag.
   const origSet = local.model.set.bind(local.model)
   local.model.set = (item, options) => {
-    if (options?.recent) userInitiated = true
-    if (!item) return origSet(item, options)
-    const wasVisible = local.model.visible(item)
-    const result = origSet(item, options)
-    if (!wasVisible && !options?.recent) local.model.setVisibility(item, false)
-    return result
+    if (options?.enable) userInitiated = true
+    return origSet(item, options)
   }
 }
