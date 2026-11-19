@@ -1255,7 +1255,7 @@ function InsightContent() {
     return new File([bytes], file.name, { type: content.mimeType || mime })
   }
 
-  /** @引用/设计文件 mention chip 的超限图片自动压缩(对齐 design 页 2026-11 修复):
+  /** @引用 mention chip 的超限图片自动压缩(对齐 design 页 2026-11 修复):
    *  chip 发送时进 [引用文件]/读取<path>,模型 read 后产出 >1MB 视觉附件,与附件入口受同一硬限制必失败。
    *  选中即读盘压缩,产物经 importFileToWorktree 落 .octo/tmps(撞名自动加后缀,不动原图),
    *  再回写 chip 路径;读不到/压不动保留原路径并 toast。 */
@@ -2722,11 +2722,10 @@ function InsightContent() {
         directory={projectDir()} sessionId={params.id} productId={projectSelection()?.product?.id}
         editor={() => pmRefWelcome?.isAlive() ? pmRefWelcome : pmRefConv?.isAlive() ? pmRefConv : undefined}
         skills={insightSkills()} skillsLoading={skillsLoading()} loadSkills={loadInsightSkills}
-        files={mentionFilesMirror.value ?? null} filesLoading={mentionFiles.loading} selections={mentionSelections()}
+        selections={mentionSelections()}
         maxAttachments={maxAttachments()} onAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
         onPending={pending => setAddonState("pending", pending)}
         mcpSelection={mcpSelection()} onMcpSelect={handleMcpSelect} onMcpClear={handleMcpClear}
-        onFileMentionInsert={(sel) => void compressInsightMentionImageIfNeeded(sel)}
       />
     }</Show>
   )
