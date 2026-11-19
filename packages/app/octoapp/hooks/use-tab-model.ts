@@ -40,7 +40,7 @@ export function useTabModel(tab: TabName) {
   const sdk = useSDK()
   const params = useParams<{ id?: string }>()
 
-  let userInitiated = false
+  let syncTabSelection = false
   let prevParamsId: string | undefined = undefined
 
   createEffect(
@@ -81,13 +81,13 @@ export function useTabModel(tab: TabName) {
     ),
   )
 
-  // Persist user-initiated model selections to tab key.
+  // Persist explicit selections and restored session models for the next draft.
   createEffect(
     on(
       () => local.model.current(),
       (model) => {
-        if (!userInitiated) return
-        userInitiated = false
+        if (!syncTabSelection) return
+        syncTabSelection = false
         const dir = sdk.directory
         if (!dir) return
         if (model) {
@@ -102,11 +102,11 @@ export function useTabModel(tab: TabName) {
     ),
   )
 
-  // Only explicit user selections should update the tab preference.
-  // Restoring a session can also update recents, so `recent` is not a user-action flag.
+  // Session restoration updates tab inheritance via `recent`, but only `enable`
+  // allows the model setter to change the global visibility preference.
   const origSet = local.model.set.bind(local.model)
   local.model.set = (item, options) => {
-    if (options?.enable) userInitiated = true
+    if (options?.recent || options?.enable) syncTabSelection = true
     return origSet(item, options)
   }
 }
