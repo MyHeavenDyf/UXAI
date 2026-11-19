@@ -1268,15 +1268,6 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
-  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
-    try {
-      mkdirSync(dirname(skillConfigPath), { recursive: true })
-      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
-    } catch (err) {
-      console.error("set-skill-config failed", err)
-      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  })
 
   ipcMain.handle("get-assets-config", () => {
     try {
@@ -1298,6 +1289,16 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+    } catch (err) {
+      console.error("set-skill-config failed", err)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
   ipcMain.handle("set-Design-System-Skill-Config", async (_event: IpcMainInvokeEvent, skillName: string) => {
   })
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
