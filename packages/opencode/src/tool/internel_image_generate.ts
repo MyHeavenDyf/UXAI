@@ -1496,17 +1496,19 @@ async function buildVideoRequestBody(input: ImageGenerateInput, context: Interna
   }
   if (getVideoInputMode(input) === "multi-reference") {
     const images = await getVideoReferenceImages(input)
-    if (images.length === 0) throw new Error("Multi-reference video generation requires at least one reference image.")
-    return {
-      user: { idx: context.userIdx },
-      task_type: "multi-i2v_seedance",
-      args: {
-        tag_name: "图生视频",
-        ...baseArgs,
-        image_list: images.map((item) => ({ image: dataUrlToBase64(item) })),
-      },
+    if (images.length > 0) {
+      return {
+        user: { idx: context.userIdx },
+        task_type: "multi-i2v_seedance",
+        args: {
+          tag_name: "图生视频",
+          ...baseArgs,
+          image_list: images.map((item) => ({ image: dataUrlToBase64(item) })),
+        },
+      }
     }
   }
+  // 多图参考无图时回退为文生视频
   const frames = await getVideoFrames(input)
   if (extraString(input, "videoMode") === "first_last_frame" && !frames.firstFrame) {
     throw new Error("Image-to-video generation requires a first frame.")

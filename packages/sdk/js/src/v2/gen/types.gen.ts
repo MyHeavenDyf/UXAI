@@ -1258,6 +1258,8 @@ export type Config = {
   compaction?: {
     auto?: boolean
     prune?: boolean
+    tail_turns?: number
+    preserve_recent_tokens?: number
     reserved?: number
   }
   experimental?: {
@@ -9336,6 +9338,8 @@ export type StudioGenerationsCreateResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -9464,6 +9468,8 @@ export type StudioGenerationsCancelResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -9555,6 +9561,8 @@ export type StudioGenerationsRebootResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -9634,6 +9642,8 @@ export type StudioGenerationsGetResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -9725,6 +9735,8 @@ export type StudioGenerationsRefreshResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"

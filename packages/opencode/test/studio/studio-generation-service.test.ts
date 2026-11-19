@@ -8,6 +8,7 @@ import { StudioGenerationTable } from "@/studio/studio-generation.sql"
 import { StudioHistoryTable } from "@/studio/studio-history.sql"
 import { materializeStudioGeneration } from "@/studio/studio-history-service"
 import { createGeneration, getGeneration, promptExpansionMessageMetadata, rebootGeneration } from "../../src/studio/studio-service"
+import { studioFallbackDetailPrompt } from "../../src/studio/studio-history-service"
 import { provideTestInstance, tmpdir } from "../fixture/fixture"
 import { STUDIO_STYLE_MODEL_CONFIG } from "@opencode-ai/core/studio/model-availability"
 
@@ -380,6 +381,358 @@ describe("Studio generation service", () => {
           }
         },
       })
+    })
+  })
+
+  // 自定义尺寸生成不携带 aspectRatio（result 落库时回退 3:4），会话视图从工具入参的
+  // extra.width/height 推导 isCustom 与像素尺寸。生成详情接口必须同口径补齐，否则
+  // 「我的资产」详情的比例显示成 3:4、分辨率显示成 3:4 默认档，与会话详情不一致。
+  describe("custom size fields on generation results", () => {
+    async function insertCustomGeneration(id: string, resultExtra: Record<string, unknown>) {
+      const now = Date.now()
+      const sessionID = SessionID.descending()
+      Database.use((db) =>
+        db
+          .insert(SessionTable)
+          .values({
+            id: sessionID,
+            project_id: Instance.project.id,
+            slug: sessionID,
+            directory: Instance.directory,
+            title: "Studio generation custom size test",
+            version: "test",
+            agent: "octo_studio",
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+      Database.use((db) =>
+        db
+          .insert(StudioGenerationTable)
+          .values({
+            id,
+            session_id: sessionID,
+            directory: Instance.directory,
+            assistant_message_id: MessageID.ascending(),
+            tool_part_id: PartID.ascending(),
+            provider: "internel",
+            capability: "image.generate",
+            status: "succeeded",
+            progress: 100,
+            request: {
+              input: {
+                capability: "image.generate",
+                prompt: "一只猫在奔跑",
+                styleModel: "seedream-5-lite",
+                count: 1,
+                imageTool: "internel",
+                referenceImages: [],
+                // 自定义尺寸：客户端把尺寸写进 extra，不传 aspectRatio。
+                extra: { width: 2048, height: 1152 },
+              },
+            },
+            result: {
+              id,
+              status: "succeeded",
+              capability: "image.generate",
+              prompt: "一只猫在奔跑",
+              provider: "internel",
+              model: "internel_raw_model",
+              // 完成时落库的 aspectRatio 是默认档；provider 不返回媒体像素尺寸。
+              aspectRatio: "3:4",
+              images: [{ id: `${id}-0`, kind: "image", url: "https://example.com/image.png" }],
+              ...resultExtra,
+            },
+            next_poll_at: Number.MAX_SAFE_INTEGER,
+            completed_at: now,
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+      return sessionID
+    }
+
+    test("derives isCustom and pixel size from request input for legacy results", async () => {
+      await using directory = await tmpdir()
+      await provideTestInstance({
+        directory: directory.path,
+        fn: async () => {
+          // 旧数据：result 列没有 isCustom/width/height。
+          const sessionID = await insertCustomGeneration("gen-custom-legacy", {})
+          try {
+            const result = await getGeneration("gen-custom-legacy")
+            expect(result.isCustom).toBe(true)
+            expect(result.width).toBe(2048)
+            expect(result.height).toBe(1152)
+            expect(result.aspectRatio).toBe("3:4")
+          } finally {
+            Database.use((db) => {
+              db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-custom-legacy")).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
+            })
+          }
+        },
+      })
+    })
+
+    test("keeps custom fields from persisted results and omits them for standard sizes", async () => {
+      await using directory = await tmpdir()
+      await provideTestInstance({
+        directory: directory.path,
+        fn: async () => {
+          // 新数据：result 列带 isCustom/width/height（buildGenerationResult 持久化）。
+          const customSessionID = await insertCustomGeneration("gen-custom-persisted", { isCustom: true, width: 2048, height: 1152 })
+          try {
+            const persisted = await getGeneration("gen-custom-persisted")
+            expect(persisted.isCustom).toBe(true)
+            expect(persisted.width).toBe(2048)
+            expect(persisted.height).toBe(1152)
+
+            // 标准比例生成：无自定义尺寸字段，比例照常展示 aspectRatio。
+            const now = Date.now()
+            const sessionID = SessionID.descending()
+            Database.use((db) =>
+              db
+                .insert(SessionTable)
+                .values({
+                  id: sessionID,
+                  project_id: Instance.project.id,
+                  slug: sessionID,
+                  directory: Instance.directory,
+                  title: "Studio generation standard size test",
+                  version: "test",
+                  agent: "octo_studio",
+                  time_created: now,
+                  time_updated: now,
+                })
+                .run(),
+            )
+            try {
+              Database.use((db) =>
+                db
+                  .insert(StudioGenerationTable)
+                  .values({
+                    id: "gen-standard-ratio",
+                    session_id: sessionID,
+                    directory: Instance.directory,
+                    assistant_message_id: MessageID.ascending(),
+                    tool_part_id: PartID.ascending(),
+                    provider: "internel",
+                    capability: "image.generate",
+                    status: "succeeded",
+                    progress: 100,
+                    request: {
+                      input: {
+                        capability: "image.generate",
+                        prompt: "一只猫在奔跑",
+                        styleModel: "seedream-5-lite",
+                        aspectRatio: "16:9",
+                        count: 1,
+                        imageTool: "internel",
+                        referenceImages: [],
+                      },
+                    },
+                    result: {
+                      id: "gen-standard-ratio",
+                      status: "succeeded",
+                      capability: "image.generate",
+                      prompt: "一只猫在奔跑",
+                      provider: "internel",
+                      model: "internel_raw_model",
+                      aspectRatio: "16:9",
+                      images: [{ id: "gen-standard-ratio-0", kind: "image", url: "https://example.com/image.png" }],
+                    },
+                    next_poll_at: Number.MAX_SAFE_INTEGER,
+                    completed_at: now,
+                    time_created: now,
+                    time_updated: now,
+                  })
+                  .run(),
+              )
+              const standard = await getGeneration("gen-standard-ratio")
+              expect(standard.isCustom).toBeUndefined()
+              expect(standard.width).toBeUndefined()
+              expect(standard.height).toBeUndefined()
+              expect(standard.aspectRatio).toBe("16:9")
+            } finally {
+              Database.use((db) => {
+                db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-standard-ratio")).run()
+                db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
+              })
+            }
+          } finally {
+            Database.use((db) => {
+              db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-custom-persisted")).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, customSessionID)).run()
+            })
+          }
+        },
+      })
+    })
+
+    // 会话删除后走历史表快照回退：新物化的行带 is_custom/width/height，详情面板
+    // 仍能展示「自定义」与像素分辨率。
+    test("history snapshot fallback keeps custom size fields from materialized rows", async () => {
+      await using directory = await tmpdir()
+      await provideTestInstance({
+        directory: directory.path,
+        fn: async () => {
+          const sessionID = await insertCustomGeneration("gen-custom-snapshot", { isCustom: true, width: 2048, height: 1152 })
+          try {
+            materializeStudioGeneration(Instance.directory, "gen-custom-snapshot")
+            Database.use((db) => db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-custom-snapshot")).run())
+            const snapshot = await getGeneration("gen-custom-snapshot")
+            expect(snapshot.isCustom).toBe(true)
+            expect(snapshot.images[0]?.width).toBe(2048)
+            expect(snapshot.images[0]?.height).toBe(1152)
+          } finally {
+            Database.use((db) => {
+              db.delete(StudioHistoryTable).where(eq(StudioHistoryTable.generation_id, "gen-custom-snapshot")).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
+            })
+          }
+        },
+      })
+    })
+  })
+
+  // 智能重绘/扩图不落 detailPrompt：会话视图（turns.ts）从工具入参回退推导提示词并显示，
+  // 生成详情接口必须同口径，否则「我的资产」详情的提示文案显示 "-" 而会话显示具体提示。
+  describe("detailPrompt fallback for editor generations", () => {
+    async function insertEditorGeneration(id: string, capability: "image.inpaint" | "image.outpaint", input: Record<string, unknown>) {
+      const now = Date.now()
+      const sessionID = SessionID.descending()
+      Database.use((db) =>
+        db
+          .insert(SessionTable)
+          .values({
+            id: sessionID,
+            project_id: Instance.project.id,
+            slug: sessionID,
+            directory: Instance.directory,
+            title: "Studio generation detailPrompt test",
+            version: "test",
+            agent: "octo_studio",
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+      Database.use((db) =>
+        db
+          .insert(StudioGenerationTable)
+          .values({
+            id,
+            session_id: sessionID,
+            directory: Instance.directory,
+            assistant_message_id: MessageID.ascending(),
+            tool_part_id: PartID.ascending(),
+            provider: "internel",
+            capability,
+            status: "succeeded",
+            progress: 100,
+            request: { input: { capability, ...input } },
+            result: {
+              id,
+              status: "succeeded",
+              capability,
+              prompt: String(input.prompt ?? ""),
+              provider: "internel",
+              model: "internel_raw_model",
+              images: [{ id: `${id}-0`, kind: "image", url: "https://example.com/image.png" }],
+            },
+            next_poll_at: Number.MAX_SAFE_INTEGER,
+            completed_at: now,
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+      return sessionID
+    }
+
+    test("falls back to the user prompt for inpaint and outpaint without detailPrompt", async () => {
+      await using directory = await tmpdir()
+      await provideTestInstance({
+        directory: directory.path,
+        fn: async () => {
+          const inpaintSessionID = await insertEditorGeneration("gen-inpaint-prompt", "image.inpaint", { prompt: "把天空改成夕阳" })
+          const outpaintSessionID = await insertEditorGeneration("gen-outpaint-prompt", "image.outpaint", {
+            prompt: "保留主体和画面风格，扩展更大尺寸和更多环境内容",
+          })
+          try {
+            expect((await getGeneration("gen-inpaint-prompt")).detailPrompt).toBe("把天空改成夕阳")
+            expect((await getGeneration("gen-outpaint-prompt")).detailPrompt).toBe("保留主体和画面风格，扩展更大尺寸和更多环境内容")
+          } finally {
+            Database.use((db) => {
+              db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-inpaint-prompt")).run()
+              db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-outpaint-prompt")).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, inpaintSessionID)).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, outpaintSessionID)).run()
+            })
+          }
+        },
+      })
+    })
+
+    test("keeps persisted detailPrompt and lets displayPrompt suppress the fallback", async () => {
+      await using directory = await tmpdir()
+      await provideTestInstance({
+        directory: directory.path,
+        fn: async () => {
+          const persistedSessionID = await insertEditorGeneration("gen-detail-persisted", "image.inpaint", {
+            prompt: "把天空改成夕阳",
+            detailPrompt: "重绘：把天空改成夕阳",
+          })
+          const displaySessionID = await insertEditorGeneration("gen-detail-display", "image.outpaint", {
+            prompt: "扩展画面",
+            displayPrompt: "扩展画面展示文案",
+          })
+          try {
+            expect((await getGeneration("gen-detail-persisted")).detailPrompt).toBe("重绘：把天空改成夕阳")
+            // displayPrompt 存在时不替代：会话视图同样显示 "-"。
+            expect((await getGeneration("gen-detail-display")).detailPrompt).toBeUndefined()
+          } finally {
+            Database.use((db) => {
+              db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-detail-persisted")).run()
+              db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-detail-display")).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, persistedSessionID)).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, displaySessionID)).run()
+            })
+          }
+        },
+      })
+    })
+
+    // 会话删除后走历史表快照回退，重绘/扩图提示词同样回退到历史行的 prompt。
+    test("history snapshot fallback recovers the editor prompt", async () => {
+      await using directory = await tmpdir()
+      await provideTestInstance({
+        directory: directory.path,
+        fn: async () => {
+          const sessionID = await insertEditorGeneration("gen-inpaint-snapshot", "image.inpaint", { prompt: "把天空改成夕阳" })
+          try {
+            materializeStudioGeneration(Instance.directory, "gen-inpaint-snapshot")
+            Database.use((db) => db.delete(StudioGenerationTable).where(eq(StudioGenerationTable.id, "gen-inpaint-snapshot")).run())
+            const snapshot = await getGeneration("gen-inpaint-snapshot")
+            expect(snapshot.detailPrompt).toBe("把天空改成夕阳")
+          } finally {
+            Database.use((db) => {
+              db.delete(StudioHistoryTable).where(eq(StudioHistoryTable.generation_id, "gen-inpaint-snapshot")).run()
+              db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
+            })
+          }
+        },
+      })
+    })
+
+    test("studioFallbackDetailPrompt mirrors the session fallback order", () => {
+      expect(studioFallbackDetailPrompt({ detailPrompt: "已保存", displayPrompt: "展示", prompt: "原始" })).toBe("已保存")
+      expect(studioFallbackDetailPrompt({ displayPrompt: "展示", prompt: "原始" })).toBeUndefined()
+      expect(studioFallbackDetailPrompt({ prompt: "原始" })).toBe("原始")
+      expect(studioFallbackDetailPrompt({})).toBeUndefined()
     })
   })
 })
