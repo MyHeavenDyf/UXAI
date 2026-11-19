@@ -48,6 +48,7 @@ export function ModelEditAreaDialog(props: {
   assetConfig?: AssetConfig
   onClose: () => void
   onSubmitStart?: () => void
+  onConfirmPrompt?: (text: string) => Promise<void>
   onMentionActiveChange?: (active: boolean) => void
   closeMentionTrigger?: number
   promptCallback?: (filePath: string, selector: string) => string
@@ -60,6 +61,7 @@ export function ModelEditAreaDialog(props: {
 }): JSX.Element {
   const [submitting, setSubmitting] = createSignal(false)
   const [hasText, setHasText] = createSignal(false)
+  const [promptText, setPromptText] = createSignal('')
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
   const [dragPos, setDragPos] = createStore<{ left: number | null; top: number | null }>({ left: null, top: null })
   let editorRef: EditorRef | undefined
@@ -291,6 +293,17 @@ export function ModelEditAreaDialog(props: {
 
   const handleConfirm = async () => {
     if (isDisabled()) return
+    if (props.onConfirmPrompt) {
+      const text = promptText().trim()
+      if (!text) return
+      setSubmitting(true)
+      try {
+        await props.onConfirmPrompt(text)
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
     const text = editorRef?.getText?.() || ''
     if (!text.trim()) return
     const prefix = buildPrefix()
@@ -328,24 +341,35 @@ export function ModelEditAreaDialog(props: {
           </div>
         </Show>
         <div class="model-edit-area-body">
-          <ProseMirrorEditor
-            sessionId={props.sessionId || ''}
-            skillConfig={props.skillConfig ?? {}}
-            artifactFiles={props.artifactFiles ?? null}
-            mentionSelections={mentionSelections()}
-            setMentionSelections={setMentionSelections}
-            disabled={isDisabled()}
-            autofocus={true}
-            placeholder="描述你想要的修改..."
-            onContentChange={(_docJSON, text) => setHasText(text.trim().length > 0)}
-            onSubmit={handleConfirm}
-            onTriggerStateChange={(active) => props.onMentionActiveChange?.(active)}
-            ref={(el: EditorRef) => { editorRef = el }}
-            productId={props.productId}
-            onDownloadProductAsset={props.onDownloadProductAsset}
-            onUpdateMentionPath={(id, path) => editorRef?.updateMentionPath(id, path)}
-            onFilesTabOpen={props.onFilesTabOpen}
-          />
+          <Show when={!props.onConfirmPrompt} fallback={
+            <textarea
+              class="insight-area-edit-prompt"
+              aria-label="修改选中区域"
+              placeholder="描述你想要的修改..."
+              disabled={isDisabled()}
+              value={promptText()}
+              onInput={event => setPromptText(event.currentTarget.value)}
+            />
+          }>
+            <ProseMirrorEditor
+              sessionId={props.sessionId || ''}
+              skillConfig={props.skillConfig ?? {}}
+              artifactFiles={props.artifactFiles ?? null}
+              mentionSelections={mentionSelections()}
+              setMentionSelections={setMentionSelections}
+              disabled={isDisabled()}
+              autofocus={true}
+              placeholder="描述你想要的修改..."
+              onContentChange={(_docJSON, text) => setHasText(text.trim().length > 0)}
+              onSubmit={handleConfirm}
+              onTriggerStateChange={(active) => props.onMentionActiveChange?.(active)}
+              ref={(el: EditorRef) => { editorRef = el }}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={(id, path) => editorRef?.updateMentionPath(id, path)}
+              onFilesTabOpen={props.onFilesTabOpen}
+            />
+          </Show>
         </div>
         <div class="model-edit-area-footer">
           <button
@@ -356,18 +380,20 @@ export function ModelEditAreaDialog(props: {
           >
             取消
           </button>
-          <button
-            type="button"
-            class="model-edit-area-btn secondary"
-            disabled={isDisabled() || !hasText()}
-            onClick={handleNext}
-          >
-            下一项
-          </button>
+          <Show when={!props.onConfirmPrompt}>
+            <button
+              type="button"
+              class="model-edit-area-btn secondary"
+              disabled={isDisabled() || !hasText()}
+              onClick={handleNext}
+            >
+              下一项
+            </button>
+          </Show>
           <button
             type="button"
             class="model-edit-area-btn primary"
-            disabled={isDisabled() || !hasText()}
+            disabled={isDisabled() || !(props.onConfirmPrompt ? promptText().trim() : hasText())}
             onClick={handleConfirm}
           >
             {submitting() ? '...' : '确认'}

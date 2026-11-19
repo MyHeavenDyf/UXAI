@@ -2,6 +2,7 @@ import { createMemo, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { showToast } from "@opencode-ai/ui/toast"
 import { ModelEditPanel } from "../../../make/components/result-viewer/model-edit-panel"
+import { ModelEditAreaDialog } from "../../../make/components/result-viewer/model-edit-area-dialog"
 import { getDefaultNativeConfig, readNativeDefaults } from "../../../make/components/model-edit-items/registry"
 import type { ModelEditContext, ModelEditElement, OnChangeArgs } from "../../../make/components/model-edit-items/types"
 import { directModelEditConfig } from "../../../make/subtype-handlers/default"
@@ -196,7 +197,7 @@ export function HtmlLocalEditor(props: { content: string; source: string; frame:
     })
   }
   return (
-    <Show when={state.target}>{target => <div ref={draggablePanel} class="insight-property-panel"><ModelEditPanel element={target()}
+    <Show when={state.target}>{target => <><div ref={draggablePanel} class="insight-property-panel"><ModelEditPanel element={target()}
       config={getDefaultNativeConfig(target().elementKind, target().isLayoutContainer)}
       panelData={readNativeDefaults(target().elementKind, {
         ...target(),
@@ -231,6 +232,38 @@ export function HtmlLocalEditor(props: { content: string; source: string; frame:
         },
       }}
       onSave={() => save()} onDelete={() => save(true)}
-      onExit={reset} /></div>}</Show>
+      onExit={reset} /></div>
+      <ModelEditAreaDialog
+        element={target()}
+        iframeRef={props.frame}
+        filePath={review.path() ?? ""}
+        tabTitle=""
+        disabled={review.editDisabled() || state.importing}
+        onClose={reset}
+        onConfirmPrompt={async text => {
+          const selected = target()
+          const filePath = review.path()
+          const selector = selected.documentSelector || selected.selector
+          if (!filePath || !selector) {
+            showToast({ title: "无法定位选中区域，请重新选择元素", variant: "error" })
+            return
+          }
+          const prompt = [
+            `请修改 HTML 文件 ${filePath} 中用户选中的区域，并保留其他区域。`,
+            `元素定位信息：${JSON.stringify({ selector, tagName: selected.tagName, text: selected.text })}`,
+            `用户要求：${text}`,
+          ].join("\n")
+          try {
+            await review.editWithAgent(prompt, source === baseline ? original : cleanBridgeContent(source), original, content => {
+              original = content
+              baseline = source
+              void commitPreview(source)
+            }, "html-area-edit")
+          } catch (error) {
+            if (!lifetime.signal.aborted) showToast({ title: error instanceof Error ? error.message : "发送区域修改指令失败", variant: "error" })
+          }
+        }}
+      />
+    </>}</Show>
   )
 }
