@@ -2019,7 +2019,7 @@ function StudioPageContent() {
     (
       capability() === "video.generate"
         ? !hasInvalidVideoFrames() && (isVideoMultiReferenceInput()
-          ? assets().length > 0
+          ? prompt().trim().length > 0 || assets().length > 0
           : prompt().trim().length > 0 || hasVideoFrames())
         : selectedStyleTemplate() && capability() === "image.generate"
           ? !styleTemplateSubmitError()
@@ -4419,10 +4419,9 @@ function StudioPageContent() {
     const nextVideoReferenceImages = nextVideoInputMode === "multi-reference"
       ? (overrides?.referenceImages ?? (overrides?.useRestoredInputs ? [] : assets().map((item) => item.dataUrl)))
       : [nextVideoFrames.first, nextVideoFrames.first ? nextVideoFrames.last : undefined].filter((item): item is string => Boolean(item))
-    const nextHasInvalidVideoFrames = nextCapability === "video.generate" &&
-      (nextVideoInputMode === "multi-reference"
-        ? nextVideoReferenceImages.length === 0
-        : Boolean(nextVideoFrames.last && !nextVideoFrames.first))
+    // 多图参考无图时回退为文生视频，不算非法输入
+    const nextHasInvalidVideoFrames = nextCapability === "video.generate" && nextVideoInputMode !== "multi-reference" &&
+      Boolean(nextVideoFrames.last && !nextVideoFrames.first)
     const nextHasVideoFrames = nextCapability === "video.generate" &&
       (nextVideoInputMode === "multi-reference" ? nextVideoReferenceImages.length > 0 : Boolean(nextVideoFrames.first))
     const actualUserPrompt = (overrides?.prompt ?? seedreamInputApi.serializeText()).trim()
