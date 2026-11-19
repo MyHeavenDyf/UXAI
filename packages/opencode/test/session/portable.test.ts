@@ -911,8 +911,8 @@ describe("portable session", () => {
             await AppRuntime.runPromise(sharePortableSession({ sessionID: session.id }))
           }
           expect(uploads.splice(0)).toEqual([
-            { name: "分享标题".repeat(2) + "分享.zip", description: "分享标题".repeat(30), title: "分享标题".repeat(30) },
-            { name: "a".repeat(9) + "😀.zip", description: "a".repeat(9) + "😀后续内容", title: "a".repeat(9) + "😀后续内容" },
+            { name: "分享标题".repeat(2) + "分享.zip", description: "分享标题".repeat(2) + "分享", title: "分享标题".repeat(30) },
+            { name: "a".repeat(9) + "😀.zip", description: "a".repeat(9) + "😀", title: "a".repeat(9) + "😀后续内容" },
             { name: "短标题.zip", description: "短标题", title: "短标题" },
             { name: "session.zip", description: "  ", title: "  " },
           ])
