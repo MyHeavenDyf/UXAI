@@ -4,7 +4,7 @@ import emptyPng from "../insight/icons/empty.png"
 import { usePlatform } from "@/context/platform"
 import { tracker } from "@/utils/tracker"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, isSeedreamStyleModel, styleModelLabel } from "./data"
-import { getDefaultDimensions, getStudioImageAreaLimits, getStudioImageDimensionRange, isStudioCustomSizeValid, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
+import { getDefaultDimensions, getStudioImageAreaLimits, getStudioImageDimensionRange, isStudioCustomSizeValid, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_INPUT_MODES, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoInputMode, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
 import { StudioStyleTemplateMenu, type StudioStyleTemplateListInput, type StudioStyleTemplateListItem, type StudioStyleTemplateListResult } from "./studio-style-template-menu"
 import {
@@ -66,6 +66,7 @@ export function StudioComposer(props: {
   videoDuration: StudioVideoDuration
   videoQualityMode: StudioVideoQualityMode
   videoMode: StudioVideoMode
+  videoInputMode: StudioVideoInputMode
   status: StudioGenerationStatus
   busy: boolean
   openMenu: StudioComposerMenu
@@ -87,6 +88,7 @@ export function StudioComposer(props: {
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onVideoMode: (value: StudioVideoMode) => void
+  onVideoInputMode: (value: StudioVideoInputMode) => void
   onOpenMenu: (value: StudioComposerMenu) => void
   onCreateTemplate?: () => void
   onListStyleTemplates?: (input: StudioStyleTemplateListInput) => Promise<StudioStyleTemplateListResult>
@@ -143,6 +145,8 @@ export function StudioComposer(props: {
   const referenceAsset = createMemo(() => referenceAssets()[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
+  const isVideoFirstLastFrame = createMemo(() => isVideoGeneration() && props.videoInputMode === "first-last-frame")
+  const isVideoMultiReference = createMemo(() => isVideoGeneration() && props.videoInputMode === "multi-reference")
   const isTemplateReferenceDisabled = createMemo(() => isImageGeneration() && props.selectedStyleTemplate?.reference_image_setting === "not_supported")
   const canAddReferenceAsset = createMemo(() => !isTemplateReferenceDisabled() && props.maxReferenceImages > 0 && referenceAssets().length < props.maxReferenceImages)
   const isSeedreamModel = createMemo(() => isSeedreamStyleModel(props.styleModel))
@@ -449,9 +453,13 @@ export function StudioComposer(props: {
   const [videoModeOpen, setVideoModeOpen] = createSignal(false)
   let videoModeBtnRef!: HTMLDivElement
   let videoModeAnchorRef!: HTMLDivElement
+  const [videoInputModeOpen, setVideoInputModeOpen] = createSignal(false)
+  let videoInputModeBtnRef!: HTMLDivElement
+  let videoInputModeAnchorRef!: HTMLDivElement
   const [atMenuOpen, setAtMenuOpen] = createSignal(false)
   let atAnchorRef!: HTMLDivElement
   const videoModeLabel = createMemo(() => STUDIO_VIDEO_MODES.find((item) => item.value === props.videoMode)?.label ?? "全能参考")
+  const videoInputModeLabel = createMemo(() => STUDIO_VIDEO_INPUT_MODES.find((item) => item.value === props.videoInputMode)?.label ?? "首尾帧")
   const moreMenuStyle = (): JSX.CSSProperties => {
     // 窗口尺寸变化时重新计算位置，使菜单跟随更多按钮
     moreMenuTick()
@@ -469,7 +477,7 @@ export function StudioComposer(props: {
     if (isImageGeneration()) return showMentionEntry()
       ? ["capability", "style", "settings", "at", "style-template", "reverse", "material"]
       : ["capability", "style", "settings", "style-template", "reverse", "material"]
-    if (isVideoGeneration()) return ["capability", "videoMode", "settings"]
+    if (isVideoGeneration()) return ["capability", "videoMode", "videoInputMode", "settings"]
     return ["capability"]
   })
 
@@ -779,6 +787,7 @@ export function StudioComposer(props: {
   // 视频模式弹框：打开时关闭其它弹框，并左对齐定位到按钮
   createEffect(() => {
     if (props.openMenu) setVideoModeOpen(false)
+    if (props.openMenu) setVideoInputModeOpen(false)
     if (props.openMenu) setAtMenuOpen(false)
   })
 
@@ -791,6 +800,18 @@ export function StudioComposer(props: {
       videoModeAnchorRef.style.left = `${btnRect.left - toolbarRect.left}px`
       videoModeAnchorRef.style.top = ""
       videoModeAnchorRef.style.bottom = ""
+    })
+  })
+
+  createEffect(() => {
+    if (!videoInputModeOpen()) return
+    queueMicrotask(() => {
+      if (!videoInputModeBtnRef || !videoInputModeAnchorRef || !toolbarRef) return
+      const btnRect = videoInputModeBtnRef.getBoundingClientRect()
+      const toolbarRect = toolbarRef.getBoundingClientRect()
+      videoInputModeAnchorRef.style.left = `${btnRect.left - toolbarRect.left}px`
+      videoInputModeAnchorRef.style.top = ""
+      videoInputModeAnchorRef.style.bottom = ""
     })
   })
 
@@ -970,6 +991,7 @@ export function StudioComposer(props: {
     ) return
     if (props.openMenu) props.onOpenMenu(null)
     if (videoModeOpen()) setVideoModeOpen(false)
+    if (videoInputModeOpen()) setVideoInputModeOpen(false)
     if (atMenuOpen()) setAtMenuOpen(false)
   }
 
@@ -997,13 +1019,13 @@ export function StudioComposer(props: {
       </Show>
       <div
         class="studio-composer"
-        classList={{ video: isVideoGeneration(), dragging: dragActive() }}
+        classList={{ video: isVideoFirstLastFrame(), dragging: dragActive() }}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <Show when={isVideoGeneration()}>
+        <Show when={isVideoFirstLastFrame()}>
           <div class="studio-composer-video-frames">
             <VideoFrameButton
               label="首帧"
@@ -1024,8 +1046,8 @@ export function StudioComposer(props: {
             />
           </div>
         </Show>
-        <div class="studio-composer-input-row" classList={{ "with-reference": isImageGeneration() }}>
-          <Show when={isImageGeneration()}>
+        <div class="studio-composer-input-row" classList={{ "with-reference": isImageGeneration() || isVideoMultiReference() }}>
+          <Show when={isImageGeneration() || isVideoMultiReference()}>
             <div class="studio-composer-ref-slot" classList={{ filled: Boolean(referenceAsset()) }}>
               <Show
                 when={referenceAsset()}
@@ -1362,7 +1384,23 @@ export function StudioComposer(props: {
                     tracker.interaction({ module: "studio", name: "toolbar-video-mode-open" })
                     if (videoModeOpen()) { setVideoModeOpen(false); return }
                     props.onOpenMenu(null)
+                    setVideoInputModeOpen(false)
                     setVideoModeOpen(true)
+                  }}
+                />
+              </div>
+              <div class="relative studio-composer-toolbar-item" ref={videoInputModeBtnRef!} data-toolbar-item="videoInputMode">
+                <ToolButton
+                  label={videoInputModeLabel()}
+                  active={videoInputModeOpen()}
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => {
+                    tracker.interaction({ module: "studio", name: "toolbar-video-input-mode-open" })
+                    if (videoInputModeOpen()) { setVideoInputModeOpen(false); return }
+                    props.onOpenMenu(null)
+                    setVideoModeOpen(false)
+                    setVideoInputModeOpen(true)
                   }}
                 />
               </div>
@@ -1553,7 +1591,17 @@ export function StudioComposer(props: {
             <div class="studio-composer-dropdown-anchor" ref={videoModeAnchorRef!}>
               <VideoModeMenu
                 value={props.videoMode}
+                modes={STUDIO_VIDEO_MODES}
                 onSelect={(value) => { tracker.interaction({ module: "studio", name: "video-mode-select", extend: JSON.stringify({ mode: value }) }); props.onVideoMode(value); setVideoModeOpen(false) }}
+              />
+            </div>
+          </Show>
+          <Show when={isVideoGeneration() && videoInputModeOpen()}>
+            <div class="studio-composer-dropdown-anchor" ref={videoInputModeAnchorRef!}>
+              <VideoModeMenu
+                value={props.videoInputMode}
+                modes={STUDIO_VIDEO_INPUT_MODES}
+                onSelect={(value) => { tracker.interaction({ module: "studio", name: "video-input-mode-select", extend: JSON.stringify({ mode: value }) }); props.onVideoInputMode(value); setVideoInputModeOpen(false) }}
               />
             </div>
           </Show>
@@ -1925,10 +1973,10 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?
   )
 }
 
-function VideoModeMenu(props: { value: StudioVideoMode; onSelect: (value: StudioVideoMode) => void }): JSX.Element {
+function VideoModeMenu<T extends string>(props: { value: T; modes: { label: string; value: T; icon?: string }[]; onSelect: (value: T) => void }): JSX.Element {
   return (
     <div class="studio-menu" style={{ width: "140px", padding: "4px" }}>
-      <For each={STUDIO_VIDEO_MODES}>
+      <For each={props.modes}>
         {(item) => {
           const active = () => item.value === props.value
           return (
@@ -1954,6 +2002,9 @@ function VideoModeMenu(props: { value: StudioVideoMode; onSelect: (value: Studio
               onMouseEnter={(e) => { e.currentTarget.style.background = "#f3f3f3" }}
               onMouseLeave={(e) => { e.currentTarget.style.background = active() ? "#f3f3f3" : "transparent" }}
             >
+              <Show when={item.icon}>
+                <img src={item.icon} alt="" style={{ width: "16px", height: "16px", "flex-shrink": "0", "margin-right": "8px", "object-fit": "contain" }} />
+              </Show>
               {item.label}
             </button>
           )

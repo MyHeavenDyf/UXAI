@@ -1,0 +1,1023 @@
+import { cp, readdir, mkdir, mkdtemp, rm } from "node:fs/promises"
+import { networkInterfaces, tmpdir } from "node:os"
+import path from "node:path"
+import { AsyncLocalStorage } from "node:async_hooks"
+import { spawn, type ChildProcess } from "node:child_process"
+
+type JobStatus = "queued" | "running" | "stopping" | "stopped" | "success" | "failed"
+type JobControl = {
+  stopped: boolean
+  cleanup: boolean
+  children: Set<ChildProcess>
+  termination?: Promise<void>
+}
+const jobContext = new AsyncLocalStorage<JobControl>()
+const jobControls = new Map<string, JobControl>()
+class JobStopped extends Error {}
+const activeJob = (job: Job) => ["queued", "running", "stopping"].includes(job.status)
+
+function checkStopped() {
+  const control = jobContext.getStore()
+  if (control?.stopped && !control.cleanup) throw new JobStopped("任务已停止")
+}
+
+// 每个命令拥有独立进程组，停止时同时终止 shell、安装工具和编译器。
+async function terminateTree(child: ChildProcess) {
+  if (!child.pid) return
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-child.pid, "SIGKILL")
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+    }
+    return
+  }
+  if (child.exitCode !== null || child.signalCode !== null) return
+  const killer = Bun.spawn(["taskkill.exe", "/PID", String(child.pid), "/T", "/F"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(killer.stdout).text(), new Response(killer.stderr).text(), killer.exited,
+  ])
+  if (code !== 0 && child.exitCode === null && child.signalCode === null) {
+    throw new Error(stderr.trim() || stdout.trim() || "终止进程树失败")
+  }
+}
+
+async function managedCommand(command: string[], env: NodeJS.ProcessEnv, job?: Job) {
+  checkStopped()
+  const control = jobContext.getStore()
+  const child = spawn(command[0]!, command.slice(1), {
+    cwd: rootDir, env, detached: process.platform !== "win32", windowsHide: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  control?.children.add(child)
+  child.stdout!.setEncoding("utf8")
+  child.stderr!.setEncoding("utf8")
+  let stdout = ""
+  let stderr = ""
+  child.stdout!.on("data", (chunk: string) => {
+    if (job) appendLog(job, chunk)
+    if (!job) stdout += chunk
+  })
+  child.stderr!.on("data", (chunk: string) => {
+    if (job) appendLog(job, chunk)
+    if (!job) stderr += chunk
+  })
+  try {
+    const exitCode = await new Promise<number>((resolve, reject) => {
+      child.once("error", reject)
+      child.once("close", (code, signal) => resolve(code ?? (signal ? 137 : 1)))
+    })
+    // 必须等待整棵进程树终止，再进入清理或下一个任务。
+    await control?.termination?.catch(() => {})
+    checkStopped()
+    return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode }
+  } finally {
+    control?.children.delete(child)
+  }
+}
+type BuildTarget = "mac-arm64" | "mac-x64" | "win-x64"
+type Artifact = { name: string; size: number }
+type Job = {
+  id: string
+  baseBranch: string
+  branch: string
+  version: string
+  channel: "beta" | "prod"
+  target: BuildTarget
+  status: JobStatus
+  createdAt: string
+  startedAt?: string
+  finishedAt?: string
+  exitCode?: number
+  log: string
+  artifacts: Artifact[]
+}
+
+const rootDir = path.resolve(import.meta.dir, "..")
+const sourceRepository = "https://github.com/MyHeavenDyf/UXAI.git"
+const targetLabels: Record<BuildTarget, string> = {
+  "mac-arm64": "macOS ARM64",
+  "mac-x64": "macOS x64",
+  "win-x64": "Windows x64",
+}
+function validBuildTarget(value: unknown): value is BuildTarget {
+  return typeof value === "string" && Object.hasOwn(targetLabels, value)
+}
+
+const detectedTarget: BuildTarget =
+  process.platform === "darwin" ? (process.arch === "arm64" ? "mac-arm64" : "mac-x64") : "win-x64"
+if (Bun.env.BUILD_NODE_TARGET && !validBuildTarget(Bun.env.BUILD_NODE_TARGET)) {
+  throw new Error(`BUILD_NODE_TARGET 配置错误: ${Bun.env.BUILD_NODE_TARGET}`)
+}
+const localTarget = validBuildTarget(Bun.env.BUILD_NODE_TARGET) ? Bun.env.BUILD_NODE_TARGET : detectedTarget
+const workerEntries = (Bun.env.BUILD_WORKERS || "").split(",").filter(Boolean)
+const workers = workerEntries
+  .map((entry) => {
+    const separator = entry.indexOf("=")
+    const target = entry.slice(0, separator)
+    const url = entry.slice(separator + 1).replace(/\/$/, "")
+    return separator > 0 && validBuildTarget(target) && /^https?:\/\//.test(url) ? { target, url } : undefined
+  })
+  .filter((worker): worker is { target: BuildTarget; url: string } => Boolean(worker))
+if (workers.length !== workerEntries.length || new Set(workers.map((worker) => worker.target)).size !== workers.length) {
+  throw new Error("BUILD_WORKERS 配置错误，请使用 target=http://ip:port 并确保目标平台不重复")
+}
+const coordinator = workers.length > 0
+const artifactsRoot = path.join(import.meta.dir, "artifacts")
+const jobsFile = path.join(artifactsRoot, "jobs.json")
+const retentionMs = 3 * 24 * 60 * 60 * 1000
+const page = await Bun.file(path.join(import.meta.dir, "build_service.html")).text()
+const runtimeDir = await mkdtemp(path.join(tmpdir(), "octo-build-service-"))
+
+async function cacheAutomationScripts() {
+  await rm(runtimeDir, { recursive: true, force: true })
+  await mkdir(runtimeDir, { recursive: true })
+  const ignored = new Set(["artifacts", "packages", "zip", ".DS_Store"])
+  await Promise.all(
+    (await readdir(import.meta.dir, { withFileTypes: true }))
+      .filter((entry) => !ignored.has(entry.name))
+      .map((entry) =>
+        cp(path.join(import.meta.dir, entry.name), path.join(runtimeDir, entry.name), {
+          recursive: entry.isDirectory(),
+          force: true,
+        }),
+      ),
+  )
+  if (!(await Bun.file(path.join(runtimeDir, "run_all.sh")).exists())) {
+    throw new Error("packaging_shell/run_all.sh 不存在")
+  }
+}
+
+await cacheAutomationScripts()
+const runner = path.join(runtimeDir, "run_all.sh")
+const encoder = new TextEncoder()
+const state = {
+  jobs: [] as Job[],
+  processing: false,
+  subscribers: new Set<ReadableStreamDefaultController<Uint8Array>>(),
+  remoteBranches: { branches: [] as string[], fetchedAt: 0 },
+}
+const persistence = { timer: undefined as ReturnType<typeof setTimeout> | undefined }
+const serviceBranch = (await runCommand(["git", "symbolic-ref", "--quiet", "--short", "HEAD"])).stdout
+
+function json(value: unknown, status = 200) {
+  return Response.json(value, { status, headers: { "cache-control": "no-store" } })
+}
+
+function publicJob(job: Job) {
+  return {
+    id: job.id,
+    baseBranch: job.baseBranch,
+    branch: job.branch,
+    version: job.version,
+    channel: job.channel,
+    target: job.target,
+    status: job.status,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+    exitCode: job.exitCode,
+    log: job.log,
+    artifacts: job.artifacts,
+  }
+}
+
+function sendEvent(type: string, value: unknown) {
+  const message = encoder.encode(`event: ${type}\ndata: ${JSON.stringify(value)}\n\n`)
+  state.subscribers.forEach((subscriber) => {
+    try {
+      subscriber.enqueue(message)
+    } catch {
+      state.subscribers.delete(subscriber)
+    }
+  })
+}
+
+function updateJob(job: Job) {
+  sendEvent("job", publicJob(job))
+  schedulePersistJobs()
+}
+
+function appendLog(job: Job, text: string) {
+  job.log = `${job.log}${text}`.slice(-400_000)
+  sendEvent("log", { id: job.id, text })
+}
+
+function isJob(value: unknown): value is Job {
+  if (!value || typeof value !== "object") return false
+  const job = value as Record<string, unknown>
+  return (
+    typeof job.id === "string" &&
+    /^[a-z0-9-]+$/.test(job.id) &&
+    typeof job.baseBranch === "string" &&
+    typeof job.branch === "string" &&
+    typeof job.version === "string" &&
+    (job.channel === "beta" || job.channel === "prod") &&
+    (job.target === "mac-arm64" || job.target === "mac-x64" || job.target === "win-x64") &&
+    ["queued", "running", "stopping", "stopped", "success", "failed"].includes(String(job.status)) &&
+    typeof job.createdAt === "string" &&
+    typeof job.log === "string" &&
+    Array.isArray(job.artifacts)
+  )
+}
+
+async function writeJobs() {
+  await mkdir(artifactsRoot, { recursive: true })
+  await Bun.write(jobsFile, `${JSON.stringify(state.jobs.map(publicJob), null, 2)}\n`)
+}
+
+function schedulePersistJobs() {
+  if (persistence.timer) clearTimeout(persistence.timer)
+  persistence.timer = setTimeout(() => {
+    persistence.timer = undefined
+    void writeJobs()
+  }, 100)
+}
+
+async function loadJobs() {
+  const stored = (await Bun.file(jobsFile).json().catch(() => [])) as unknown
+  if (!Array.isArray(stored)) return
+  state.jobs = stored
+    .map((job) => job && typeof job === "object" && !("target" in job) ? { ...job, target: localTarget } : job)
+    .filter(isJob)
+    .map((job) => {
+      if (!activeJob(job)) return job
+      return {
+        ...job,
+        status: "failed" as const,
+        finishedAt: new Date().toISOString(),
+        log: `${job.log}\n打包服务曾在任务执行期间停止，此任务已标记为失败。\n`,
+      }
+    })
+}
+
+async function workerRequest(target: BuildTarget, pathname: string, init?: RequestInit) {
+  const worker = workers.find((candidate) => candidate.target === target)
+  if (!worker) return undefined
+  return fetch(`${worker.url}${pathname}`, { ...init, signal: AbortSignal.timeout(10_000) }).catch(() => undefined)
+}
+
+async function syncWorkers() {
+  const results = await Promise.all(
+    workers.map(async (worker) => {
+      const response = await workerRequest(worker.target, "/api/state")
+      if (!response?.ok) return state.jobs.filter((job) => job.target === worker.target)
+      const value: unknown = await response.json().catch(() => undefined)
+      if (!value || typeof value !== "object" || !("jobs" in value) || !Array.isArray(value.jobs)) {
+        return state.jobs.filter((job) => job.target === worker.target)
+      }
+      return value.jobs.filter(isJob).map((job) => ({ ...job, target: worker.target }))
+    }),
+  )
+  const jobs = results.flat().sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  if (JSON.stringify(jobs) === JSON.stringify(state.jobs)) return
+  const previous = new Map(state.jobs.map((job) => [job.id, job]))
+  const removed = state.jobs.some((job) => !jobs.some((candidate) => candidate.id === job.id))
+  state.jobs = jobs
+  if (removed) {
+    sendEvent("snapshot", state.jobs.map(publicJob))
+    return
+  }
+  jobs.forEach((job) => {
+    const old = previous.get(job.id)
+    if (!old) {
+      sendEvent("job", publicJob(job))
+      return
+    }
+    const metadataChanged =
+      old.status !== job.status ||
+      old.startedAt !== job.startedAt ||
+      old.finishedAt !== job.finishedAt ||
+      old.exitCode !== job.exitCode ||
+      JSON.stringify(old.artifacts) !== JSON.stringify(job.artifacts)
+    if (metadataChanged || !job.log.startsWith(old.log)) {
+      sendEvent("job", publicJob(job))
+      return
+    }
+    if (job.log !== old.log) sendEvent("log", { id: job.id, text: job.log.slice(old.log.length) })
+  })
+}
+
+async function purgeExpiredJobs() {
+  const cutoff = Date.now() - retentionMs
+  const expired = state.jobs.filter((job) => !activeJob(job) && new Date(job.createdAt).getTime() < cutoff)
+  state.jobs = state.jobs.filter((job) => activeJob(job) || new Date(job.createdAt).getTime() >= cutoff)
+  await Promise.all(expired.map((job) => rm(path.join(artifactsRoot, job.id), { recursive: true, force: true })))
+  if (expired.length) {
+    await writeJobs()
+    sendEvent("snapshot", state.jobs.map(publicJob))
+  }
+}
+
+async function runCommand(command: string[], env = { ...Bun.env }) {
+  if (jobContext.getStore()) return managedCommand(command, env)
+  const process = Bun.spawn(command, { cwd: rootDir, stdout: "pipe", stderr: "pipe", env })
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ])
+  return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode }
+}
+
+async function gitState() {
+  const [branch, branches, changes] = await Promise.all([
+    runCommand(["git", "symbolic-ref", "--quiet", "--short", "HEAD"]),
+    runCommand(["git", "branch", "--format=%(refname:short)"]),
+    runCommand(["git", "status", "--porcelain"]),
+  ])
+  const changeLines = changes.stdout
+    .split("\n")
+    .filter(Boolean)
+    .filter((line) => !line.startsWith("?? packaging_shell/"))
+  return {
+    current: branch.stdout || "(detached HEAD)",
+    branches: branches.stdout.split("\n").filter(Boolean),
+    dirty: changeLines.length > 0,
+    changes: changeLines.slice(0, 30),
+  }
+}
+
+function proxyConfigValue(content: string, key: string) {
+  const line = content
+    .split("\n")
+    .map((value) => value.trim())
+    .find((value) => new RegExp(`^(?:export\\s+)?${key}\\s*=`).test(value))
+  if (!line) return ""
+  let value = line.slice(line.indexOf("=") + 1).trim()
+
+  // 清理尾部行内注释 (例如 HW_USER=xxx # comment)
+  const commentIndex = value.indexOf("#")
+  if (commentIndex !== -1) {
+    value = value.slice(0, commentIndex).trim()
+  }
+
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    return value.slice(1, -1)
+  }
+  return value
+}
+
+async function proxyProcessEnv() {
+  const configured = Bun.env.PACKAGING_PROXY_ENV_FILE
+  let file = configured || path.join(rootDir, ".env.proxy")
+
+  if (!configured && !(await Bun.file(file).exists())) {
+    const fallback = path.join(rootDir, "merge-option", ".env.proxy")
+    if (await Bun.file(fallback).exists()) file = fallback
+  }
+
+  if (!(await Bun.file(file).exists())) return { error: `未找到代理配置文件: ${file}` }
+  const content = await Bun.file(file).text()
+  const user = proxyConfigValue(content, "HW_USER")
+  const password = proxyConfigValue(content, "HW_PASS")
+  if (!user || !password) return { error: `${file} 中缺少 HW_USER 或 HW_PASS` }
+  const host = proxyConfigValue(content, "HW_PROXY_HOST") || "proxyhk.huawei.com:8080"
+  // 直接组合原始账号密码，不要过 encodeURIComponent，交给 Git/cURL 自己处理
+  const proxy = `http://${user}:${password}@${host}`
+  const env = processEnv()
+  env.http_proxy = proxy
+  env.https_proxy = proxy
+  env.HTTP_PROXY = proxy
+  env.HTTPS_PROXY = proxy
+  env.NO_PROXY = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+  env.no_proxy = env.NO_PROXY
+  env.GIT_TERMINAL_PROMPT = "0"
+  return { env }
+}
+
+async function syncLocalBranches() {
+  const proxy = await proxyProcessEnv()
+  if ("error" in proxy) return { error: proxy.error }
+  const remotes = await runCommand(["git", "remote"])
+  if (remotes.exitCode !== 0) return { error: remotes.stderr || "读取本地项目远端失败" }
+  const names = remotes.stdout.split("\n").filter(Boolean)
+  const remote = names.includes("origin") ? "origin" : names[0]
+  if (!remote) return { error: "当前本地项目没有配置 Git 远端" }
+
+  const fetched = await runCommand(
+    [
+      "git",
+      "-c",
+      "http.sslVerify=false",
+      "-c",
+      `http.proxy=${proxy.env.http_proxy}`,
+      "fetch",
+      "--prune",
+      remote,
+      `+refs/heads/*:refs/remotes/${remote}/*`,
+    ],
+    proxy.env,
+  )
+  if (fetched.exitCode !== 0) return { error: fetched.stderr || fetched.stdout || "获取本地项目远端分支失败" }
+
+  const [local, remoteRefs] = await Promise.all([
+    runCommand(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads"]),
+    runCommand(["git", "for-each-ref", "--format=%(refname)", `refs/remotes/${remote}`]),
+  ])
+  if (local.exitCode !== 0 || remoteRefs.exitCode !== 0) {
+    return { error: local.stderr || remoteRefs.stderr || "读取分支列表失败" }
+  }
+
+  const localBranches = new Set(local.stdout.split("\n").filter(Boolean))
+  const prefix = `refs/remotes/${remote}/`
+  const remoteBranches = remoteRefs.stdout
+    .split("\n")
+    .filter((ref) => ref.startsWith(prefix) && ref !== `${prefix}HEAD`)
+    .map((ref) => ref.slice(prefix.length))
+  const missing = remoteBranches.filter((branch) => !localBranches.has(branch))
+  for (const branch of missing) {
+    const created = await runCommand(["git", "branch", "--track", branch, `${remote}/${branch}`])
+    if (created.exitCode !== 0) return { error: created.stderr || created.stdout || `创建本地分支 ${branch} 失败` }
+  }
+  return { remote, remoteCount: remoteBranches.length, createdCount: missing.length }
+}
+
+async function remoteBranches(force = false) {
+  if (!force && state.remoteBranches.branches.length && Date.now() - state.remoteBranches.fetchedAt < 60_000) {
+    return { branches: state.remoteBranches.branches, fetchedAt: state.remoteBranches.fetchedAt }
+  }
+
+  const proxy = await proxyProcessEnv()
+  if ("error" in proxy) return { error: proxy.error }
+  const subprocess = Bun.spawn(
+    [
+      "git",
+      "-c",
+      "http.sslVerify=false",
+      "-c",
+      `http.proxy=${proxy.env.http_proxy}`,
+      "ls-remote",
+      "--heads",
+      sourceRepository,
+    ],
+    {
+      cwd: rootDir,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: proxy.env,
+    },
+  )
+  const completion = Promise.all([
+    new Response(subprocess.stdout).text(),
+    new Response(subprocess.stderr).text(),
+    subprocess.exited,
+  ]).then(([stdout, stderr, exitCode]) => ({ timedOut: false as const, stdout, stderr, exitCode }))
+  const timeout = { id: undefined as ReturnType<typeof setTimeout> | undefined }
+  const result = await Promise.race([
+    completion,
+    new Promise<{ timedOut: true }>((resolve) => {
+      timeout.id = setTimeout(() => {
+        subprocess.kill(9)
+        resolve({ timedOut: true })
+      }, 20_000)
+    }),
+  ])
+  if (timeout.id) clearTimeout(timeout.id)
+  if (result.timedOut) {
+    if (state.remoteBranches.branches.length) {
+      return {
+        branches: state.remoteBranches.branches,
+        fetchedAt: state.remoteBranches.fetchedAt,
+        warning: "固定仓库连接超时，当前显示上次成功获取的分支列表",
+      }
+    }
+    return { error: `连接 ${sourceRepository} 超时` }
+  }
+  if (result.exitCode !== 0) return { error: result.stderr.trim() || `无法读取 ${sourceRepository} 的分支` }
+
+  state.remoteBranches = {
+    branches: result.stdout
+      .split("\n")
+      .map((line) => line.split("\trefs/heads/")[1])
+      .filter((branch): branch is string => Boolean(branch))
+      .sort((a, b) => a.localeCompare(b)),
+    fetchedAt: Date.now(),
+  }
+  return { branches: state.remoteBranches.branches, fetchedAt: state.remoteBranches.fetchedAt }
+}
+
+async function copyArtifacts(job: Job) {
+  const dist = path.join(rootDir, "packages", "desktop", "dist")
+  const output = path.join(artifactsRoot, job.id)
+  await mkdir(output, { recursive: true })
+
+  const walk = async (dir: string): Promise<string[]> =>
+    readdir(dir, { withFileTypes: true })
+      .then((entries) =>
+        Promise.all(
+          entries.map((entry) => {
+            const target = path.join(dir, entry.name)
+            return entry.isDirectory() ? walk(target) : Promise.resolve([target])
+          }),
+        ),
+      )
+      .then((entries) => entries.flat())
+      .catch(() => [])
+
+  const files = (await walk(dist)).filter((file) =>
+    [".dmg", ".zip", ".exe", ".appimage", ".deb", ".rpm", ".yml", ".yaml", ".blockmap"].includes(
+      path.extname(file).toLowerCase(),
+    ),
+  )
+
+  job.artifacts = await Promise.all(
+    files.map(async (file) => {
+      const name = path.relative(dist, file).split(path.sep).join("__")
+      await Bun.write(path.join(output, name), Bun.file(file))
+      return { name, size: Bun.file(file).size }
+    }),
+  )
+}
+
+async function runJob(job: Job) {
+  job.status = "running"
+  job.startedAt = new Date().toISOString()
+  appendLog(
+    job,
+    `开始任务 ${job.id}\n目标平台: ${targetLabels[job.target]}\n基础代码分支: ${job.baseBranch}\n下载分支: ${job.branch}\n版本: ${job.version}\n构建环境: ${job.channel}\n\n`,
+  )
+  updateJob(job)
+
+  const before = await gitState()
+  if (before.dirty) {
+    job.status = "failed"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, "工作区存在任务外的未提交修改。为避免误删代码，本次任务已终止。\n")
+    updateJob(job)
+    return
+  }
+
+  const switched = await runCommand(["git", "checkout", job.baseBranch])
+  if (switched.exitCode !== 0) {
+    job.status = "failed"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, `切换基础代码分支失败: ${switched.stderr || switched.stdout}\n`)
+    updateJob(job)
+    return
+  }
+  appendLog(job, `已切换到基础代码分支 ${job.baseBranch}\n\n`)
+  sendEvent("git", await gitState())
+
+  appendLog(job, `正在拉取基础代码分支 ${job.baseBranch} 的最新远端代码...\n`)
+  const proxy = await proxyProcessEnv()
+  checkStopped()
+  if ("error" in proxy) {
+    job.status = "failed"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, `读取代理配置失败: ${proxy.error}\n`)
+    updateJob(job)
+    return
+  }
+  const pulled = await runCommand(
+    [
+      "git",
+      "-c",
+      "http.sslVerify=false",
+      "-c",
+      `http.proxy=${proxy.env.http_proxy}`,
+      "pull",
+      "--ff-only",
+    ],
+    proxy.env,
+  )
+  if (pulled.exitCode !== 0) {
+    job.status = "failed"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, `拉取基础代码分支失败: ${pulled.stderr || pulled.stdout}\n`)
+    updateJob(job)
+    return
+  }
+  appendLog(job, `${pulled.stdout || "基础代码分支已是最新版本"}\n\n`)
+  sendEvent("git", await gitState())
+
+  await cacheAutomationScripts()
+  checkStopped()
+  appendLog(job, "已刷新 packaging_shell 脚本缓存。\n\n")
+
+  const env = processEnv()
+  env.PACKAGING_PROJECT_ROOT = rootDir
+  env.PACKAGING_SCRIPT_DIR = runtimeDir
+  env.PACKAGING_DATA_DIR = import.meta.dir
+  const control = jobContext.getStore()!
+  const outcome = await managedCommand(
+    [
+      "bash",
+      runner,
+      "--branch",
+      job.branch,
+      "--version",
+      job.version,
+      "--channel",
+      job.channel,
+      "--target",
+      job.target,
+    ],
+    env,
+    job,
+  ).catch((error: unknown) => {
+    if (!(error instanceof JobStopped)) throw error
+    return { exitCode: 137 }
+  })
+  job.exitCode = outcome.exitCode
+
+  if (!control.stopped && job.exitCode === 0) await copyArtifacts(job)
+
+  // 保持原有的构建后 Git 清理逻辑；清理过程不能再次中断。
+  control.cleanup = true
+  if (control.stopped) job.artifacts = []
+
+  appendLog(job, "\n正在清除本次打包产生的 Git 改动...\n")
+  const reset = await runCommand(["git", "reset", "--hard", "HEAD"])
+  if (reset.stdout) appendLog(job, `${reset.stdout}\n`)
+  if (reset.stderr) appendLog(job, `${reset.stderr}\n`)
+  const clean = await runCommand(["git", "clean", "-fd", "-e", "packaging_shell/"])
+  if (clean.stdout) appendLog(job, `${clean.stdout}\n`)
+  if (clean.stderr) appendLog(job, `${clean.stderr}\n`)
+  sendEvent("git", await gitState())
+
+  job.finishedAt = new Date().toISOString()
+  if (reset.exitCode !== 0 || clean.exitCode !== 0) {
+    job.status = "failed"
+    appendLog(job, "Git 改动清理失败，请管理员检查打包机工作区。\n")
+    updateJob(job)
+    return
+  }
+
+  if (control.stopped) {
+    job.status = "stopped"
+    appendLog(job, "Git 改动已清除。任务已停止。\n")
+    updateJob(job)
+    return
+  }
+
+  if (job.exitCode !== 0) {
+    job.status = "failed"
+    appendLog(job, `Git 改动已清除。任务失败，退出码: ${job.exitCode}\n`)
+    updateJob(job)
+    return
+  }
+
+  job.status = "success"
+  appendLog(job, `Git 改动已清除。任务完成，共收集 ${job.artifacts.length} 个产物。\n`)
+  updateJob(job)
+}
+
+function processEnv() {
+  const env = { ...Bun.env }
+  ;[
+    "http_proxy",
+    "https_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "all_proxy",
+    "ALL_PROXY",
+    "npm_config_proxy",
+    "npm_config_https_proxy",
+    "NPM_CONFIG_PROXY",
+    "NPM_CONFIG_HTTPS_PROXY",
+    "NODE_TLS_REJECT_UNAUTHORIZED",
+  ].forEach((key) => delete env[key])
+  env.NO_PROXY = "*"
+  env.no_proxy = "*"
+  return env
+}
+
+async function processQueue() {
+  if (state.processing) return
+  state.processing = true
+  const job = state.jobs.find((candidate) => candidate.status === "queued")
+  if (!job) {
+    try {
+      const current = await gitState()
+      if (serviceBranch && !current.dirty && current.current !== serviceBranch) {
+        await runCommand(["git", "checkout", serviceBranch])
+        sendEvent("git", await gitState())
+      }
+    } finally {
+      state.processing = false
+      if (state.jobs.some((candidate) => candidate.status === "queued")) void processQueue()
+    }
+    return
+  }
+  const control: JobControl = { stopped: false, cleanup: false, children: new Set() }
+  jobControls.set(job.id, control)
+  await jobContext.run(control, () => runJob(job)).catch((error: unknown) => {
+    job.status = error instanceof JobStopped ? "stopped" : "failed"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, error instanceof JobStopped
+      ? "\n任务已停止，尚未执行打包流水线。当前文件状态已保留。\n"
+      : `\n服务异常: ${error instanceof Error ? error.message : String(error)}\n`)
+    updateJob(job)
+  })
+  jobControls.delete(job.id)
+  state.processing = false
+  void processQueue()
+}
+
+function sameOrigin(request: Request) {
+  const origin = request.headers.get("origin")
+  return !origin || origin === new URL(request.url).origin
+}
+
+function validBranch(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/.test(value) &&
+    !value.includes("..") &&
+    !value.includes("//")
+  )
+}
+
+function validVersion(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/.test(value)
+}
+
+async function createJob(request: Request) {
+  if (!sameOrigin(request)) return json({ error: "不允许跨站提交任务" }, 403)
+  const body = (await request.json().catch(() => undefined)) as Record<string, unknown> | undefined
+  if (!body || !validBuildTarget(body.target)) {
+    return json({ error: "请选择有效的目标平台" }, 400)
+  }
+  if (coordinator) {
+    const response = await workerRequest(body.target, "/api/jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    if (!response) return json({ error: `${targetLabels[body.target]} 构建机无法连接` }, 503)
+    return new Response(await response.text(), {
+      status: response.status,
+      headers: { "content-type": response.headers.get("content-type") || "application/json" },
+    })
+  }
+  if (body.target !== localTarget) {
+    return json({ error: `此构建机只接受 ${targetLabels[localTarget]} 任务` }, 409)
+  }
+  if (state.jobs.filter(activeJob).length >= 20) {
+    return json({ error: "当前队列已满，请等待已有任务完成" }, 429)
+  }
+  if (!validBranch(body.branch)) return json({ error: "分支名称不合法" }, 400)
+  if (state.remoteBranches.branches.length && !state.remoteBranches.branches.includes(body.branch)) {
+    return json({ error: "请选择 Git 远端当前存在的分支" }, 400)
+  }
+  if (!validBranch(body.baseBranch)) return json({ error: "基础代码分支不合法" }, 400)
+  if (!(await gitState()).branches.includes(body.baseBranch)) {
+    return json({ error: "请选择打包机当前存在的本地基础分支" }, 400)
+  }
+  if (!validVersion(body.version)) return json({ error: "版本号必须符合 SemVer，例如 0.3.11" }, 400)
+  if (body.channel !== "beta" && body.channel !== "prod") {
+    return json({ error: "构建环境仅支持 beta 或 prod" }, 400)
+  }
+
+  const job: Job = {
+    id: `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`,
+    baseBranch: body.baseBranch,
+    branch: body.branch,
+    version: body.version,
+    channel: body.channel,
+    target: body.target,
+    status: "queued",
+    createdAt: new Date().toISOString(),
+    log: "",
+    artifacts: [],
+  }
+  state.jobs.unshift(job)
+  updateJob(job)
+  void processQueue()
+  return json({ job: publicJob(job) }, 202)
+}
+
+async function stopJob(request: Request, id: string) {
+  if (!sameOrigin(request)) return json({ error: "不允许跨站停止任务" }, 403)
+  if (coordinator) await syncWorkers()
+  const job = state.jobs.find((candidate) => candidate.id === id)
+  if (!job) return json({ error: "任务不存在" }, 404)
+  if (coordinator) {
+    const response = await workerRequest(job.target, `/api/jobs/${id}/stop`, { method: "POST" })
+    if (!response) return json({ error: "构建机无法连接，请刷新状态后重试" }, 503)
+    return new Response(await response.text(), {
+      status: response.status, headers: { "content-type": "application/json" },
+    })
+  }
+  if (job.status === "stopped" || job.status === "stopping") return json({ job: publicJob(job) })
+  if (!activeJob(job)) return json({ error: "任务已经结束，不能停止" }, 409)
+  if (job.status === "queued") {
+    job.status = "stopped"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, "用户取消了排队任务，未执行打包。\n")
+    updateJob(job)
+    return json({ job: publicJob(job) })
+  }
+  const control = jobControls.get(id)
+  if (!control) return json({ error: "任务执行状态正在更新，请稍后重试" }, 409)
+  if (control.cleanup) return json({ error: "构建已退出，正在清理工作区，请等待任务结束" }, 409)
+  control.stopped = true
+  job.status = "stopping"
+  appendLog(job, "\n用户请求停止任务，正在终止构建进程及子进程...\n")
+  updateJob(job)
+  control.termination = Promise.allSettled([...control.children].map(terminateTree)).then((results) => {
+    const failures = results.filter((result) => result.status === "rejected")
+    if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "部分进程终止失败")
+  }).catch((error: unknown) => {
+    control.stopped = false
+    control.termination = undefined
+    if (job.status === "stopping") job.status = "running"
+    appendLog(job, `停止失败: ${error instanceof Error ? error.message : String(error)}\n`)
+    updateJob(job)
+    throw error
+  })
+  const failure = await control.termination.then(() => undefined, (error: unknown) => error)
+  if (failure) {
+    // 终止失败时保留运行状态，不释放队列，允许再次停止。
+    return json({ error: "终止进程失败，请检查构建机权限后重试" }, 500)
+  }
+  return json({ job: publicJob(job) }, 202)
+}
+
+async function switchBranch(request: Request) {
+  if (!sameOrigin(request)) return json({ error: "不允许跨站切换分支" }, 403)
+  if (state.processing || state.jobs.some(activeJob)) {
+    return json({ error: "存在运行中或排队中的任务，暂时不能切换分支" }, 409)
+  }
+
+  const body = (await request.json().catch(() => undefined)) as Record<string, unknown> | undefined
+  if (!body || !validBranch(body.branch)) return json({ error: "分支名称不合法" }, 400)
+  const current = await gitState()
+  if (current.dirty) return json({ error: "工作区存在未提交修改，为避免丢失代码，已拒绝切换", git: current }, 409)
+  if (!current.branches.includes(body.branch)) return json({ error: "只能切换到已经存在的本地分支" }, 404)
+
+  const result = await runCommand(["git", "checkout", body.branch])
+  if (result.exitCode !== 0) return json({ error: result.stderr || result.stdout || "切换失败" }, 500)
+  const git = await gitState()
+  sendEvent("git", git)
+  return json({ git })
+}
+
+async function artifactResponse(request: Request, url: URL) {
+  const match = url.pathname.match(/^\/api\/artifacts\/([a-z0-9-]+)\/([^/]+)$/)
+  if (!match) return json({ error: "产物不存在" }, 404)
+  const job = state.jobs.find((candidate) => candidate.id === match[1])
+  const name = decodeURIComponent(match[2])
+  if (!job?.artifacts.some((artifact) => artifact.name === name)) return json({ error: "产物不存在" }, 404)
+  if (coordinator) {
+    const worker = workers.find((candidate) => candidate.target === job.target)
+    if (!worker) return json({ error: "找不到对应构建机" }, 502)
+    const headers = new Headers()
+    const range = request.headers.get("range")
+    if (range) headers.set("range", range)
+    const response = await fetch(`${worker.url}${url.pathname}`, {
+      method: request.method,
+      headers,
+      signal: request.signal,
+    }).catch(() => undefined)
+    if (!response) return json({ error: "无法从构建机读取产物" }, 502)
+    if (!response.ok && response.status !== 416) {
+      return json({ error: "无法从构建机读取产物" }, response.status)
+    }
+    const responseHeaders = new Headers()
+    ;["content-type", "content-disposition", "content-length", "content-range", "accept-ranges", "etag"].forEach(
+      (name) => {
+        const value = response.headers.get(name)
+        if (value) responseHeaders.set(name, value)
+      },
+    )
+    return new Response(response.body, {
+      status: response.status,
+      headers: responseHeaders,
+    })
+  }
+  const file = Bun.file(path.join(artifactsRoot, job.id, name))
+  if (!file.size) return json({ error: "产物文件不存在" }, 404)
+  const headers = new Headers({
+    "content-type": file.type || "application/octet-stream",
+    "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+    "accept-ranges": "bytes",
+    etag: `"${job.id}-${file.size}"`,
+  })
+  const range = request.headers.get("range")
+  if (!range) {
+    headers.set("content-length", String(file.size))
+    return new Response(request.method === "HEAD" ? null : file, { headers })
+  }
+
+  const parsed = range.match(/^bytes=(\d*)-(\d*)$/)
+  if (!parsed || (!parsed[1] && !parsed[2])) {
+    headers.set("content-range", `bytes */${file.size}`)
+    return new Response(null, { status: 416, headers })
+  }
+  const start = parsed[1] ? Number(parsed[1]) : Math.max(file.size - Number(parsed[2]), 0)
+  const end = parsed[1] && parsed[2] ? Math.min(Number(parsed[2]), file.size - 1) : file.size - 1
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start > end || start >= file.size) {
+    headers.set("content-range", `bytes */${file.size}`)
+    return new Response(null, { status: 416, headers })
+  }
+  headers.set("content-length", String(end - start + 1))
+  headers.set("content-range", `bytes ${start}-${end}/${file.size}`)
+  return new Response(request.method === "HEAD" ? null : file.slice(start, end + 1), { status: 206, headers })
+}
+
+const port = Number(Bun.env.BUILD_SERVICE_PORT || 8787)
+const hostname = Bun.env.BUILD_SERVICE_HOST || "0.0.0.0"
+if (coordinator) {
+  await syncWorkers()
+  setInterval(() => void syncWorkers(), 1_000)
+} else {
+  await loadJobs()
+  await purgeExpiredJobs()
+  setInterval(() => void purgeExpiredJobs(), 60 * 60 * 1000)
+}
+const server = Bun.serve({
+  port,
+  hostname,
+  idleTimeout: 255,
+  async fetch(request) {
+    const url = new URL(request.url)
+    if (request.method === "GET" && url.pathname === "/") {
+      return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } })
+    }
+    if (request.method === "GET" && url.pathname === "/api/state") {
+      return json({ jobs: state.jobs.map(publicJob), processing: state.processing, coordinator })
+    }
+    if (request.method === "GET" && url.pathname === "/api/targets") {
+      return json({
+        targets: (coordinator ? workers.map((worker) => worker.target) : [localTarget]).map((target) => ({
+          value: target,
+          label: targetLabels[target],
+        })),
+      })
+    }
+    if (request.method === "GET" && url.pathname === "/api/git") {
+      if (!coordinator) {
+        if (url.searchParams.get("refresh") !== "1") return json({ git: await gitState() })
+        if (state.processing || state.jobs.some(activeJob)) {
+          return json({ error: "存在运行中或排队中的任务，暂时不能同步本地分支" }, 409)
+        }
+        const sync = await syncLocalBranches()
+        if ("error" in sync) return json(sync, 502)
+        return json({ git: await gitState(), sync })
+      }
+      const target = url.searchParams.get("target")
+      if (!validBuildTarget(target)) return json({ error: "请选择目标平台" }, 400)
+      const response = await workerRequest(target, url.searchParams.get("refresh") === "1" ? "/api/git?refresh=1" : "/api/git")
+      if (!response) return json({ error: `${targetLabels[target]} 构建机无法连接` }, 503)
+      return new Response(await response.text(), { status: response.status, headers: { "content-type": "application/json" } })
+    }
+    if (request.method === "GET" && url.pathname === "/api/git/remote-branches") {
+      const result = await remoteBranches(url.searchParams.get("refresh") === "1")
+      if ("error" in result) return json(result, result.error.includes("超时") ? 504 : 502)
+      return json({ ...result, repository: sourceRepository })
+    }
+    if (request.method === "POST" && url.pathname === "/api/git/switch") {
+      if (!coordinator) return switchBranch(request)
+      const target = url.searchParams.get("target")
+      if (!validBuildTarget(target)) return json({ error: "请选择目标平台" }, 400)
+      const response = await workerRequest(target, "/api/git/switch", {
+        method: "POST",
+        headers: { "content-type": request.headers.get("content-type") || "application/json" },
+        body: await request.text(),
+      })
+      if (!response) return json({ error: `${targetLabels[target]} 构建机无法连接` }, 503)
+      return new Response(await response.text(), { status: response.status, headers: { "content-type": "application/json" } })
+    }
+    if (request.method === "POST" && url.pathname === "/api/jobs") return createJob(request)
+    const stopMatch = url.pathname.match(/^\/api\/jobs\/([a-z0-9-]+)\/stop$/)
+    if (request.method === "POST" && stopMatch) return stopJob(request, stopMatch[1]!)
+    if (request.method === "GET" && url.pathname === "/api/events") {
+      let controller: ReadableStreamDefaultController<Uint8Array>
+      const stream = new ReadableStream<Uint8Array>({
+        start(value) {
+          controller = value
+          state.subscribers.add(value)
+          value.enqueue(encoder.encode(`event: snapshot\ndata: ${JSON.stringify(state.jobs.map(publicJob))}\n\n`))
+        },
+        cancel() {
+          state.subscribers.delete(controller)
+        },
+      })
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        },
+      })
+    }
+    if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/api/artifacts/")) {
+      return artifactResponse(request, url)
+    }
+    return json({ error: "Not Found" }, 404)
+  },
+})
+
+const addresses = Object.values(networkInterfaces())
+  .flat()
+  .filter((address) => address?.family === "IPv4" && !address.internal)
+  .map((address) => `http://${address?.address}:${server.port}`)
+
+console.log(`Octo 内网打包服务已启动（${coordinator ? "主控" : targetLabels[localTarget]}）：`)
+console.log(`  本机：http://127.0.0.1:${server.port}`)
+addresses.forEach((address) => console.log(`  内网：${address}`))

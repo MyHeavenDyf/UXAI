@@ -650,6 +650,73 @@ describe("session.overflow.exceedsContext", () => {
   })
 })
 
+describe("session.compaction.targetBudget", () => {
+  const baseCfg = Config.Info.zod.parse({}) as Config.Info
+  const wideModel = createModel({ context: 100_000, output: 32_000 })
+
+  test("keeps default budgets when fixed costs are small", () => {
+    const budget = SessionCompaction.targetBudget({
+      cfg: baseCfg,
+      model: wideModel,
+      contextTokens: { system: 4_000, tools: 6_000, usable: 85_000 },
+    })
+    expect(budget.target).toBe(55_250)
+    expect(budget.fixed).toBe(10_000)
+    expect(budget.available).toBe(45_250)
+    expect(budget.tailBudget).toBe(SessionCompaction.preserveRecentBudget({ cfg: baseCfg, model: wideModel }))
+    expect(budget.summaryBudget).toBe(6_000)
+    expect(budget.fallback).toBe(false)
+  })
+
+  test("shrinks the tail budget when fixed costs eat the target", () => {
+    const smallModel = createModel({ context: 30_000, output: 4_000 })
+    // usable 25.5k → 目标 16.575k;fixed 12k → 可动 4.575k → 保尾 ≤ floor(4.575k×0.75)=3431
+    const budget = SessionCompaction.targetBudget({
+      cfg: baseCfg,
+      model: smallModel,
+      contextTokens: { system: 12_000, tools: 0, usable: 25_500 },
+    })
+    expect(budget.target).toBe(16_575)
+    expect(budget.available).toBe(4_575)
+    expect(budget.tailBudget).toBe(3_431)
+    expect(budget.summaryBudget).toBe(2_000)
+    expect(budget.fallback).toBe(false)
+  })
+
+  test("falls back to minimum budgets on small-context models", () => {
+    const smallModel = createModel({ context: 20_000, output: 4_000 })
+    // usable 17k → 目标 11.05k;fixed 10k → 可动 1.05k < 4k(保尾 2k + 摘要 2k)
+    const budget = SessionCompaction.targetBudget({
+      cfg: baseCfg,
+      model: smallModel,
+      contextTokens: { system: 6_000, tools: 4_000, usable: 17_000 },
+    })
+    expect(budget.available).toBe(1_050)
+    expect(budget.tailBudget).toBe(2_000)
+    expect(budget.summaryBudget).toBe(2_000)
+    expect(budget.fallback).toBe(true)
+  })
+
+  test("treats fixed costs as zero without contextTokens", () => {
+    const budget = SessionCompaction.targetBudget({ cfg: baseCfg, model: wideModel })
+    expect(budget.fixed).toBe(0)
+    expect(budget.target).toBe(55_250)
+    expect(budget.tailBudget).toBe(15_000)
+    expect(budget.summaryBudget).toBe(6_000)
+  })
+
+  test("honors an explicit preserve_recent_tokens config", () => {
+    const cfg100 = { ...baseCfg, compaction: { preserve_recent_tokens: 100 } } as Config.Info
+    const budget = SessionCompaction.targetBudget({
+      cfg: cfg100,
+      model: wideModel,
+      contextTokens: { system: 40_000, tools: 0, usable: 85_000 },
+    })
+    expect(budget.tailBudget).toBe(100)
+    expect(budget.summaryBudget).toBe(6_000)
+  })
+})
+
 describe("session.compaction.create", () => {
   it.live(
     "creates a compaction user message and part",
@@ -1210,6 +1277,108 @@ describe("session.compaction.process", () => {
     })
   })
 
+  test("caps the retained tail to the compaction target when fixed costs are large", async () => {
+    const stub = llm()
+    stub.push(reply("summary-a"))
+    stub.push(reply("summary-b"))
+    await using tmp = await tmpdir({ git: true })
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // 小模型:usable 25.5k,目标线 16.575k;fixed 12k → 保尾预算从默认 6.375k 收紧到 3.431k
+        const narrow = ProviderTest.fake({ model: createModel({ context: 30_000, output: 4_000 }) })
+        const capped = await svc.create({})
+        const users: MessageV2.User[] = []
+        for (let i = 0; i < 8; i++) users.push(await user(capped.id, `turn-${i} ${"x".repeat(9_000)}`))
+        await SessionCompaction.create({ sessionID: capped.id, agent: "build", model: ref, auto: false })
+
+        const plain = await svc.create({})
+        const plainUsers: MessageV2.User[] = []
+        for (let i = 0; i < 8; i++) plainUsers.push(await user(plain.id, `turn-${i} ${"x".repeat(9_000)}`))
+        await SessionCompaction.create({ sessionID: plain.id, agent: "build", model: ref, auto: false })
+
+        const rt = liveRuntime(stub.layer, narrow)
+        try {
+          const cappedMsgs = await svc.messages({ sessionID: capped.id })
+          await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: cappedMsgs.at(-1)!.info.id,
+                messages: cappedMsgs,
+                sessionID: capped.id,
+                auto: false,
+                contextTokens: { system: 12_000, tools: 0, usable: 25_500 },
+              }),
+            ),
+          )
+          const plainMsgs = await svc.messages({ sessionID: plain.id })
+          await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: plainMsgs.at(-1)!.info.id,
+                messages: plainMsgs,
+                sessionID: plain.id,
+                auto: false,
+              }),
+            ),
+          )
+
+          // 目标线下保尾只留最新 1 轮;无 fixed 信息(既有行为)保尾 2 轮 —— 证明目标线收紧了保尾
+          const cappedPart = await lastCompactionPart(capped.id)
+          expect(cappedPart?.type).toBe("compaction")
+          expect(cappedPart?.tail_start_id).toBe(users[7]?.id)
+          const plainPart = await lastCompactionPart(plain.id)
+          expect(plainPart?.type).toBe("compaction")
+          expect(plainPart?.tail_start_id).toBe(plainUsers[6]?.id)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("retries an over-budget summary and stores the shortened one", async () => {
+    const stub = llm()
+    const prompts: string[] = []
+    stub.push(reply("z".repeat(36_000), (input) => prompts.push(JSON.stringify(input.messages))))
+    stub.push(reply("concise summary", (input) => prompts.push(JSON.stringify(input.messages))))
+    await using tmp = await tmpdir({ git: true })
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        for (let i = 0; i < 16; i++) await user(session.id, `turn-${i} ${"y".repeat(6_000)}`)
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const rt = liveRuntime(stub.layer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: msgs.at(-1)!.info.id,
+                messages: msgs,
+                sessionID: session.id,
+                auto: false,
+              }),
+            ),
+          )
+
+          // 首次摘要带预算指令、超预算(~18k tokens > 6k×1.25)后触发一次收紧重试
+          expect(prompts).toHaveLength(2)
+          expect(prompts[0]).toContain("under ~6000 tokens")
+          expect(prompts[1]).toContain("over the ~6000-token budget")
+          const stored = (await svc.messages({ sessionID: session.id })).find(
+            (msg) => msg.info.role === "assistant" && msg.info.summary,
+          )
+          expect(stored?.parts.some((part) => part.type === "text" && part.text.includes("concise summary"))).toBe(true)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
   test("keeps the latest turn out of the summary even when it is large", async () => {
     await using tmp = await tmpdir({ git: true })
     const stub = llm()
@@ -1428,13 +1597,16 @@ describe("session.compaction.process", () => {
           )
 
           const all = await svc.messages({ sessionID: session.id })
-          const part = await lastCompactionPart(session.id)
+          const part = all
+            .find((item) => item.info.id === parent)
+            ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
           const toolPart = all
             .find((item) => item.info.id === asst.id)
             ?.parts.find((item): item is MessageV2.ToolPart => item.type === "tool")
 
           // 巨型工具输出(75k tokens)超过模型缩放阈值(usable 85k × 0.05 ≈ 4.25k tokens):
-          // 锚点落在其轮次,输出按既有 time.compacted 契约从模型上下文清除
+          // 锚点落在其轮次,输出按既有 time.compacted 契约从模型上下文清除;
+          // skill 输出额外落一条"分段重读"提示(消息列表因此多一条合成 user 消息)
           expect(result).toBe("continue")
           expect(part?.type).toBe("compaction")
           expect(part?.tail_start_id).toBe(keep.id)
@@ -1462,10 +1634,323 @@ describe("session.compaction.process", () => {
             ),
           )
           expect(result2).toBe("continue")
-          expect(await lastCompactionPart(session.id)).toMatchObject({
+          const part2 = (await svc.messages({ sessionID: session.id }))
+            .find((item) => item.info.id === parent2)
+            ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
+          expect(part2).toMatchObject({
             type: "compaction",
             tail_start_id: keep.id,
           })
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("resolves a fits-budget no-op by clearing oversized tool outputs instead of stopping", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const ask = await user(session.id, "evaluate the design")
+        const asst = await assistant(session.id, ask.id, tmp.path)
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: asst.id,
+          sessionID: session.id,
+          type: "tool",
+          callID: `call-${asst.id}`,
+          tool: "skill",
+          state: {
+            status: "completed",
+            input: { name: "design" },
+            output: "y".repeat(300_000),
+            title: "Loaded skill: design",
+            metadata: { name: "design", dir: "/skills/design" },
+            time: { start: Date.now(), end: Date.now() },
+          },
+        })
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true, overflow: true })
+
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: true, overflow: true }),
+            ),
+          )
+
+          const all = await svc.messages({ sessionID: session.id })
+          const part = all
+            .find((item) => item.info.id === parent)
+            ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
+          const toolPart = all
+            .find((item) => item.info.id === asst.id)
+            ?.parts.find((item): item is MessageV2.ToolPart => item.type === "tool")
+          const summary = all.find((item) => item.info.role === "assistant" && item.info.summary)
+
+          // fits-budget no-op 不再终止:巨型 skill 输出直接清除,锚点指向历史首条(全量保留)
+          expect(result).toBe("continue")
+          expect(part?.type).toBe("compaction")
+          expect(part?.tail_start_id).toBe(ask.id)
+          expect(
+            toolPart?.state.status === "completed" ? toolPart.state.time.compacted : undefined,
+          ).toBeGreaterThan(0)
+
+          // 合成摘要落盘(无 LLM 摘要请求),不报错
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") {
+            expect(summary.info.error).toBeUndefined()
+            expect(summary.info.finish).toBe("stop")
+          }
+          expect(
+            summary?.parts.some((p) => p.type === "text" && p.text.includes("Cleared 1 oversized tool output")),
+          ).toBe(true)
+
+          // skill 分段重读提示携带 name/dir;pending 原件保留不 replay;自动续跑消息存在
+          expect(
+            all.some(
+              (item) =>
+                item.info.role === "user" &&
+                item.parts.some(
+                  (p) =>
+                    p.type === "text" &&
+                    p.metadata?.["compaction_skill_cleared"] === true &&
+                    p.text.includes("directory: /skills/design"),
+                ),
+            ),
+          ).toBe(true)
+          expect(
+            all.some(
+              (item) =>
+                item.info.role === "user" &&
+                item.parts.some((p) => p.type === "text" && p.metadata?.["compaction_replay"] === true),
+            ),
+          ).toBe(false)
+          expect(all.at(-1)?.parts.some((p) => p.type === "text" && p.metadata?.["compaction_continue"] === true)).toBe(
+            true,
+          )
+
+          // 渲染:占位符生效,原始用户消息保留在上下文
+          const filtered = MessageV2.filterCompacted(MessageV2.stream(session.id))
+          expect(filtered.map((m) => m.info.id)).toContain(ask.id)
+          const rendered = JSON.stringify(
+            await MessageV2.toModelMessages(filtered, createModel({ context: 100_000, output: 32_000 })),
+          )
+          expect(rendered).toContain("[Old tool result content cleared]")
+          expect(rendered).not.toContain("y".repeat(50))
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("keeps the honest no-op rejection when fixed costs exceed usable even after clearing", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const ask = await user(session.id, "evaluate the design")
+        const asst = await assistant(session.id, ask.id, tmp.path)
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: asst.id,
+          sessionID: session.id,
+          type: "tool",
+          callID: `call-${asst.id}`,
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: {},
+            output: "y".repeat(300_000),
+            title: "done",
+            metadata: {},
+            time: { start: Date.now(), end: Date.now() },
+          },
+        })
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        const rt = runtime("continue", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: parent!,
+                messages: msgs,
+                sessionID: session.id,
+                auto: false,
+                contextTokens: { system: 82_000, tools: 3_000, usable: 85_000 },
+              }),
+            ),
+          )
+
+          // 清除后投影仍放不下(固定成本 ≥ usable):真硬顶,保留诚实拒绝
+          expect(result).toBe("stop")
+          const summary = (await svc.messages({ sessionID: session.id })).find(
+            (msg) => msg.info.role === "assistant" && msg.info.summary,
+          )
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") {
+            expect(JSON.stringify(summary.info.error)).toContain("fits entirely within the preserved-recent budget")
+          }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("clips an oversized pending message on overflow replay to the replay budget", async () => {
+    const stub = llm()
+    stub.push(reply("summary"))
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, `huge ${"x".repeat(400_000)}`)
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true, overflow: true })
+
+        const rt = liveRuntime(stub.layer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: true, overflow: true }),
+            ),
+          )
+
+          expect(result).toBe("continue")
+          const replayText = (await svc.messages({ sessionID: session.id }))
+            .find(
+              (item) =>
+                item.info.role === "user" &&
+                item.parts.some((p) => p.type === "text" && p.metadata?.["compaction_replay"] === true),
+            )
+            ?.parts.find((p): p is MessageV2.TextPart => p.type === "text")
+          // 回填保真任务意图(保留首尾),但不再 verbatim 搬回巨型正文
+          expect(replayText?.text.startsWith("huge ")).toBe(true)
+          expect(replayText?.text).toContain("clipped by compaction replay")
+          expect(replayText?.text).toContain("characters omitted")
+          expect(replayText?.text.length).toBeLessThan(120_000)
+          expect(Token.estimate(replayText?.text ?? "")).toBeLessThan(26_000)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("replaces a skill doc pending message with a reread reference on replay", async () => {
+    const stub = llm()
+    stub.push(reply("summary"))
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const doc = ["# Skill: my-skill", "", "Skill directory (absolute path): /skills/my-skill", "", "d".repeat(80_000)].join(
+          "\n",
+        )
+        await user(session.id, doc)
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true, overflow: true })
+
+        const rt = liveRuntime(stub.layer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: true, overflow: true }),
+            ),
+          )
+
+          expect(result).toBe("continue")
+          const replayText = (await svc.messages({ sessionID: session.id }))
+            .find(
+              (item) =>
+                item.info.role === "user" &&
+                item.parts.some((p) => p.type === "text" && p.metadata?.["compaction_replay"] === true),
+            )
+            ?.parts.find((p): p is MessageV2.TextPart => p.type === "text")
+          // skill 文档整篇替换为分段重读引用,绝不 verbatim 回填
+          expect(replayText?.text).toContain("Skill my-skill document omitted from replay")
+          expect(replayText?.text).toContain("directory: /skills/my-skill")
+          expect(replayText?.text).not.toContain("d".repeat(1_000))
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("falls back to clearing oversized tool outputs when the summary request keeps overflowing", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const old = await user(session.id, `old ${"x".repeat(80_000)}`)
+        const keep = await user(session.id, "evaluate")
+        const asst = await assistant(session.id, keep.id, tmp.path)
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: asst.id,
+          sessionID: session.id,
+          type: "tool",
+          callID: `call-${asst.id}`,
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: {},
+            output: "y".repeat(300_000),
+            title: "done",
+            metadata: {},
+            time: { start: Date.now(), end: Date.now() },
+          },
+        })
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: false })
+
+        // 摘要请求恒被拒(shrink 梯子耗尽)→ 最后手段:纯裁剪出口而非终止
+        const rt = runtime("compact", Plugin.defaultLayer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: false }),
+            ),
+          )
+
+          const all = await svc.messages({ sessionID: session.id })
+          const part = all
+            .find((item) => item.info.id === parent)
+            ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
+          const toolPart = all
+            .find((item) => item.info.id === asst.id)
+            ?.parts.find((item): item is MessageV2.ToolPart => item.type === "tool")
+          const summary = all.find((item) => item.info.role === "assistant" && item.info.summary)
+
+          expect(result).toBe("continue")
+          expect(part?.type).toBe("compaction")
+          expect(part?.tail_start_id).toBe(old.id)
+          expect(
+            toolPart?.state.status === "completed" ? toolPart.state.time.compacted : undefined,
+          ).toBeGreaterThan(0)
+          expect(summary?.info.role).toBe("assistant")
+          if (summary?.info.role === "assistant") expect(summary.info.error).toBeUndefined()
+          expect(
+            summary?.parts.some((p) => p.type === "text" && p.text.includes("Cleared 1 oversized tool output")),
+          ).toBe(true)
         } finally {
           await rt.dispose()
         }
