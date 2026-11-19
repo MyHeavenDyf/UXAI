@@ -3,7 +3,7 @@
  * 会删掉新进程刚写的服务记录;之后 open() 复用服务时也不补写,verify 就再也找不到这个服务。
  */
 import { afterAll, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
 
@@ -25,6 +25,8 @@ writeFileSync(join(cliDir, "turbo-ui-cli-service.js"), FAKE_CLI)
 
 const sessionDir = join(root, "work", ".octo", "s1")
 mkdirSync(join(sessionDir, "outputs", "alpha", "packages", "portal"), { recursive: true })
+// 本机工程一定有依赖链接,没有会被判成未接手的导入工程(SPEC-DES-009 §3.2)
+symlinkSync(depsDir, join(sessionDir, "outputs", "alpha", "node_modules"), "dir")
 writeFileSync(
   join(sessionDir, ".octo-fastui.json"),
   JSON.stringify({ projectDir: join(sessionDir, "outputs", "alpha"), envDir, depsDir, nodeBin }),
