@@ -519,9 +519,9 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
         form.append(
           "file",
           new Blob([new Uint8Array(await readFile(exported.output))], { type: "application/zip" }),
-          `${Array.from((info.title || "session").replace(/[<>:"/\\|?*]/g, "-").trim()).slice(0, 50).join("").trim() || "session"}.zip`,
+          `${Array.from((info.title || "session").replace(/[<>:"/\\|?*]/g, "-").trim()).slice(0, 10).join("").trim() || "session"}.zip`,
         )
-        form.append("description", info.title || "")
+        form.append("description", Array.from(info.title || "").slice(0, 10).join(""))
         console.info("[octo:share] upload request", JSON.stringify({
           sessionID: input.sessionID,
           uploadURL: `${new URL(uploadURL!).origin}${new URL(uploadURL!).pathname}`,
