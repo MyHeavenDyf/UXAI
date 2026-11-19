@@ -107,6 +107,7 @@ export function InsightAddonMenu(props: {
   return <>
     <AddonMenu
       items={["skills", "assetLibrary", "addAttachment", "insightMcp"]}
+      strictAssetLibraryMessages
       cancelOnDispose skillsLoading={props.skillsLoading}
       skillConfig={{ panel: { octo_make: props.skills.platform, common: props.skills.custom } }}
       onSkillsOpen={props.loadSkills} selections={selections()}
