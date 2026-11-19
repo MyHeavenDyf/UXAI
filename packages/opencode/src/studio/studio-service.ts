@@ -56,7 +56,7 @@ import {
   enqueueStudioMediaThumbnails,
   prepareStudioThumbnailMedia,
 } from "./studio-media-thumbnail"
-import { generationHistorySnapshot, materializeStudioGeneration } from "./studio-history-service"
+import { generationHistorySnapshot, materializeStudioGeneration, studioCustomSizeFields, studioFallbackDetailPrompt } from "./studio-history-service"
 
 type StudioProvider = "jimeng" | "internel"
 const STUDIO_GENERATION_POLL_TIMEOUT_MS = 60 * 60_000
@@ -167,6 +167,8 @@ export type StudioGenerationResult = {
   styleModel?: string
   aspectRatio: string
   isCustom?: boolean
+  width?: number
+  height?: number
   videoMode?: "text" | "first_last_frame"
   duration?: string
   videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -253,6 +255,9 @@ export type StudioGenerationAccepted = Pick<
   | "model"
   | "styleModel"
   | "aspectRatio"
+  | "isCustom"
+  | "width"
+  | "height"
   | "taskId"
   | "images"
   | "progress"
@@ -1943,7 +1948,9 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     capability: record.capability,
     prompt: generationPrompt(data.input),
     displayPrompt: data.input.displayPrompt,
-    detailPrompt: data.input.detailPrompt,
+    // 与会话视图（turns.ts）同口径：detailPrompt 缺失且无 displayPrompt 时回退到用户提示词，
+    // 智能重绘/扩图在「我的资产」详情才有与会话一致的提示文案。
+    detailPrompt: studioFallbackDetailPrompt(data.input),
     detailTitle: data.input.detailTitle,
     provider: record.provider,
     model: result?.model ?? data.task?.model ?? data.input.styleModel ?? "internel",
@@ -1951,6 +1958,10 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     // 编辑类能力与工具输入同口径，不携带 styleModel。
     styleModel: isEditorGenerationCapability(record.capability) ? undefined : data.input.styleModel,
     aspectRatio: result?.aspectRatio ?? data.input.aspectRatio ?? "3:4",
+    // 自定义尺寸信息不进 result 列（老行没有），从 request.input 按会话视图同口径推导，
+    // 让「我的资产」详情的比例（自定义）与分辨率（自定义像素）和会话一致；
+    // 新行的 result 已带同值字段，覆盖后仍一致。
+    ...studioCustomSizeFields(data.input),
     taskId: result?.taskId ?? data.task?.taskId ?? record.provider_task_id ?? undefined,
     images: result?.images ?? [],
     progress: record.progress,
@@ -2034,6 +2045,9 @@ function buildGenerationResult(record: StudioGenerationRecord, output: ImageGene
     taskId: output.taskId,
     model: output.model,
     aspectRatio: input.aspectRatio ?? "3:4",
+    // 持久化自定义尺寸信息：历史物化（行内 is_custom/width/height）与会话删除后的
+    // 历史快照回退都读 result，缺失会让「我的资产」详情退回默认比例档。
+    ...studioCustomSizeFields(input),
     ...(input.capability === "video.generate"
       ? {
           videoMode: videoMode(input),

@@ -7370,7 +7370,7 @@ export class History2 extends HeyApiClient {
   /**
    * Snapshot session media to history
    *
-   * Copies a session's media to the history table before session deletion.
+   * Copies a session's media to the history table before session deletion, and re-materializes imported session parts so re-opening a share restores assets deleted from history.
    */
   public snapshot<ThrowOnError extends boolean = false>(
     parameters?: {
