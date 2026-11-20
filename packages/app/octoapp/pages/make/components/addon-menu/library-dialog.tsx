@@ -34,6 +34,7 @@ export interface LibraryDialogProps {
   onConfirm: (selectedFiles: AssetFile[]) => void
   onCancel: () => void
   trackerModule?: string
+  strictMessages?: boolean
 }
 
 function buildAssetSelection(file: AssetFile): MenuSelection {
@@ -135,12 +136,20 @@ function LibraryDialogInner(props: LibraryDialogProps): JSX.Element {
     // jk-j60099994-replace-with-60062650-octoapp-pages-make-addon-menu-library-dialog-1-end
 
     const onMessage = (event: MessageEvent) => {
-      if (tab() === "product") {
+      const payload = event.data as { type?: string; data?: unknown } | null
+      if (!payload?.type) return
+
+      if (props.strictMessages) {
+        if (!allowedOrigin || event.origin !== allowedOrigin) return
+        if (payload.type === "assetsList") {
+          if (!platformIframeRef?.contentWindow || event.source !== platformIframeRef.contentWindow) return
+        } else if (payload.type === "assetPickerChange") {
+          if (!productIframeRef?.contentWindow || event.source !== productIframeRef.contentWindow) return
+        } else return
+      } else if (tab() === "product") {
         if (event.source !== platformIframeRef?.contentWindow && event.source !== productIframeRef?.contentWindow) return
         if (allowedOrigin && event.origin !== allowedOrigin) return
       }
-      const payload = event.data as { type?: string; data?: unknown } | null
-      if (!payload?.type) return
 
       if (payload.type === "assetsList") {
         // 平台资产:data 为 JSON 字符串

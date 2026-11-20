@@ -47,6 +47,7 @@ const ModelList: Component<{
     console.log("[model-select] confirmSelect", x?.id, "isExternal=", x?.isExternal)
     model.set(x ? { modelID: x.id, providerID: x.provider.id } : undefined, {
       recent: true,
+      enable: true,
     })
     props.onSelect()
   }
@@ -287,7 +288,7 @@ export function ModelSelectorPopover(props: {
           setRisk("open", false)
           const pending = risk.pending
           if (pending) {
-            model.set({ modelID: pending.id, providerID: pending.provider.id }, { recent: true })
+            model.set({ modelID: pending.id, providerID: pending.provider.id }, { recent: true, enable: true })
             props.onModelSelect?.({ modelId: pending.id, providerId: pending.provider.id, isExternal: true })
           }
           setRisk("pending", undefined)
@@ -348,7 +349,7 @@ export const DialogSelectModel: Component<{ provider?: string; model?: ModelStat
           setRisk("open", false)
           const pending = risk.pending
           if (pending) {
-            model.set({ modelID: pending.id, providerID: pending.provider.id }, { recent: true })
+            model.set({ modelID: pending.id, providerID: pending.provider.id }, { recent: true, enable: true })
           }
           setRisk("pending", undefined)
           dialog.close()

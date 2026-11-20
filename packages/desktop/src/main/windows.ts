@@ -111,7 +111,8 @@ export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
 
 export function setDockIcon() {
   if (process.platform !== "darwin") return
-  const icon = nativeImage.createFromPath(join(iconsDir(), "dock.png"))
+  const variant = nativeImage.createFromPath(join(iconsDir(), `dock-${nativeTheme.shouldUseDarkColors ? "dark" : "light"}.png`))
+  const icon = variant.isEmpty() ? nativeImage.createFromPath(join(iconsDir(), "dock.png")) : variant
   if (!icon.isEmpty()) app.dock?.setIcon(icon)
 }
 
