@@ -73,6 +73,14 @@ const getBase = (): Configuration => ({
       to: "hui-templates",
       filter: ["**/*"],
     },
+    // icons 必须落在 asar 外的 Contents/Resources/icons：运行时 iconsDir() 在打包态
+    // 读 process.resourcesPath/icons（dock 深浅图标、窗口图标都在这里），files 只会把它打进 asar 内，
+    // 打包态永远找不到。dev 态读 packages/desktop/resources/icons，与本条目同源（copy-icons 生成）。
+    {
+      from: "resources/icons",
+      to: "icons",
+      filter: ["**/*"],
+    },
     // jk-j60099994-replace-with-dyf-bridge-builder-extra-start
     // jk-j60099994-replace-with-dyf-bridge-builder-extra-end
   ],
