@@ -140,6 +140,7 @@ const api: ElectronAPI = {
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
   mcpConfigWrite: (input) => ipcRenderer.invoke("mcp-config-write", input),
   getSkillConfig: () => ipcRenderer.invoke("get-skill-config"),
+  setSkillConfig: (config) => ipcRenderer.invoke("set-skill-config", config),
   // jk-j60099994-replace-with-60062650-preload-index-1-start
   setDesignSystemSkillConfig: (skillName) => ipcRenderer.invoke("set-Design-System-Skill-Config", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end

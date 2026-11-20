@@ -119,10 +119,10 @@ export function SidebarSectionHeader(props: {
 
 // ── NAV_ITEMS config ──
 const DEFAULT_NAV_ITEMS = [
-  { key: "design_system", label: "设计系统", Icon: IconDesignSystem, IconActive: IconDesignSystem1, trailingIcon: NavTrailingBetaIcon },
+  { key: "design_system", label: "设计系统", Icon: IconDesignSystem, IconActive: IconDesignSystem1 /*, trailingIcon: NavTrailingBetaIcon */ },
   { key: "skill_market", label: "技能库", Icon: IconSkill, IconActive: IconSkill1 },
   { key: "knowledge_base", label: "资产库", Icon: IconAsset, IconActive: IconAsset1 },
-  { key: "best_practice", label: "优秀实践", Icon: IconPractice, IconActive: IconPractice1, trailingIcon: NavTrailingIcon },
+  { key: "best_practice", label: "优秀实践", Icon: IconPractice, IconActive: IconPractice1 /*, trailingIcon: NavTrailingIcon */ },
 ] as const
 
 const NAV_TARGET: Record<string, "skills" | "assets" | "design_system" | "best_practices"> = {
