@@ -1460,24 +1460,24 @@ export const layer: Layer.Layer<
       })
 
       if (result === "continue" && input.auto) {
-        if (replay) {
-          // replay 预算:严格不超过压缩后剩余空间(usable − 固定成本 − 保尾 − 摘要投影
-          // − 余量),并与保尾同口径(usable×25%)封顶;不再用固定下限把预算抬到剩余
-          // 空间之上 —— 空间不足时预算收缩为 0,保真由逐 part 省略标记兜底。
-          const replayBudget = input.contextTokens
-            ? Math.max(
-                0,
-                Math.min(
-                  Math.floor(input.contextTokens.usable * REPLAY_BUDGET_SHARE),
-                  input.contextTokens.usable -
-                    input.contextTokens.system -
-                    input.contextTokens.tools -
-                    tailFloorTokens -
-                    summaryFloorEstimate -
-                    floorMargin,
-                ),
-              )
-            : Math.floor(usable({ cfg, model }) * REPLAY_BUDGET_SHARE)
+        // replay 预算:严格不超过压缩后剩余空间(usable − 固定成本 − 保尾 − 摘要投影
+        // − 余量),并与保尾同口径(usable×25%)封顶;预算 ≤ 0 时严格不回填 —— pending
+        // 请求已按 pending 指令折叠进摘要,改由续跑消息驱动继续,避免落一条空回填消息。
+        const replayBudget = input.contextTokens
+          ? Math.max(
+              0,
+              Math.min(
+                Math.floor(input.contextTokens.usable * REPLAY_BUDGET_SHARE),
+                input.contextTokens.usable -
+                  input.contextTokens.system -
+                  input.contextTokens.tools -
+                  tailFloorTokens -
+                  summaryFloorEstimate -
+                  floorMargin,
+              ),
+            )
+          : Math.floor(usable({ cfg, model }) * REPLAY_BUDGET_SHARE)
+        if (replay && replayBudget > 0) {
           const original = replay.info
           const replayMsg = yield* session.updateMessage({
             id: MessageID.ascending(),
@@ -1490,14 +1490,16 @@ export const layer: Layer.Layer<
             tools: original.tools,
             system: original.system,
           })
-          // 多个 text part 共享总预算:逐 part 扣减,防止各按全额回填把 N 份预算搬回
-          // 上下文、超出压缩后剩余容量(clipReplayText 对 ≤0 预算回落到 400 字符兜底)。
+          // 多个 part 严格共享总预算:写入前校验结果体积,放不进剩余预算立即停止写入
+          // —— 预算耗尽后不再写入任何内容(含媒体引用行与省略标记),回填总量 ≤ 预算。
           let replayRemaining = replayBudget
           for (const part of replay.parts) {
             if (part.type === "compaction") continue
             if (part.type === "text") {
               const clipped = replayTextPart(part, replayRemaining)
-              replayRemaining -= Token.estimate(clipped.text)
+              const size = Token.estimate(clipped.text)
+              if (size > replayRemaining) break
+              replayRemaining -= size
               yield* session.updatePart({
                 ...clipped,
                 id: PartID.ascending(),
@@ -1506,11 +1508,14 @@ export const layer: Layer.Layer<
               })
               continue
             }
-            // 媒体引用行同样计入共享预算(回填的每一份内容都消耗剩余空间)
+            // 媒体引用行同样计入共享预算,放不进剩余预算即停止写入
+            if (replayRemaining <= 0) break
             let replayPart
             if (part.type === "file" && MessageV2.isMedia(part.mime)) {
               const text = `[Attached ${part.mime}: ${part.filename ?? "file"}]`
-              replayRemaining -= Token.estimate(text)
+              const size = Token.estimate(text)
+              if (size > replayRemaining) break
+              replayRemaining -= size
               replayPart = { type: "text" as const, text, synthetic: true, metadata: { compaction_replay: true } }
             } else replayPart = part
             yield* session.updatePart({
@@ -1522,7 +1527,7 @@ export const layer: Layer.Layer<
           }
         }
 
-        if (!replay) yield* writeContinueMessage()
+        if (!replay || replayBudget <= 0) yield* writeContinueMessage()
       }
 
       if (result === "continue") {

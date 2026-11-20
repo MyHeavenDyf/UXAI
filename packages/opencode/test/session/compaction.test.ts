@@ -2193,7 +2193,7 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("caps replay strictly to the remaining space across parts when context tokens are tight", async () => {
+  test("caps replay strictly to the remaining space and stops writing once the budget is exhausted", async () => {
     const stub = llm()
     stub.push(reply("summary"))
     await using tmp = await tmpdir()
@@ -2232,9 +2232,9 @@ describe("session.compaction.process", () => {
                 sessionID: session.id,
                 auto: true,
                 overflow: true,
-                // 固定成本 45k + 保尾 0(空尾折叠)+ 摘要投影 2k + 余量 ~3.8k → 剩余仅 ~3.6k:
-                // 回填合计必须落进这一小份剩余空间,而不是 3 part 各按全额
-                contextTokens: { system: 40_000, tools: 5_000, usable: 54_400 },
+                // 固定成本 42k + 保尾 0(空尾折叠)+ 摘要投影 2k + 余量 → 剩余仅 ~6.9k:
+                // 回填合计必须 ≤ 这份剩余空间,且预算耗尽后严格停止写入(不放任何标记)
+                contextTokens: { system: 37_000, tools: 5_000, usable: 54_400 },
               }),
             ),
           )
@@ -2246,12 +2246,14 @@ describe("session.compaction.process", () => {
               item.parts.some((p) => p.type === "text" && p.metadata?.["compaction_replay"] === true),
           )
           const texts = replayMsg?.parts.filter((p): p is MessageV2.TextPart => p.type === "text") ?? []
-          expect(texts.length).toBe(3)
-          // 共享预算 + 空间硬封顶:合计 ~3.6k(旧实现 3 part 各按全额 ≈ 10.9k,必超)
-          expect(Token.estimate(texts.map((p) => p.text).join("\n"))).toBeLessThan(5_000)
-          expect((texts[1]?.text.length ?? 0)).toBeLessThan(texts[0]?.text.length ?? Infinity)
-          // 预算耗尽的 part 回落为极简省略标记,不再按比例裁剪
-          expect(texts.some((p) => p.text.includes("omitted from replay"))).toBe(true)
+          // 严格共享预算:写入前逐 part 校验体积,放不进剩余预算即停止 —— 回填总量恒 ≤ 预算
+          // (旧实现 3 part 各按全额 ≈ 20k,远超剩余空间,必挂)
+          expect(texts.length).toBeGreaterThanOrEqual(1)
+          expect(texts.length).toBeLessThanOrEqual(3)
+          const total = Token.estimate(texts.map((p) => p.text).join("\n"))
+          expect(total).toBeLessThan(7_500)
+          for (let i = 1; i < texts.length; i++)
+            expect((texts[i]?.text.length ?? 0)).toBeLessThan(texts[i - 1]?.text.length ?? Infinity)
         } finally {
           await rt.dispose()
         }
