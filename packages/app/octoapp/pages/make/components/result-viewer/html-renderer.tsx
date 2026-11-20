@@ -1391,7 +1391,7 @@ createEffect(() => {
   })
 
   // 3D 场景强制刷新:Chromium 对 local:// 协议做持久化缓存,即使 ?v=N 变化 + about:blank 中转
-  // 也返回旧 HTML。唯一可靠方案:host fetch 主文档 HTML,把内部相对路径改成绝对 local:// 路径,
+  // 也返回旧 HTML。唯一可靠方案:host fetch 主文档 HTML,把预览资源内联,
   // 创建 blob URL 让 iframe 加载。blob URL 是全新内存对象,绝不被缓存。
   // 仅对 3D subtype + localUrl 生效。
   const isScene3d = () => props.subtype === '3d'
@@ -1404,14 +1404,15 @@ createEffect(() => {
     void (async () => {
       try {
         const resp = await fetch(base, { cache: 'no-cache' })
+        if (!resp.ok) throw new Error('3D preview HTML: HTTP ' + resp.status)
         let html = await resp.text()
         const baseDir = props.filePath!.replace(/[\\/][^\\/]+$/, '').replace(/\\/g, '/')
 
-        // 内联所有 ./preview/ 子资源为 data: URI,完全绕过 Chromium 对 local:// 的缓存。
+        // 内联同目录及旧版 ./preview/ 下的脚本和样式为 data: URI,完全绕过 Chromium 对 local:// 的缓存。
         // 用 base64 编码避免 </script> 截断问题(scene.js 2.7MB 含 </script> 字符串)。
         // 执行顺序:HTML 里 <script> 按出现顺序执行,scene-data.js 在 scene.js 前(原顺序保留)。
-        const scriptRe = /<script\s+src=["'](\.\/?preview\/[^"']+)["']\s*><\/script>/gi
-        const linkRe = /<link\s+[^>]*href=["'](\.\/?preview\/[^"']+)["'][^>]*>/gi
+        const scriptRe = /<script\s+src=["'](\.\/(?:preview\/)?[^/"'?#]+\.(?:js|css)(?:\?[^"']*)?)["']\s*><\/script>/gi
+        const linkRe = /<link\s+[^>]*href=["'](\.\/(?:preview\/)?[^/"'?#]+\.(?:js|css)(?:\?[^"']*)?)["'][^>]*>/gi
         const refs = new Set<string>()
         for (const m of html.matchAll(scriptRe)) refs.add(m[1])
         for (const m of html.matchAll(linkRe)) refs.add(m[1])
@@ -1424,6 +1425,7 @@ createEffect(() => {
           const sep = cleanRef.includes('?') ? '&' : '?'
           const localUrl = `local:///${baseDir}/${cleanRef}${sep}_octo_v=${key}`
           const r = await fetch(localUrl, { cache: 'no-cache' })
+          if (!r.ok) throw new Error('3D preview resource ' + ref + ': HTTP ' + r.status)
           const content = await r.text()
           // base64 编码成 data: URI,避免 </script> 截断
           const b64 = btoa(unescape(encodeURIComponent(content)))
@@ -1470,6 +1472,14 @@ createEffect(() => {
     if (blobUrl()) return blobUrl()
     return iframeSrc()
   })
+
+  const iframeSandbox = () => {
+    const previewUrl = blobUrl()
+    if (previewUrl && effectiveIframeSrc() === previewUrl) return "allow-scripts"
+    return shouldUseExternalUrl()
+      ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+      : "allow-same-origin allow-scripts"
+  }
 
   const [serveKey, setServeKey] = createSignal(0)
 
@@ -2402,7 +2412,7 @@ return (
                 ref={iframeRef}
                 src={effectiveIframeSrc()}
                 {...(iframeSrc() === undefined ? { srcdoc: srcdoc() } : {})}
-                sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
+                sandbox={iframeSandbox()}
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
@@ -2422,7 +2432,7 @@ return (
                 ref={iframeRef}
                 src={effectiveIframeSrc()}
                 {...(iframeSrc() === undefined ? { srcdoc: srcdoc() } : {})}
-                sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
+                sandbox={iframeSandbox()}
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
                 onLoad={handleIframeLoad}

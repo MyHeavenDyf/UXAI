@@ -1,56 +1,46 @@
 import type { SubtypeHandler, Scene3dEditConfig, SubtypeHandlerContext, HistoryTriggerEvent } from './types'
 import type { VersionFile } from '../utils/history-store'
 import defaultHandler from './default'
+import { getDesktopApi } from '../lib/electron-api'
 
-// generate-3d-scene skill 的根目录。
-// 离线构建必须用 skill 自带的 scripts/build-offline.mjs(它会:
-//   ① ensure 共享依赖环境(SCENE3D_ENV_DIR);
-//   ② 在临时目录建 node_modules junction(不在 source 装依赖);
-//   ③ 以 NODE_ENV=production 跑 vite build,把 import.meta.env.DEV 静态替换为 false,
-//     剥掉 dev 分支的 fetch('/__scene3d/save-scene')(host iframe 内该端点 404)。
-// source/scripts/build-offline.mjs 不能直接跑——source 没有 node_modules。
-// NOTE: 本文件跑在浏览器(Vite dev),不能用 process.env;此路径只用在发给 AI 的
-// prompt 文本里,迁移 skill 时改这里即可。
-const SCENE3D_SKILL_ROOT =
-  'D:/appProject/ai-for-gdesign/ai-for-g-cyc/ai-for-design/ai-for-design/skills/generate-3d-scene'
+// Older artifacts predate the embedded metadata.
+const legacySource = 'source/public/scene3d/scene-data.json'
+const legacyHistory = ['./preview/scene-data.js', './preview/.scene3d-preview-baseline.json', legacySource]
 
-// index.3d.html 是 FIXED 离线预览容器,不可直接编辑。
-// 真正源码在 source/ 下(scene-data.json 在 source/public/scene3d/scene-data.json)。
-// 3D 编辑器内置在 iframe 里,SaveService 保存时通过 parent.postMessage(od:scene3d-save)
-// 把 scene3d-changes 文本回传 host;host 包一层源码定位 + 构建指令,发给 AI 回写并重构建。
-function wrapScene3dPrompt(filePath: string, body: string): string {
-  const previewRoot = filePath.replace(/[\\/][^\\/]+$/, '')
-  return [
-    `预览页面源码根目录:${previewRoot}`,
-    '该预览由 generate-3d-scene skill 构建生成,index.3d.html 是离线预览容器,不可直接编辑。',
-    '真正源码在 source/ 目录下(scene-data.json 在 source/public/scene3d/scene-data.json)。',
-    '请按下方 scene3d-changes 修改 scene-data.json,然后重新构建离线页面。',
-    '',
-    body,
-    '',
-    '操作要求:',
-    '1. 逐项核对 before;不匹配时不要覆盖已有修改',
-    '2. path 是路径数组;缺少 after 表示删除,数组整体替换',
-    `3. 把修改应用到 ${previewRoot}/source/public/scene3d/scene-data.json`,
-    '4. 必须用 skill 自带的构建脚本(不要用 source/scripts/build-offline.mjs,它依赖 node_modules 会失败;也不要用 npm run build,那是 dev 构建会保留 fetch 导致 404):',
-    `   node "${SCENE3D_SKILL_ROOT}/scripts/build-offline.mjs" "${previewRoot}"`,
-    '5. 图片 data URI 为资源内容,请保留或落盘后更新引用',
-    '6. 只改 scene-data.json,不要改 index.3d.html',
-  ].join('\n')
+async function readArtifact(filePath: string, api = getDesktopApi(), strict = false) {
+  const buffer = await api?.readFileBuffer?.(filePath, strict)
+  if (!buffer) return
+  const json = new TextDecoder().decode(buffer)
+    .match(/<script type="application\/json" id="octo-design-artifact">([^<]+)<\/script>/)?.[1]
+  if (!json) return
+
+  const artifact = JSON.parse(json)
+  const relativePath = (value: unknown): value is string =>
+    typeof value === 'string' && value.split('/').every((part) =>
+      /^[\w.-]+$/.test(part) && part !== '.' && part !== '..')
+  if (artifact.version !== 1 || artifact.skill !== 'generate-3d-scene' ||
+      !relativePath(artifact.source) || !artifact.source.startsWith('source/') ||
+      !Array.isArray(artifact.history) || !artifact.history.every(relativePath)) {
+    throw new Error('Invalid Design artifact metadata')
+  }
+  return { source: artifact.source as string, history: artifact.history as string[] }
 }
 
-// SaveService 通过 postMessage(od:scene3d-save) 回传的 text 含
-// "请将以下场景修改..." prefix + JSON payload(format: 'scene3d-changes')
 export const scene3dEditConfig: Scene3dEditConfig = {
-  buildPrompt: ({ filePath, payload }) => wrapScene3dPrompt(filePath, payload),
+  async buildPrompt({ filePath, payload }) {
+    const artifact = await readArtifact(filePath)
+    const projectRoot = filePath.replace(/[\\/][^\\/]+$/, '')
+    return [
+      '请使用当前会话可用的 generate-3d-scene skill 回写并重建场景。',
+      '交付根目录：' + projectRoot,
+      '场景数据文件（相对交付根目录）：' + (artifact?.source ?? legacySource),
+      '按 skill 的编辑结果回写流程核对 sourceId 和 before，再从当前实际安装的 skill 目录运行统一离线构建入口。',
+      '保留冲突中的现有修改。不要直接修改生成的 HTML 或 JS。',
+      '',
+      payload,
+    ].join('\n')
+  },
 }
-
-// 历史快照需覆盖的文件（相对 tab.filePath 即 index.3d.html 所在目录）：
-//   '.'                              → index.3d.html 离线预览容器（shell，版本文件夹内记为 self.html，与 default 旧版本兼容）
-//   './preview/scene-data.js'        → 离线构建内嵌的 scene-data，host blob 刷新实际加载它（预览真正读的内容）
-//   './source/public/scene3d/scene-data.json' → AI 回写的源码（source of truth），漏了它 switchVersion 后下次 AI 编辑会读最新源码而非恢复后的版本
-// 只记 '.' 会把 shell 当成内容：switchVersion 只回写 shell、预览不变（blob 刷新仍读最新 preview/scene-data.js）、源码也不回退——历史"不生效/记录不对"。
-const SCENE3D_HISTORY_RELS = ['.', './preview/scene-data.js', './source/public/scene3d/scene-data.json']
 
 const scene3dHandler: SubtypeHandler = {
   ...defaultHandler,
@@ -72,35 +62,119 @@ const scene3dHandler: SubtypeHandler = {
     const api = getDesktopApi()
     if (!tab.filePath) return null
     const dir = tab.filePath.replace(/[\\/][^\\/]+$/, '')
-    if (!api?.statFile) return SCENE3D_HISTORY_RELS
+    const artifact = await readArtifact(tab.filePath, api)
+    const relsToCapture = artifact
+      ? [...new Set(['.', artifact.source, ...artifact.history])]
+      : ['.', ...legacyHistory]
+    if (!api?.statFile) return relsToCapture
     const exists = await Promise.all(
-      SCENE3D_HISTORY_RELS.map((rel) => {
+      relsToCapture.map((rel) => {
         const abs = rel === '.' ? tab.filePath! : `${dir}/${rel.replace(/^\.\//, '')}`
         return api.statFile!(abs).then(() => true).catch(() => false)
       }),
     )
-    const rels = SCENE3D_HISTORY_RELS.filter((_, i) => exists[i])
+    const rels = relsToCapture.filter((_, i) => exists[i])
     // 至少保留 '.'（index.3d.html 必然存在），保证 recordVersion copied>0 能落版本
     return rels.length > 0 ? rels : ['.']
   },
 
-  /** 历史记录入口 2：版本恢复。
-   *  files 已携带 originalPath，逐个复制回原始路径即可。
-   *  index.3d.html + preview/scene-data.js + scene-data.json 全部回退后，
-   *  setFilesRefreshKey 会触发 host 的 3D blob 刷新（重新 fetch 主文档 + 内联 ./preview/ 子资源，
-   *  绕过 local:// 持久化缓存），预览即与恢复后的源码一致。 */
+  async resolveVersionFiles(ctx, load) {
+    const [entry] = await load(['.'])
+    if (!entry) throw new Error('缺少历史场景入口')
+    const artifact = await readArtifact(entry.filePath, ctx.getDesktopApi(), true)
+    if (!artifact) return
+    const paths = [...new Set(['.', artifact.source, ...artifact.history])]
+    const files = await load(paths)
+    if (files.length !== paths.length) throw new Error('历史场景快照不完整')
+    return files
+  },
+
   async applyVersionFiles(ctx: SubtypeHandlerContext, files: VersionFile[]): Promise<void> {
     const { tab, getDesktopApi } = ctx
     const api = getDesktopApi()
     if (!api?.copyFileTo || !tab.filePath) return
-    for (const f of files) {
-      try {
-        await api.copyFileTo(f.filePath, f.originalPath)
-      } catch {
-        // 版本里缺该文件时静默跳过
+
+    const baseline = files.find((file) => file.relativePath === '.scene3d-preview-baseline.json')
+    if (!baseline) {
+      for (const file of files) await api.copyFileTo(file.filePath, file.originalPath).catch(() => {})
+      return
+    }
+    if (!api.readFileBuffer || !api.writeFileBuffer || !api.deleteFile) {
+      throw new Error('当前环境不支持恢复场景构建产物')
+    }
+
+    const readBaseline = async (path: string) => {
+      const buffer = await api.readFileBuffer!(path, true)
+      if (!buffer) throw new Error('缺少场景发布基线：' + path)
+      const manifest = JSON.parse(new TextDecoder().decode(buffer))
+      if (manifest.version !== 2 || !manifest.files || !Object.hasOwn(manifest.files, 'index.3d.html')) {
+        throw new Error('无效的场景发布基线：' + path)
       }
+      const entries = Object.entries(manifest.files)
+      for (const [name, hash] of entries) {
+        if (!/^(?:index\.3d\.html|scene(?:-data)?\.js|[\w.-]+\.css)$/.test(name) ||
+            typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)) {
+          throw new Error('无效的场景发布文件：' + name)
+        }
+      }
+      return new Map(entries)
+    }
+
+    const digest = async (buffer: ArrayBuffer) =>
+      Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)),
+        (byte) => byte.toString(16).padStart(2, '0')).join('')
+
+    const [current, target] = await Promise.all([
+      readBaseline(baseline.originalPath),
+      readBaseline(baseline.filePath),
+    ])
+    const snapshotFiles = new Map(files.map((file) => [
+      file.relativePath === '.' ? 'index.3d.html' : file.relativePath, file,
+    ]))
+    for (const [name, hash] of target) {
+      const snapshot = snapshotFiles.get(name)
+      const buffer = snapshot && await api.readFileBuffer(snapshot.filePath, true)
+      if (!buffer || await digest(buffer) !== hash) throw new Error('历史场景产物缺失或不完整：' + name)
+    }
+
+    const dir = tab.filePath.replace(/[\\/][^\\/]+$/, '')
+    const obsolete = new Map<string, ArrayBuffer>()
+    for (const [name, hash] of current) {
+      if (target.has(name)) continue
+      const path = dir + '/' + name
+      const buffer = await api.readFileBuffer(path, true)
+      if (!buffer || await digest(buffer) !== hash) throw new Error('场景发布文件已修改或删除：' + path)
+      obsolete.set(path, buffer)
+    }
+
+    const originals = new Map(await Promise.all(files.map(async (file) => [
+      file.originalPath, await api.readFileBuffer!(file.originalPath, true),
+    ] as const)))
+    const modified: string[] = []
+    try {
+      for (const file of [...files.filter((file) => file !== baseline), baseline]) {
+        modified.push(file.originalPath)
+        await api.copyFileTo(file.filePath, file.originalPath)
+      }
+      for (const path of obsolete.keys()) {
+        modified.push(path)
+        await api.deleteFile(path, true)
+      }
+    } catch (error) {
+      const rollback = await Promise.allSettled(modified.map(async (path) => {
+        const original = obsolete.get(path) ?? originals.get(path)
+        if (original) await api.writeFileBuffer!(path, original)
+        else await api.deleteFile!(path, true)
+      }))
+      const failures = rollback.flatMap((result, index) =>
+        result.status === 'rejected' ? [modified[index] + ' — ' + String(result.reason)] : [])
+      if (failures.length) {
+        throw new Error(String(error) + '\n部分文件回滚失败：\n' + failures.join('\n'), { cause: error })
+      }
+      throw error
     }
   },
+
 }
 
 export default scene3dHandler
