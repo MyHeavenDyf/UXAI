@@ -802,7 +802,7 @@ it.live(
 )
 
 it.live(
-  "session.processor effect tests stop instead of compacting repeatedly",
+  "session.processor effect tests compact again after earlier compaction attempts",
   () =>
     provideTmpdirServer(
       ({ dir, llm }) =>
@@ -834,13 +834,59 @@ it.live(
               { role: "user", content: "continue" },
             ],
             tools: {},
-            compactionAttempted: true,
+            compactionAttempted: 1,
           })
 
+          // 契约放宽为 3 次:可压缩历史导致的超限继续走压缩(clip-only/摘要),不再直接拒绝
+          expect(value).toBe("compact")
+          expect(yield* llm.calls).toBe(0)
+          expect(handle.message.error).toBeUndefined()
+        }),
+      { git: true, config: (url) => providerCfg(url) },
+    ),
+)
+
+it.live(
+  "session.processor effect tests stop after three compaction attempts",
+  () =>
+    provideTmpdirServer(
+      ({ dir, llm }) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "continue")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const base = yield* provider.getModel(ref.providerID, ref.modelID)
+          const mdl = { ...base, limit: { context: 80, output: 20 } }
+          const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model: mdl })
+
+          const value = yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [
+              { role: "user", content: "old context" },
+              { role: "assistant", content: "x".repeat(260) },
+              { role: "user", content: "continue" },
+            ],
+            tools: {},
+            compactionAttempted: 3,
+          })
+
+          // 三次用尽仍超限:压力落在不可压部分,诚实拒绝并终止本轮
           expect(value).toBe("stop")
           expect(yield* llm.calls).toBe(0)
           expect(handle.message.error?.name).toBe("ContextOverflowError")
-          expect(JSON.stringify(handle.message.error)).toContain("after one compaction attempt")
+          expect(JSON.stringify(handle.message.error)).toContain("after 3 compaction attempts")
         }),
       { git: true, config: (url) => providerCfg(url) },
     ),

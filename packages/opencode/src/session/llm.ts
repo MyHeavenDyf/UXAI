@@ -49,7 +49,7 @@ export type StreamInput = {
   tools: Record<string, Tool>
   retries?: number
   toolChoice?: "auto" | "required" | "none"
-  compactionAttempted?: boolean
+  compactionAttempted?: number
 }
 
 export type StreamRequest = StreamInput & {
