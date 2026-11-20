@@ -12,3 +12,7 @@ so app icons appear larger than expected.
 
 For unpackaged Electron on macOS, `app.dock.setIcon()` should use a PNG. Keep `dock.png` in each channel folder synced with the
 extracted `icon_128x128@2x.png` from that channel's `icon.icns` so the dev Dock icon matches the packaged app inset.
+
+The runtime Dock icon also follows the macOS appearance: `setDockIcon` (in `src/main/windows.ts`) picks `dock-light.png` /
+`dock-dark.png` per system dark/light mode and falls back to `dock.png` when the variant is missing. Keep all three files
+in sync per channel folder (`dev` / `beta` / `prod`).
