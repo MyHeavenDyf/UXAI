@@ -1488,8 +1488,22 @@ export const layer: Layer.Layer<
             tools: original.tools,
             system: original.system,
           })
+          // 多个 text part 共享总预算:逐 part 扣减,防止各按全额回填把 N 份预算搬回
+          // 上下文、超出压缩后剩余容量(clipReplayText 对 ≤0 预算回落到 400 字符兜底)。
+          let replayRemaining = replayBudget
           for (const part of replay.parts) {
             if (part.type === "compaction") continue
+            if (part.type === "text") {
+              const clipped = replayTextPart(part, replayRemaining)
+              replayRemaining -= Token.estimate(clipped.text)
+              yield* session.updatePart({
+                ...clipped,
+                id: PartID.ascending(),
+                messageID: replayMsg.id,
+                sessionID: input.sessionID,
+              })
+              continue
+            }
             const replayPart =
               part.type === "file" && MessageV2.isMedia(part.mime)
                 ? {
@@ -1498,9 +1512,7 @@ export const layer: Layer.Layer<
                     synthetic: true,
                     metadata: { compaction_replay: true },
                   }
-                : part.type === "text"
-                  ? replayTextPart(part, replayBudget)
-                  : part
+                : part
             yield* session.updatePart({
               ...replayPart,
               id: PartID.ascending(),

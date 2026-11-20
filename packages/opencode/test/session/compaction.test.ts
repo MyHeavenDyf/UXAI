@@ -2028,8 +2028,11 @@ describe("session.compaction.process", () => {
   test("stops burning refinement requests after two consecutive non-improving refinements", async () => {
     const stub = llm()
     // 每轮提纯含一次收紧重试(~20k tokens 超预算后仍 ~20k):首轮 80k→20k 为显著改进
-    // → 原地落盘并重置计数;后续 20k→20k 无改进 → 不覆盖、累加;连续两次后止损
-    for (let i = 0; i < 6; i++) stub.push(reply("z".repeat(40_000)))
+    // → 原地落盘(z 文本)并重置计数;第二、三轮同体积不同文本(w)无改进 → 不覆盖、
+    // 累加;连续两次后止损,原摘要(z 文本)保持不变
+    stub.push(reply("z".repeat(40_000)))
+    stub.push(reply("z".repeat(40_000)))
+    for (let i = 0; i < 4; i++) stub.push(reply("w".repeat(40_000)))
     await using tmp = await tmpdir()
     await WithInstance.provide({
       directory: tmp.path,
@@ -2062,7 +2065,7 @@ describe("session.compaction.process", () => {
           }
           // 第一轮:显著改进(80k→~20k)→ 原地落盘 + 计数重置,但仍放不下 → 诚实拒绝
           expect(await run()).toBe("stop")
-          // 第二、三轮:同体积无改进 → 不覆盖原摘要,累加计数
+          // 第二、三轮:同体积不同文本,无改进 → 不覆盖原摘要,累加计数
           expect(await run()).toBe("stop")
           expect(await run()).toBe("stop")
           // 第四轮:连续两次无改进 → 不再发起摘要请求,直接诚实拒绝并点名摘要主导
@@ -2075,6 +2078,15 @@ describe("session.compaction.process", () => {
             expect(error).toContain("previous summary dominates")
             expect(error).not.toContain("re-condensed previous summary")
           }
+          // 摘要安全:无改进轮未覆盖原摘要 —— 仍是首轮提纯产物(z 文本),w 文本未落盘
+          const storedSummary = (await svc.messages({ sessionID: session.id })).findLast(
+            (item) => item.info.role === "assistant" && item.info.summary && !item.info.error,
+          )
+          const storedText = storedSummary?.parts.find(
+            (p): p is MessageV2.TextPart => p.type === "text",
+          )?.text
+          expect(storedText).toContain("z".repeat(50))
+          expect(storedText).not.toContain("w".repeat(50))
         } finally {
           await rt.dispose()
         }
@@ -2117,6 +2129,63 @@ describe("session.compaction.process", () => {
           expect(replayText?.text).toContain("characters omitted")
           expect(replayText?.text.length).toBeLessThan(120_000)
           expect(Token.estimate(replayText?.text ?? "")).toBeLessThan(26_000)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("shares the replay budget across multiple oversized text parts on overflow replay", async () => {
+    const stub = llm()
+    stub.push(reply("summary"))
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const pending = await svc.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: session.id,
+          agent: "build",
+          model: ref,
+          time: { created: Date.now() },
+        })
+        for (const text of [`first ${"x".repeat(400_000)}`, `second ${"y".repeat(400_000)}`]) {
+          await svc.updatePart({
+            id: PartID.ascending(),
+            messageID: pending.id,
+            sessionID: session.id,
+            type: "text",
+            text,
+          })
+        }
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true, overflow: true })
+
+        const rt = liveRuntime(stub.layer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: true, overflow: true }),
+            ),
+          )
+
+          expect(result).toBe("continue")
+          const replayMsg = (await svc.messages({ sessionID: session.id })).find(
+            (item) =>
+              item.info.role === "user" &&
+              item.parts.some((p) => p.type === "text" && p.metadata?.["compaction_replay"] === true),
+          )
+          const texts = replayMsg?.parts.filter((p): p is MessageV2.TextPart => p.type === "text") ?? []
+          expect(texts.length).toBe(2)
+          // 共享预算:两个 part 合计只占一份预算(加 400 字符兜底残留),而非各按全额回填
+          expect(Token.estimate(texts.map((p) => p.text).join("\n"))).toBeLessThan(23_000)
+          expect(texts[0]?.text).toContain("clipped by compaction replay")
+          expect(texts[1]?.text).toContain("clipped by compaction replay")
+          expect((texts[1]?.text.length ?? 0)).toBeLessThan(texts[0]?.text.length ?? Infinity)
         } finally {
           await rt.dispose()
         }
