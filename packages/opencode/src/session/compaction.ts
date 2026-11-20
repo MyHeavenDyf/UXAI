@@ -82,13 +82,11 @@ const TARGET_TAIL_SHARE = 0.75
 const TARGET_AVAILABLE_MIN = MIN_PRESERVE_RECENT_TOKENS + SUMMARY_FLOOR_TOKENS
 const SUMMARY_BUDGET_CAP = 6_000
 const SUMMARY_OVER_BUDGET = 1.25
-// replay 回填正文预算:回填只是保真手段,不该把超限元凶(巨型 pending 正文)verbatim 搬回
-// 压缩后的上下文。按压缩后投影(固定成本+保尾+摘要)之外的余量计算,并与保尾同口径
-// (usable×25%)封顶;无 contextTokens 时退化为 usable×25%。超预算正文按比例保留首尾,
-// skill 文档(命令注入路径)整篇替换为分段重读引用 —— 压缩后估算必然 < usable,
-// preflight 的 reject 分支在 replay 场景不再可达。
+/** replay 回填正文预算:严格不超过压缩后剩余空间(usable − 固定成本 − 保尾 − 摘要投影
+ * − 余量),并与保尾同口径(usable×25%)封顶 —— 回填只是保真手段,预算耗尽后仅保留
+ * 逐 part 的极简省略标记,不再把巨型 pending 正文 verbatim 搬回压缩后的上下文。
+ * 无 contextTokens 时退化为 usable×25%(无法核算固定成本,启发式封顶)。 */
 const REPLAY_BUDGET_SHARE = 0.25
-const REPLAY_BUDGET_MIN = 1_000
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -170,7 +168,11 @@ const clipReplayText = (text: string, budget: number) => {
   }
   const total = Token.estimate(text)
   if (total <= budget) return undefined
-  const charLimit = Math.max(400, Math.floor((text.length * budget) / (total * 1.1)))
+  // 预算耗尽(≤0 可为负,多个 part 共享扣减后)或预算过小:极简省略标记,保证回填
+  // 总量不超剩余空间(clip 的 slice 对极小 limit 有负零索引泄漏风险,一并规避)
+  const charLimit = Math.floor((text.length * budget) / (total * 1.1))
+  if (charLimit < 200)
+    return `[Content omitted from replay: ~${total} tokens original, no replay budget left. It was folded into the compaction summary.]`
   return `${clip(text, charLimit)}\n[original message clipped by compaction replay: ~${total} tokens original, ~${budget}-token budget]`
 }
 
@@ -1459,12 +1461,12 @@ export const layer: Layer.Layer<
 
       if (result === "continue" && input.auto) {
         if (replay) {
-          // replay 预算:压缩后投影(固定成本+保尾+摘要+余量)之外留给回填正文的余量,
-          // 与保尾同口径(usable×25%)封顶 —— replay 不再把巨型 pending 正文 verbatim 搬回
-          // 压缩后的上下文(压缩后估算必然 < usable,preflight reject 不再可达)。
+          // replay 预算:严格不超过压缩后剩余空间(usable − 固定成本 − 保尾 − 摘要投影
+          // − 余量),并与保尾同口径(usable×25%)封顶;不再用固定下限把预算抬到剩余
+          // 空间之上 —— 空间不足时预算收缩为 0,保真由逐 part 省略标记兜底。
           const replayBudget = input.contextTokens
             ? Math.max(
-                REPLAY_BUDGET_MIN,
+                0,
                 Math.min(
                   Math.floor(input.contextTokens.usable * REPLAY_BUDGET_SHARE),
                   input.contextTokens.usable -
@@ -1504,15 +1506,13 @@ export const layer: Layer.Layer<
               })
               continue
             }
-            const replayPart =
-              part.type === "file" && MessageV2.isMedia(part.mime)
-                ? {
-                    type: "text" as const,
-                    text: `[Attached ${part.mime}: ${part.filename ?? "file"}]`,
-                    synthetic: true,
-                    metadata: { compaction_replay: true },
-                  }
-                : part
+            // 媒体引用行同样计入共享预算(回填的每一份内容都消耗剩余空间)
+            let replayPart
+            if (part.type === "file" && MessageV2.isMedia(part.mime)) {
+              const text = `[Attached ${part.mime}: ${part.filename ?? "file"}]`
+              replayRemaining -= Token.estimate(text)
+              replayPart = { type: "text" as const, text, synthetic: true, metadata: { compaction_replay: true } }
+            } else replayPart = part
             yield* session.updatePart({
               ...replayPart,
               id: PartID.ascending(),

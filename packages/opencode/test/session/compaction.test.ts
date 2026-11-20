@@ -2193,6 +2193,72 @@ describe("session.compaction.process", () => {
     })
   })
 
+  test("caps replay strictly to the remaining space across parts when context tokens are tight", async () => {
+    const stub = llm()
+    stub.push(reply("summary"))
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const pending = await svc.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: session.id,
+          agent: "build",
+          model: ref,
+          time: { created: Date.now() },
+        })
+        for (const text of ["first", "second", "third"]) {
+          await svc.updatePart({
+            id: PartID.ascending(),
+            messageID: pending.id,
+            sessionID: session.id,
+            type: "text",
+            text: `${text} ${"x".repeat(400_000)}`,
+          })
+        }
+        await SessionCompaction.create({ sessionID: session.id, agent: "build", model: ref, auto: true, overflow: true })
+
+        const rt = liveRuntime(stub.layer, wide())
+        try {
+          const msgs = await svc.messages({ sessionID: session.id })
+          const parent = msgs.at(-1)?.info.id
+          const result = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.process({
+                parentID: parent!,
+                messages: msgs,
+                sessionID: session.id,
+                auto: true,
+                overflow: true,
+                // 固定成本 45k + 保尾 0(空尾折叠)+ 摘要投影 2k + 余量 ~3.8k → 剩余仅 ~3.6k:
+                // 回填合计必须落进这一小份剩余空间,而不是 3 part 各按全额
+                contextTokens: { system: 40_000, tools: 5_000, usable: 54_400 },
+              }),
+            ),
+          )
+
+          expect(result).toBe("continue")
+          const replayMsg = (await svc.messages({ sessionID: session.id })).find(
+            (item) =>
+              item.info.role === "user" &&
+              item.parts.some((p) => p.type === "text" && p.metadata?.["compaction_replay"] === true),
+          )
+          const texts = replayMsg?.parts.filter((p): p is MessageV2.TextPart => p.type === "text") ?? []
+          expect(texts.length).toBe(3)
+          // 共享预算 + 空间硬封顶:合计 ~3.6k(旧实现 3 part 各按全额 ≈ 10.9k,必超)
+          expect(Token.estimate(texts.map((p) => p.text).join("\n"))).toBeLessThan(5_000)
+          expect((texts[1]?.text.length ?? 0)).toBeLessThan(texts[0]?.text.length ?? Infinity)
+          // 预算耗尽的 part 回落为极简省略标记,不再按比例裁剪
+          expect(texts.some((p) => p.text.includes("omitted from replay"))).toBe(true)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
   test("replaces a skill doc pending message with a reread reference on replay", async () => {
     const stub = llm()
     stub.push(reply("summary"))
