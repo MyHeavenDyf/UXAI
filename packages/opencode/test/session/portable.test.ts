@@ -229,6 +229,34 @@ describe("portable session", () => {
     }
   })
 
+  // octo-agent SPEC-DES-009:fastui / chart 工程标记要随包走(接收方靠它在本机接手),运行时目录不走
+  test.each([undefined, "project"] as const)("carries the fastui project marker but not its runtime directory (scope: %s)", async (scope) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "fastui marker" }))
+      const project = scope === "project" ? path.join(source.path, "alpha") : path.join(source.path, ".octo", session.id, "outputs", "alpha")
+      await Bun.write(path.join(project, ".octo-fastui.json"), JSON.stringify({ schema: 1, name: "alpha" }))
+      await Bun.write(path.join(project, ".octo-fastui", "devserver.json"), JSON.stringify({ pid: 4242, port: 8090 }))
+      await Bun.write(path.join(project, ".octo-fastui", "octo-fastui.log"), "log")
+      await Bun.write(path.join(project, "package.json"), "{}")
+      if (scope === "project") await Bun.write(path.join(project, ".env"), "SECRET=1")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as { files: { path: string }[] }
+    const prefix = scope === "project" ? "alpha" : "outputs/alpha"
+    expect(manifest.files.map((file) => file.path).filter((file) => file.includes("alpha")).sort()).toEqual([
+      `${prefix}/.octo-fastui.json`,
+      `${prefix}/package.json`,
+    ])
+    const imported = await provideTestInstance({ directory: target.path, fn: () => AppRuntime.runPromise(importPortableSession(exported.output, scope)) })
+    const marker = scope === "project"
+      ? path.join(target.path, "alpha", ".octo-fastui.json")
+      : path.join(target.path, ".octo", imported.sessionID, "outputs", "alpha", ".octo-fastui.json")
+    expect(await Bun.file(marker).exists()).toBe(true)
+  })
+
   test.each(["session", "project"] as const)(
     "imports legacy colon filenames and rewrites page/chat references (%s)",
     async (scope) => {
@@ -906,13 +934,13 @@ describe("portable session", () => {
       await using source = await tmpdir({ git: true })
       await provideTestInstance({ directory: source.path, fn: async () => {
         for (const agent of ["octo_insight", "octo_make", "octo_studio"]) {
-          for (const title of ["分享标题".repeat(30), "a".repeat(49) + "😀后续内容", "短标题", "  "]) {
+          for (const title of ["分享标题".repeat(30), "a".repeat(9) + "😀后续内容", "短标题", "  "]) {
             const session = await runSession((service) => service.create({ title, agent }))
             await AppRuntime.runPromise(sharePortableSession({ sessionID: session.id }))
           }
           expect(uploads.splice(0)).toEqual([
-            { name: "分享标题".repeat(12) + "分享.zip", description: "分享标题".repeat(30), title: "分享标题".repeat(30) },
-            { name: "a".repeat(49) + "😀.zip", description: "a".repeat(49) + "😀后续内容", title: "a".repeat(49) + "😀后续内容" },
+            { name: "分享标题".repeat(2) + "分享.zip", description: "分享标题".repeat(2) + "分享", title: "分享标题".repeat(30) },
+            { name: "a".repeat(9) + "😀.zip", description: "a".repeat(9) + "😀", title: "a".repeat(9) + "😀后续内容" },
             { name: "短标题.zip", description: "短标题", title: "短标题" },
             { name: "session.zip", description: "  ", title: "  " },
           ])

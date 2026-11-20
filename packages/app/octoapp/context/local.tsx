@@ -7,6 +7,7 @@ import { useModels } from "@/context/models"
 import { useProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
+import { createModelSelection } from "./model-selection"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 
@@ -292,10 +293,10 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
         const entry = items[next]
         if (!entry) return
-        model.set({ providerID: entry.provider.id, modelID: entry.id })
+        model.set({ providerID: entry.provider.id, modelID: entry.id }, { enable: true })
       },
-      set(item: ModelKey | undefined, options?: { recent?: boolean }) {
-        batch(() => {
+      set: createModelSelection({
+        select(item) {
           setStore("last", {
             type: "model",
             agent: agent.current()?.name,
@@ -303,12 +304,10 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             variant: selected(),
           })
           write({ model: item })
-          if (!item) return
-          models.setVisibility(item, true)
-          if (!options?.recent) return
-          models.recent.push(item)
-        })
-      },
+        },
+        setVisibility: models.setVisibility,
+        pushRecent: models.recent.push,
+      }),
       visible(item: ModelKey) {
         return models.visible(item)
       },
