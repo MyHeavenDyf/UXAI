@@ -3644,7 +3644,15 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
     if (!tab) return
     tracker.interaction({ module: "design", name: "switch-version", extend: JSON.stringify({ actor: entry.actor }) })
-    await historyController.switchVersion(entry, tab)
+    try {
+      await historyController.switchVersion(entry, tab)
+    } catch (error) {
+      showOctoToast({
+        title: "无法切换历史版本",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "error",
+      })
+    }
   }
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */

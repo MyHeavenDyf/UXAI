@@ -426,8 +426,15 @@ export function ResultViewer(props: {
     if (!tab) return
     const handler = getSubtypeHandler(tab.subtype)
     if (!handler?.scene3dEditConfig) return
-    const prompt = handler.scene3dEditConfig.buildPrompt({ filePath: tab.filePath ?? '', payload })
-    await sendTextToAgent(prompt, { source: 'scene3d-edit' })
+    try {
+      const prompt = await handler.scene3dEditConfig.buildPrompt({ filePath: tab.filePath ?? '', payload })
+      if (activeTab()?.id !== tab.id) return
+      await sendTextToAgent(prompt, { source: 'scene3d-edit' })
+    } catch (error) {
+      showOctoToast({ title: '无法提交场景修改', description: String(error), variant: 'error' })
+      return
+    }
+    if (activeTab()?.id !== tab.id) return
     tracker.interaction({ module: "design", name: "save-scene3d-edit-changes", extend: JSON.stringify({ type: tab.type }) })
     featureMutex.toggleFeature('scene3dEditing')
   }

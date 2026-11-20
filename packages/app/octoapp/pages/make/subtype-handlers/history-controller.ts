@@ -195,7 +195,8 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const handler = getSubtypeHandler(tab.subtype)
     const ctx = buildCtx(tab)
     const configFiles = (await handler?.onHistoryTrigger?.({ type: "open", isNew: false }, ctx)) ?? ["."]
-    const files = await historyStore.getVersionFiles(entry.id, tab, configFiles)
+    const load = (paths: string[]) => historyStore.getVersionFiles(entry.id, tab, paths)
+    const files = (await handler?.resolveVersionFiles?.(ctx, load)) ?? await load(configFiles)
 
     writingTabs.add(tab.id)
     try {
@@ -230,14 +231,16 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       // listVersions 按时间倒序，find 命中的第一个即 cutoff 之前最新的版本
       const target = list.find((v) => v.timestamp < cutoffMs)
       if (target) {
-        const files = await historyStore.getVersionFiles(target.id, tab, configFiles)
+        const load = (paths: string[]) => historyStore.getVersionFiles(target.id, tab, paths)
+        const resolvedFiles = await handler?.resolveVersionFiles?.(ctx, load)
+        const files = resolvedFiles ?? await load(configFiles)
         if (handler?.applyVersionFiles) {
           await handler.applyVersionFiles(ctx, files)
         } else {
           for (const f of files) await api?.copyFileTo?.(f.filePath, f.originalPath)
         }
         const restored = new Set(files.map((f) => f.relativePath))
-        for (const rel of configFiles) {
+        for (const rel of resolvedFiles ? [] : configFiles) {
           // "." 是产物主文件，绝不在 sibling 清理范围（防版本文件夹形态异常时误删主文件）
           if (rel === "." || rel === "./" || restored.has(rel)) continue
           await api?.deleteFile?.(resolveRelativePath(rel, tab.filePath!))

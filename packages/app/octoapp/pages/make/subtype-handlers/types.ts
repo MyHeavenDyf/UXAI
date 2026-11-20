@@ -14,7 +14,7 @@ export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit' | 'comment' | 
  */
 export interface Scene3dEditConfig {
   /** 把 iframe 回传的 scene3d-changes 文本包装成发给 AI 的 prompt */
-  buildPrompt: (args: { filePath: string; payload: string }) => string
+  buildPrompt: (args: { filePath: string; payload: string }) => string | Promise<string>
 }
 
 export type HistoryTriggerEvent =
@@ -147,6 +147,11 @@ export interface SubtypeHandler {
    * 历史恢复
    * 接收版本的文件列表，由 handler 决定如何应用（如复制回原始路径、更新 tab 等）
    */
+  resolveVersionFiles?: (
+    ctx: SubtypeHandlerContext,
+    load: (relativePaths: string[]) => Promise<VersionFile[]>,
+  ) => Promise<VersionFile[] | undefined>
+
   applyVersionFiles?: (ctx: SubtypeHandlerContext, files: VersionFile[]) => Promise<void>
 
   /**
