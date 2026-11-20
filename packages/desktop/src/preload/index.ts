@@ -141,6 +141,8 @@ const api: ElectronAPI = {
   getSkillConfig: () => ipcRenderer.invoke("get-skill-config"),
   setSkillConfig: (config) => ipcRenderer.invoke("set-skill-config", config),
   // jk-j60099994-replace-with-60062650-preload-index-1-start
+  getSkillsByUsage: (usage) => ipcRenderer.invoke("get-skills-by-usage", usage),
+  getSkillKeyByName: (skillName) => ipcRenderer.invoke("get-skill-key-by-name", skillName),
   setDesignSystemSkillConfig: (skillName) => ipcRenderer.invoke("set-Design-System-Skill-Config", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end
   getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
