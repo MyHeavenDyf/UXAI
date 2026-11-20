@@ -12,6 +12,7 @@ import { MessageV2 } from "./message-v2"
 import {
   AUTOMATIC_COMPACTION_ENABLED,
   CONTEXT_OVERFLOW_MESSAGE,
+  MAX_COMPACTION_ATTEMPTS,
   exceedsContext,
   isOverflow,
   preflight,
@@ -808,6 +809,7 @@ export const layer: Layer.Layer<
                 model: ctx.model,
                 estimatedInput: ctx.estimatedInputTokens,
                 unavoidableInput: unavoidableInputTokens,
+                compactionAttempted: streamInput.compactionAttempted,
               })
 
         return yield* Effect.gen(function* () {
@@ -825,7 +827,9 @@ export const layer: Layer.Layer<
                 ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
                   message: !AUTOMATIC_COMPACTION_ENABLED
                     ? CONTEXT_OVERFLOW_MESSAGE
-                    : `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
+                    : (streamInput.compactionAttempted ?? 0) >= MAX_COMPACTION_ATTEMPTS
+                      ? `The conversation is still too large for this model after ${MAX_COMPACTION_ATTEMPTS} compaction attempts. Estimated ${ctx.estimatedInputTokens} input tokens with ${available} usable tokens. Start a new session or reduce the attached content and try again.`
+                      : `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
                 }).toObject()
                 ctx.assistantMessage.finish = "error"
                 yield* session.updateMessage(ctx.assistantMessage)

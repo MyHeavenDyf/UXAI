@@ -8,6 +8,12 @@ const DESIGN_AGENTS = new Set(["octo_make", "octo_make_plan", "ict_pattern"])
 export const AUTOMATIC_COMPACTION_ENABLED = true
 export const CONTEXT_OVERFLOW_MESSAGE = "系统的单次处理能力已满。请点击“新建对话”重置上下文。"
 
+/** 单轮 loop(一次用户消息/手动 compact)内的自动压缩尝试上限:续跑轮回灌巨型工具输出
+ * (如 skill 全量重读)的场景仍可再压 —— clip-only 必救且零请求;连续压 3 次仍超限说明
+ * 压力落在不可压部分,此时诚实拒绝。循环安全兜底:no-op 分支全账核算(clip-only 救援/
+ * 提纯止损计数/信号失真放行)+ prompt 侧 compaction_noop 防护。 */
+export const MAX_COMPACTION_ATTEMPTS = 3
+
 export function exceedsContext(input: { model: Provider.Model; input: number; agent?: string; parentAgent?: string }) {
   if (input.agent === "octo_insight") return false
   if (input.agent && DESIGN_AGENTS.has(input.agent)) return false
@@ -40,6 +46,7 @@ export function preflight(input: {
   model: Provider.Model
   estimatedInput: number
   unavoidableInput: number
+  compactionAttempted?: number
 }) {
   const full = isOverflow({
     cfg: input.cfg,
@@ -52,10 +59,7 @@ export function preflight(input: {
     },
   })
   if (!full) return "send" as const
-  // 不再按"已压缩过一次"提前拒绝:二次压缩的循环风险已由压缩侧兜底 —— no-op 分支的
-  // 全账核算(clip-only 救援/提纯止损计数/信号失真放行)+ prompt 侧 compaction_noop
-  // 防护保证连续触发必然收敛。提前拒绝会把"未标记超配额工具输出"这类 clip 必救的
-  // 场景一刀切死(续跑轮一步回灌巨型 skill 后直接终止会话,只能靠用户手动 /compact)。
+  if ((input.compactionAttempted ?? 0) >= MAX_COMPACTION_ATTEMPTS) return "reject" as const
   if (input.unavoidableInput >= usable(input)) return "reject" as const
   return "compact" as const
 }
