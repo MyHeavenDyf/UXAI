@@ -2025,10 +2025,11 @@ describe("session.compaction.process", () => {
     })
   })
 
-  test("stops burning refinement requests after two consecutive over-budget refinements", async () => {
+  test("stops burning refinement requests after two consecutive non-improving refinements", async () => {
     const stub = llm()
-    // 每轮提纯:首次 ~20k tokens 超预算 → 收紧重试仍 ~20k → 接受落盘但计数累加
-    for (let i = 0; i < 4; i++) stub.push(reply("z".repeat(40_000)))
+    // 每轮提纯含一次收紧重试(~20k tokens 超预算后仍 ~20k):首轮 80k→20k 为显著改进
+    // → 原地落盘并重置计数;后续 20k→20k 无改进 → 不覆盖、累加;连续两次后止损
+    for (let i = 0; i < 6; i++) stub.push(reply("z".repeat(40_000)))
     await using tmp = await tmpdir()
     await WithInstance.provide({
       directory: tmp.path,
@@ -2059,9 +2060,12 @@ describe("session.compaction.process", () => {
               ),
             )
           }
+          // 第一轮:显著改进(80k→~20k)→ 原地落盘 + 计数重置,但仍放不下 → 诚实拒绝
+          expect(await run()).toBe("stop")
+          // 第二、三轮:同体积无改进 → 不覆盖原摘要,累加计数
           expect(await run()).toBe("stop")
           expect(await run()).toBe("stop")
-          // 第三轮:连续两次未压回预算 → 不再发起摘要请求,直接诚实拒绝并点名摘要主导
+          // 第四轮:连续两次无改进 → 不再发起摘要请求,直接诚实拒绝并点名摘要主导
           expect(await run()).toBe("stop")
           const fail = (await svc.messages({ sessionID: session.id })).findLast(
             (item) => item.info.role === "assistant" && item.info.summary && item.info.error,

@@ -183,9 +183,16 @@ const replayTextPart = (part: MessageV2.TextPart, budget: number): MessageV2.Tex
 
 /** 保尾中单个工具输出的 token 配额阈值:可用上限越大,可完整保留的工具输出越多。 */
 
-// 纯提纯出口的连续失败计数(session 级,进程内):摘要连续两次仍压不回预算后不再
-// 重复燃烧摘要请求,后续触发直接走诚实拒绝;成功压回预算则清零。
+// 纯提纯出口的连续失败计数(session 级,进程内):生成失败或无显著改进(>原摘要 90%)
+// 各累加一次,达到 2 次后不再燃烧摘要请求;有显著改进(≤90%)即重置 —— 渐进收敛(80k→30k)
+// 是进展。仅在提纯无改进的罕见路径写入,超容量时整体重置兜底(计数丢失仅放宽一次
+// 提纯机会,3 次尝试契约仍在,无害)。
 const refinementFailures = new Map<SessionID, number>()
+
+const bumpRefinementFailures = (sessionID: SessionID) => {
+  if (refinementFailures.size >= 1_000) refinementFailures.clear()
+  refinementFailures.set(sessionID, (refinementFailures.get(sessionID) ?? 0) + 1)
+}
 export const toolClipCapTokens = (usableTokens: number) =>
   Math.max(TAIL_TOOL_CLIP_MIN_TOKENS, Math.floor(usableTokens * TAIL_TOOL_CLIP_SHARE))
 
@@ -1011,7 +1018,10 @@ export const layer: Layer.Layer<
           (refinementFailures.get(input.sessionID) ?? 0) < 2
         ) {
           const refined = yield* refinePreviousSummary(previousSummary)
-          if (refined) {
+          // 提纯结果改进门禁:仅当有效且小于原摘要时才原地覆盖(不破坏原有可用摘要);
+          // 显著改进(≤90%)重置连续失败计数 —— 渐进收敛(80k→30k)是进展,不该被累加。
+          const improved = !!refined && refined.tokens < summaryTokens
+          if (refined && improved) {
             const pair = prior.at(-1)!
             const oldSummary = history[pair.assistantIndex]!
             const textParts = oldSummary.parts.filter((item): item is MessageV2.TextPart => item.type === "text")
@@ -1029,9 +1039,8 @@ export const layer: Layer.Layer<
             const refinedBase = fixedTokens + historyTokens + refined.tokens
             const refinedAccount =
               refinedBase + Math.max(FLOOR_MARGIN_MIN, Math.ceil(refinedBase * FLOOR_MARGIN_SHARE))
-            if (refined.tokens <= Math.ceil(target.summaryBudget * SUMMARY_OVER_BUDGET))
-              refinementFailures.delete(input.sessionID)
-            else refinementFailures.set(input.sessionID, (refinementFailures.get(input.sessionID) ?? 0) + 1)
+            if (refined.tokens <= Math.ceil(summaryTokens * 0.9)) refinementFailures.delete(input.sessionID)
+            else bumpRefinementFailures(input.sessionID)
             log.warn("compaction refinement exit", {
               sessionID: input.sessionID,
               previous_tokens: summaryTokens,
@@ -1056,7 +1065,8 @@ export const layer: Layer.Layer<
               `Nothing to compact: the compactable history (~${historyTokens} tokens) fits entirely within the preserved-recent budget (${tailBudget} tokens). The re-condensed previous summary (~${refined.tokens} tokens, down from ~${summaryTokens}) still keeps the projected context at ~${refinedAccount} tokens, at or above the ${input.contextTokens.usable}-token usable limit. Start a new session or reduce the attached content.`,
             )
           }
-          refinementFailures.set(input.sessionID, (refinementFailures.get(input.sessionID) ?? 0) + 1)
+          // 生成失败或无改进:累加连续失败计数,保留原摘要走诚实拒绝
+          bumpRefinementFailures(input.sessionID)
         }
 
         // 信号失真放行:全账(含前次摘要)放得下 → 触发信号按估算/cache 口径失真处理,
