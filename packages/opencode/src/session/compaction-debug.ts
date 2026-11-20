@@ -111,9 +111,8 @@ const write = Effect.fn("SessionCompactionDebug.write")(function* (input: DumpIn
 })
 
 export const dump = Effect.fn("SessionCompactionDebug.dump")(function* (input: DumpInput) {
-  // 暂时禁用埋点落盘,恢复调试时取消下面两行注释
-  // const exit = yield* write(input).pipe(Effect.exit)
-  // if (Exit.isFailure(exit)) log.warn("compact debug dump failed", { cause: Cause.squash(exit.cause) })
+  const exit = yield* write(input).pipe(Effect.exit)
+  if (Exit.isFailure(exit)) log.warn("compact debug dump failed", { cause: Cause.squash(exit.cause) })
 })
 
 export * as CompactionDebug from "./compaction-debug"
