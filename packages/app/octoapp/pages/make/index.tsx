@@ -1811,6 +1811,27 @@ const sessionMessagesLoaded = createMemo(() => {
   const [mentionIndex, setMentionIndex] = createSignal(0)
   const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
 
+  // 防抖镜像:文件编辑/工具成功等事件在模型流式输出期间高频 bump filesRefreshKey,
+  // 直接驱动 artifactFiles resource 会造成 recursive=true 全树扫描请求风暴。
+  // leading(立即) + trailing(收尾) 双沿:首次 bump 立即刷新,窗口内后续 bump 合并为一次收尾。
+  const [artifactRefreshKey, setArtifactRefreshKey] = createSignal(0)
+  let artifactRefreshTimer: ReturnType<typeof setTimeout> | undefined
+  let artifactRefreshLast = 0
+  createEffect(on(filesRefreshKey, (k) => {
+    const elapsed = Date.now() - artifactRefreshLast
+    if (elapsed >= 300) {
+      clearTimeout(artifactRefreshTimer); artifactRefreshTimer = undefined
+      artifactRefreshLast = Date.now()
+      setArtifactRefreshKey(k)
+    } else {
+      clearTimeout(artifactRefreshTimer)
+      artifactRefreshTimer = setTimeout(() => {
+        artifactRefreshLast = Date.now()
+        setArtifactRefreshKey(filesRefreshKey())
+      }, 300 - elapsed)
+    }
+  }))
+
   // Mention selections are now managed by ProseMirrorEditor's sync plugin
 
   // ── Artifact Files Resource (for @ mention) ──
@@ -1823,7 +1844,7 @@ const sessionMessagesLoaded = createMemo(() => {
       scope: isProjectScope() ? ("project" as const) : undefined,
       url: globalSDK.url,
       directory: sdk.directory,
-      refreshKey: filesRefreshKey(),
+      refreshKey: artifactRefreshKey(),
     }),
     async ({ sessionId, scope, url, directory }) => {
       if (!sessionId && !scope) return null
