@@ -1942,7 +1942,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
             // 信号失真放行(compaction_noop 续跑)后不再重复触发压缩:全账已复核为放得下,
-            // 重复压缩只会再次 no-op;估算真超限时由 preflight(已带 compactionAttempted)诚实拒绝。
+            // 重复压缩只会再次 no-op;估算真超限时由 preflight 走压缩(clip-only/摘要),
+            // 压不动时由 no-op 分支诚实拒绝。
             const noopContinue =
               msgs.findLast((message) => message.info.role === "user")?.parts.some(
                 (part) => "metadata" in part && part.metadata?.["compaction_noop"] === true,
@@ -2072,12 +2073,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               model,
               toolChoice:
                 request.format.type === "json_schema" || request.studioImageGeneration ? "required" : undefined,
-              compactionAttempted:
-                lastUserMsg?.parts.some(
-                  (part) =>
-                    "metadata" in part &&
-                    (part.metadata?.["compaction_continue"] === true || part.metadata?.["compaction_replay"] === true),
-                ) ?? false,
             })
 
             if (structured !== undefined) {
@@ -2117,8 +2112,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               const overflowTokens =
                 handle.message.tokens.input + handle.message.tokens.cache.read + handle.message.tokens.cache.write
               // 信号失真放行(compaction_noop 续跑)后的 post-step 超限不再重复触发压缩:
-              // 全账已复核为放得下,重复压缩只会再次 no-op 并以 error 收场;估算真超限时
-              // 由 preflight(已带 compactionAttempted)诚实拒绝。provider 硬拒(halt-overflow,
+              // 全账已复核为放得下,重复压缩只会再次 no-op;估算真超限时由 preflight 走压缩
+              // (clip-only/摘要),压不动时由 no-op 分支诚实拒绝。provider 硬拒(halt-overflow,
               // finish 未落)不在此列,仍走 overflow 压缩。
               const noopContinue =
                 handle.message.finish !== undefined &&

@@ -292,6 +292,10 @@ function buildPrompt(input: { previousSummary?: string; context: string[]; pendi
         `Here is the summary of the conversation before the <conversation> above:\n\n<previous-summary>\n${input.previousSummary}\n</previous-summary>`,
         "Update the anchored summary using the conversation in the <conversation> tags above.",
         "Preserve still-true details, remove stale details, and merge in the new facts.",
+        // 时间衰减:摘要成本随会话增长边际递减 —— 越久远的内容降密度越狠,预算优先保
+        // 近期状态,防止锚定摘要靠 "preserve" 惯性只增不减。
+        "Compress by age: details that no recent turn touched must shrink progressively — collapse older completed work to single-line outcomes, keep old decisions only as conclusions, and keep full detail only for the current state and next steps.",
+        "Spend the token budget on the most recent state first; never restate settled history verbatim.",
       ].join("\n")
     : "Create a new anchored summary from the conversation history in the <conversation> tags above so another coding agent can continue the work."
   // 待处理请求被折叠进摘要时(空尾/overflow 折叠),提示摘要模型显式保留该请求与其依赖上下文,
@@ -864,7 +868,8 @@ export const layer: Layer.Layer<
             ...fixes,
             `Rewrite the anchored summary below denser so another coding agent can continue the work. It is currently ~${Token.estimate(previous)} tokens, over its ~${target.summaryBudget}-token budget.`,
             "Preserve every critical fact: active tasks, key decisions, file paths, errors being fixed, and next steps.",
-            "Compress the detail sections: merge related bullets and drop stale or superseded details. Prefer fewer, denser bullets.",
+            // 与锚定更新同款时间衰减:按新旧分级降密度,近期状态保真,久远史实收敛成结论。
+            "Compress the detail sections by age: merge related bullets, drop stale or superseded details, and collapse older completed work to single-line outcomes — keep full detail only for active tasks, current state, and next steps.",
             `Keep the total summary under ~${target.summaryBudget} tokens.`,
             SUMMARY_TEMPLATE,
             "<previous-summary>",
@@ -1135,10 +1140,12 @@ export const layer: Layer.Layer<
 
       // 修复「压缩后仍必然超限」:用压缩后投影判定 —— system + tools + 实际保留尾部的有效体积
       // + 摘要尺寸估计 + 估算误差余量。不再用保尾预算上限代替实际消耗(预算上限远大于实际
-      // 保留量时会把可救的会话误判为死局)。摘要尺寸在锚定更新模式下以前次摘要体积为预测器。
+      // 保留量时会把可救的会话误判为死局)。摘要尺寸在锚定更新模式下以前次摘要体积为预测器,
+      // 按收敛口径(不增)取值:锚定更新带时间衰减指令,预期 ≤ 前次;过度乐观的代价只是
+      // 浪费一次摘要后由 preflight 兜底,而按增长口径(×1.2)会误杀可救会话(不可恢复)。
       const summaryFloorEstimate = Math.max(
         SUMMARY_FLOOR_TOKENS,
-        previousSummary ? Math.ceil(Token.estimate(previousSummary) * 1.2) : 0,
+        previousSummary ? Token.estimate(previousSummary) : 0,
       )
       const tailFloorTokens = selected.emptyTail ? 0 : selected.tailTokens
       const floorBase = input.contextTokens

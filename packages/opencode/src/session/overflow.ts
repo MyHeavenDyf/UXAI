@@ -40,7 +40,6 @@ export function preflight(input: {
   model: Provider.Model
   estimatedInput: number
   unavoidableInput: number
-  compactionAttempted?: boolean
 }) {
   const full = isOverflow({
     cfg: input.cfg,
@@ -53,6 +52,10 @@ export function preflight(input: {
     },
   })
   if (!full) return "send" as const
-  if (input.compactionAttempted || input.unavoidableInput >= usable(input)) return "reject" as const
+  // 不再按"已压缩过一次"提前拒绝:二次压缩的循环风险已由压缩侧兜底 —— no-op 分支的
+  // 全账核算(clip-only 救援/提纯止损计数/信号失真放行)+ prompt 侧 compaction_noop
+  // 防护保证连续触发必然收敛。提前拒绝会把"未标记超配额工具输出"这类 clip 必救的
+  // 场景一刀切死(续跑轮一步回灌巨型 skill 后直接终止会话,只能靠用户手动 /compact)。
+  if (input.unavoidableInput >= usable(input)) return "reject" as const
   return "compact" as const
 }

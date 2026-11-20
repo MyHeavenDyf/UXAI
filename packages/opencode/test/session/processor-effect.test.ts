@@ -802,7 +802,7 @@ it.live(
 )
 
 it.live(
-  "session.processor effect tests stop instead of compacting repeatedly",
+  "session.processor effect tests compact again after a prior compaction attempt",
   () =>
     provideTmpdirServer(
       ({ dir, llm }) =>
@@ -834,13 +834,13 @@ it.live(
               { role: "user", content: "continue" },
             ],
             tools: {},
-            compactionAttempted: true,
           })
 
-          expect(value).toBe("stop")
+          // 一次压缩契约已移除:可压缩历史导致的超限走二次压缩(clip-only/摘要),不再直接拒绝;
+          // 循环收敛由 no-op 分支全账核算与 compaction_noop 防护兜底
+          expect(value).toBe("compact")
           expect(yield* llm.calls).toBe(0)
-          expect(handle.message.error?.name).toBe("ContextOverflowError")
-          expect(JSON.stringify(handle.message.error)).toContain("after one compaction attempt")
+          expect(handle.message.error).toBeUndefined()
         }),
       { git: true, config: (url) => providerCfg(url) },
     ),

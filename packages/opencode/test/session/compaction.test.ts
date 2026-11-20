@@ -615,10 +615,11 @@ describe("session.overflow.preflight", () => {
     expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 85 })).toBe("reject")
   })
 
-  test("rejects instead of compacting repeatedly after one compaction attempt", () => {
-    expect(
-      preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 20, compactionAttempted: true }),
-    ).toBe("reject")
+  test("compacts again after a prior compaction attempt instead of rejecting", () => {
+    // 一次压缩契约已移除:二次压缩的循环风险由 no-op 分支的全账核算(clip-only 救援/
+    // 提纯止损/失真放行)与 compaction_noop 防护兜底;提前拒绝会误杀续跑轮回灌巨型
+    // skill 后 clip-only 必救的场景(112k 估算中 ~82k 是未标记超配额工具输出)。
+    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 20 })).toBe("compact")
   })
 })
 
