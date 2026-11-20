@@ -1,7 +1,21 @@
 import { expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
-import { createRecommendationMode } from "./studio-recommendation-mode"
+import { createRecommendationMode, createRecommendationSwitch } from "./studio-recommendation-mode"
+
+test("recommendation switches remember sessions only within one Studio page", () => {
+  const page = createRecommendationSwitch()
+  expect(page.enabled("A")).toBe(false)
+  page.save("A", true)
+  expect(page.enabled("B")).toBe(false)
+  page.save("B", true)
+  page.save("B", false)
+  expect(page.enabled("A")).toBe(true)
+  expect(page.enabled("B")).toBe(false)
+  const returning = createRecommendationSwitch()
+  expect(returning.enabled("A")).toBe(false)
+  expect(returning.enabled("B")).toBe(false)
+})
 import type { StudioCapability } from "./types"
 
 function setup() {
