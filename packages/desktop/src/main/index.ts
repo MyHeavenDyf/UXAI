@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
-import { app, BrowserWindow, dialog, nativeTheme, powerMonitor, session } from "electron"
+import { app, BrowserWindow, dialog, nativeTheme, powerMonitor, session, systemPreferences } from "electron"
 import pkg from "electron-updater"
 import semver from "semver"
 import {shellPath} from "shell-path"
@@ -277,7 +277,10 @@ function setupApp() {
     registerRendererProtocol()
     registerLocalProtocol()
     setDockIcon()
-    nativeTheme.on("updated", () => setDockIcon())
+    nativeTheme.on("updated", () => setDockIcon(300))
+    if (process.platform === "darwin") {
+      systemPreferences.subscribeNotification("AppleInterfaceThemeChangedNotification", () => setDockIcon(300))
+    }
     startPreviewServer()
     // fastui 预览(SPEC-DES-004):先收掉上次崩溃遗留的 dev server,再开始响应 skill 的起服务请求
     void FastuiDevServer.cleanupOrphans()
