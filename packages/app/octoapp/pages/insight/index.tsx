@@ -104,9 +104,9 @@ import { type FileReference, type MentionSelection, type MentionSkill } from "./
 import { ProseMirrorEditor, type InsightEditorRef, type MentionAttrs } from "./components/prosemirror-editor"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { lookupDisplayName, type SkillConfig } from "../make/components/skill-config-types"
-import { isContextEstimateForModel, resolveContextEstimateModel, getSessionContextMetrics } from "@/components/session/session-context-metrics"
-import { isContextAtLimit, shouldShowContextWarning } from "@/components/context-usage-warning"
-import { InsightContextOverflowNotice, InsightContextUsageWarning } from "./components/context-usage-notice"
+import { isContextEstimateForMessage, isContextEstimateForModel, resolveContextEstimateModel, getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import { showOctoToast } from "../make/components/octo-toast"
+import { sessionErrorMessage } from "@/utils/session-delete"
 import {
   insightContextCommandName,
   insightContextTokens,
@@ -588,18 +588,29 @@ function InsightContent() {
     messages.sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
     return getSessionContextMetrics(messages, providers.all()).context
   })
+  const [liveContextEstimate, setLiveContextEstimate] = createSignal<{
+    sessionID: string; messageID: string; providerID: string; modelID: string; tokens: number; limit: number
+  }>()
+  onCleanup(sdk.event.listen((event) => {
+    if (event.details.type === "session.compaction.estimated" && event.details.properties.sessionID === params.id) {
+      setLiveContextEstimate(event.details.properties)
+    }
+  }))
   const compactedContextEstimate = createMemo(() => {
     const context = contextMetrics()
     if (!context || !isSuccessfulCompaction(context.message)) return
     const part = (sync.data.part[context.message.parentID] ?? []).find((item) => item.type === "compaction")
     if (!part || part.estimated_tokens === undefined || part.estimated_limit === undefined) return
     const model = local.model.current()
+    const selected = model && { providerID: model.provider.id, modelID: model.id }
+    const live = liveContextEstimate()
+    if (live?.sessionID === params.id && isContextEstimateForMessage(live, context.message.parentID) && isContextEstimateForModel(live, selected)) return live
     if (!isContextEstimateForModel(
       resolveContextEstimateModel(
         { providerID: part.estimated_provider_id, modelID: part.estimated_model_id },
         context.message,
       ),
-      model && { providerID: model.provider.id, modelID: model.id },
+      selected,
     )) return
     return { tokens: part.estimated_tokens, limit: part.estimated_limit }
   })
@@ -608,8 +619,6 @@ function InsightContent() {
       compactedContextEstimate()?.limit,
       local.model.current()?.limit.input,
       local.model.current()?.limit.context,
-      contextMetrics()?.model?.limit.input,
-      contextMetrics()?.model?.limit.context,
       contextMetrics()?.limit,
     ].find((limit) => typeof limit === "number" && limit > 0),
   )
@@ -621,27 +630,14 @@ function InsightContent() {
     const tokens = contextTokens()
     return limit && tokens !== undefined ? Math.round((tokens / limit) * 100) : undefined
   })
-  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens() ?? 0, contextLimit(), params.id))
-  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
   const [contextCommandPending, setContextCommandPending] = createSignal(false)
   const [abortPending, setAbortPending] = createSignal(false)
   const sessionSettling = createMemo(() => contextCommandPending() || abortPending())
-  const contextCompactionDisabled = createMemo(() => isWorking() || sessionSettling() || !local.model.current())
-  const contextWarningVisible = createMemo(
-    () => !contextSendBlocked() && shouldShowContextWarning(contextUsage() ?? 0, params.id, ignoredContextWarningSession(), isWorking()),
-  )
+  const contextCompactionDisabled = createMemo(() => isWorking() || sessionSettling())
 
-  createEffect(() => {
-    const ignored = ignoredContextWarningSession()
-    if (!ignored) return
-    if (ignored === params.id && (contextUsage() ?? 0) >= 80) return
-    setIgnoredContextWarningSession(undefined)
-  })
-
-  async function compactContext(command: "compact" | "summarize" = "compact") {
-    const sessionID = params.id
+  async function compactContext(sessionID: string, command: "compact" | "summarize" = "compact") {
     const model = local.model.current()
-    if (!sessionID || !model || contextCompactionDisabled()) return
+    if (sessionID !== params.id || contextCompactionDisabled()) return
 
     const finish = beginInsightOperation("context-compact", { sessionId: sessionID, command })
     setContextCommandPending(true)
@@ -650,34 +646,30 @@ function InsightContent() {
         sessionID,
         command,
         arguments: "",
-        agent: INSIGHT_AGENT,
-        model: `${model.provider.id}/${model.id}`,
+        agent: sync.session.get(sessionID)?.agent ?? INSIGHT_AGENT,
+        model: model ? `${model.provider.id}/${model.id}` : undefined,
       })
       const info = result.data?.info
       if (info && isSuccessfulCompaction(info)) {
         finish("success")
-        showToast({ title: "上下文压缩完成", variant: "success", duration: 2000 })
+        showOctoToast({ title: "上下文压缩完成" })
         return
       }
       const error = info?.error ?? result.error
-      if (isMessageAbortedError(error)) {
-        finish("cancelled")
-        return
-      }
-      finish("failure", { reason: "command-result" })
-      showToast({ title: "上下文压缩失败", description: contextCommandErrorMessage(error) ?? "请稍后重试", variant: "error" })
+      finish(isMessageAbortedError(error) ? "cancelled" : "failure", { reason: "command-result" })
+      showOctoToast({ title: "上下文压缩失败", description: contextCommandErrorMessage(error) ?? "请稍后重试", variant: "error" })
     } catch (error) {
       finish(isMessageAbortedError(error) ? "cancelled" : "failure", { reason: "command-request" })
       console.error(`[InsightPage] command /${command} failed`, error)
-      if (isMessageAbortedError(error)) return
-      showToast({ title: "上下文压缩失败", description: error instanceof Error ? error.message : "请稍后重试", variant: "error" })
+      showOctoToast({ title: "上下文压缩失败", description: sessionErrorMessage(error, "请稍后重试"), variant: "error" })
     } finally {
       setContextCommandPending(false)
     }
   }
 
   function confirmCompactContext() {
-    if (contextCompactionDisabled()) return
+    const sessionID = params.id
+    if (!sessionID || contextCompactionDisabled()) return
     dialog.show(() => (
       <Dialog title="压缩上下文" fit class="delete-dialog">
         <div class="flex flex-col gap-4">
@@ -686,7 +678,7 @@ function InsightContent() {
             <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>取消</Button>
             <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={() => {
               dialog.close()
-              void compactContext()
+              void compactContext(sessionID)
             }}>确认压缩</Button>
           </div>
         </div>
@@ -1263,7 +1255,7 @@ function InsightContent() {
     return new File([bytes], file.name, { type: content.mimeType || mime })
   }
 
-  /** @引用/设计文件 mention chip 的超限图片自动压缩(对齐 design 页 2026-11 修复):
+  /** @引用 mention chip 的超限图片自动压缩(对齐 design 页 2026-11 修复):
    *  chip 发送时进 [引用文件]/读取<path>,模型 read 后产出 >1MB 视觉附件,与附件入口受同一硬限制必失败。
    *  选中即读盘压缩,产物经 importFileToWorktree 落 .octo/tmps(撞名自动加后缀,不动原图),
    *  再回写 chip 路径;读不到/压不动保留原路径并 toast。 */
@@ -1995,11 +1987,11 @@ function InsightContent() {
         return
       }
       if (contextCompactionDisabled()) {
-        showToast({ title: "暂时无法压缩", description: isWorking() ? "请等待当前回复结束后再试。" : "请先选择模型。" })
+        showOctoToast({ title: "暂时无法压缩", description: "请等待当前回复结束后再试。" })
         return
       }
       clearComposers()
-      await compactContext(contextCommand)
+      await compactContext(params.id, contextCommand)
       return
     }
 
@@ -2730,11 +2722,10 @@ function InsightContent() {
         directory={projectDir()} sessionId={params.id} productId={projectSelection()?.product?.id}
         editor={() => pmRefWelcome?.isAlive() ? pmRefWelcome : pmRefConv?.isAlive() ? pmRefConv : undefined}
         skills={insightSkills()} skillsLoading={skillsLoading()} loadSkills={loadInsightSkills}
-        files={mentionFilesMirror.value ?? null} filesLoading={mentionFiles.loading} selections={mentionSelections()}
+        selections={mentionSelections()}
         maxAttachments={maxAttachments()} onAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
         onPending={pending => setAddonState("pending", pending)}
         mcpSelection={mcpSelection()} onMcpSelect={handleMcpSelect} onMcpClear={handleMcpClear}
-        onFileMentionInsert={(sel) => void compressInsightMentionImageIfNeeded(sel)}
       />
     }</Show>
   )
@@ -2956,7 +2947,6 @@ function InsightContent() {
                   tokens: contextTokens(),
                   limit: contextLimit(),
                   usage: contextUsage(),
-                  blocked: contextSendBlocked(),
                   disabled: contextCompactionDisabled(),
                   onCompact: confirmCompactContext,
                 }}
@@ -3012,6 +3002,8 @@ function InsightContent() {
                           messageID={msgID}
                           status={sessionStatus()}
                           active={isBusy()}
+                          compactDisabled={contextCompactionDisabled()}
+                          onCompact={confirmCompactContext}
                           onOpenResult={handleOpenResult}
                           onOpenAttachment={handleOpenAttachment}
                           taskCards={taskCardsByAnchor().get(msgID) ?? []}
@@ -3043,35 +3035,6 @@ function InsightContent() {
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
               <div class="flex flex-col min-h-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
-                <Show when={contextSendBlocked() && contextLimit()}>
-                  {(limit) => (
-                    <div class="insight-context-notice-wrap">
-                      <InsightContextOverflowNotice
-                        tokens={contextTokens() ?? 0}
-                        limit={limit()}
-                        locale={language.intl()}
-                        disabled={contextCompactionDisabled()}
-                        onCompact={confirmCompactContext}
-                      />
-                    </div>
-                  )}
-                </Show>
-
-                <Show when={contextWarningVisible() && contextLimit()}>
-                  {(limit) => (
-                    <div class="insight-context-notice-wrap">
-                      <InsightContextUsageWarning
-                        tokens={contextTokens() ?? 0}
-                        limit={limit()}
-                        locale={language.intl()}
-                        disabled={contextCompactionDisabled()}
-                        onIgnore={() => setIgnoredContextWarningSession(params.id)}
-                        onCompact={confirmCompactContext}
-                      />
-                    </div>
-                  )}
-                </Show>
-
                 {/* 阻塞 Dock(权限 + 答题)与队列条同处一个可滚动区(6px 细滚动条):
                     question 工具与队列同时出现、总高溢出时由此区吸收,不再挤压下方 composer
                     输入框(shrink-0 始终完整可见)。 */}

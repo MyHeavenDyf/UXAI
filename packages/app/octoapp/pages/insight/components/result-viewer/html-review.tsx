@@ -19,6 +19,7 @@ function createReview(props: { productId?: number; onEditPrompt?: (sessionId: st
   const sdk = useSDK()
   const directory = useProjectDir()
   const [state, setState] = createStore({
+    savedPreview: null as { tabId: string; path: string; content: string } | null,
     editing: false, commenting: false, busy: false, entries: [] as VersionEntry[], current: null as string | null,
   })
   const path = createMemo(() => props.tab ? tabLocalPath(props.tab) : undefined)
@@ -41,7 +42,7 @@ function createReview(props: { productId?: number; onEditPrompt?: (sessionId: st
   onCleanup(() => { disposed = true })
   createEffect(() => {
     key()
-    setState({ editing: false, commenting: false, entries: [], current: null, busy: false })
+    setState({ savedPreview: null, editing: false, commenting: false, entries: [], current: null, busy: false })
   })
   createEffect(() => {
     if (props.tab?.viewMode === "source" || props.working) setState({ commenting: false, editing: false })
@@ -84,6 +85,13 @@ function createReview(props: { productId?: number; onEditPrompt?: (sessionId: st
   }
   return {
     state, key, path, comments, history,
+    consumeSavedPreview: (tabId: string, filePath: string) => {
+      const saved = state.savedPreview
+      if (!saved || saved.tabId !== tabId || saved.path !== filePath) return
+      const content = saved.content
+      setState("savedPreview", null)
+      return content
+    },
     productId: () => props.productId,
     directory,
     sessionId: () => params.id,
@@ -106,7 +114,7 @@ function createReview(props: { productId?: number; onEditPrompt?: (sessionId: st
     },
     editDisabled: () => !eligible() || !history() || !getDesktopApi()?.writeFileBuffer || !!props.working || state.busy,
     toggleEdit: () => setState({ editing: !state.editing, commenting: false }),
-    saveEdit: async (content: string, original: string) => {
+    saveEdit: async (content: string, original: string, keepPreview?: () => Promise<boolean>) => {
       const api = getDesktopApi()
       const file = path()
       const store = history()
@@ -114,8 +122,20 @@ function createReview(props: { productId?: number; onEditPrompt?: (sessionId: st
       if (!file || !store || !api?.writeFileBuffer || props.working || state.busy) throw new Error("当前无法保存 HTML")
       setState("busy", true)
       try {
-        await saveHtmlEdit(file, original, content, api, () => scope === key() && !props.working)
-        if (scope === key()) { setState("editing", false); props.onRestore() }
+        const entry = await saveHtmlEdit(file, original, content, api, () => !disposed && scope === key() && !props.working)
+        if (disposed || scope !== key()) return
+        const retained = await keepPreview?.()
+        if (disposed || scope !== key()) return
+        const tab = props.tab
+        if (retained && tab) {
+          setState({
+            savedPreview: { tabId: tab.id, path: file, content }, editing: false, current: entry.id,
+            entries: state.entries.some(item => item.id === entry.id) ? state.entries : [entry, ...state.entries],
+          })
+          return
+        }
+        setState("editing", false)
+        props.onRestore()
       } finally {
         if (scope === key()) setState("busy", false)
       }
@@ -172,13 +192,12 @@ export function HtmlReviewActions(props: { tab: ResultTab; working?: boolean; lo
     : "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
   const iconSize = () => props.tab.fromAttachment ? 16 : 14
   const disabled = () => review?.disabled() || (props.loadState === "loading" ? "HTML 内容加载中" : props.loadState === "error" ? "请先重新加载 HTML" : "")
-  const editLabel = () => review?.state.editing ? "退出修改" : "局部修改"
   createEffect(() => { review?.key(); props.tab.viewMode; setState("open", false) })
   return <Show when={props.tab.type === "html" && review}>
-    <Tooltip value={editLabel()} placement="top">
-      <button type="button" class={buttonClass()} disabled={!!disabled() || review?.editDisabled()}
+    <Tooltip value="局部修改" placement="top">
+      <button type="button" class={`${buttonClass()} insight-local-edit-toggle`} disabled={!!disabled() || review?.editDisabled()}
         aria-pressed={review?.state.editing} classList={{ "octo-viewport-btn-active": review?.state.editing }}
-        onClick={() => review?.toggleEdit()}><IconLocalModify size={iconSize()} /><span>{editLabel()}</span></button>
+        onClick={() => review?.toggleEdit()}><IconLocalModify size={iconSize()} /><span>局部修改</span></button>
     </Tooltip>
     <Tooltip value={disabled() || "标注"} placement="top">
       <button type="button" class={buttonClass()} disabled={!!disabled() || review?.state.busy}

@@ -12,6 +12,7 @@ import {
   BoardError,
 } from "./studio-board-service"
 import { executeJimengImageGenerate, summarizeJimengOutput } from "@/tool/jimeng_image_generate"
+import { historicalStudioModelUnavailableMessage, studioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
 import {
   cancelInternalGeneration,
   createInternalGeneration,
@@ -68,7 +69,7 @@ import {
   enqueueStudioMediaThumbnails,
   prepareStudioThumbnailMedia,
 } from "./studio-media-thumbnail"
-import { generationHistorySnapshot, materializeStudioGeneration } from "./studio-history-service"
+import { generationHistorySnapshot, materializeStudioGeneration, studioCustomSizeFields, studioFallbackDetailPrompt } from "./studio-history-service"
 
 type StudioProvider = "jimeng" | "internel"
 const STUDIO_GENERATION_POLL_TIMEOUT_MS = 60 * 60_000
@@ -180,6 +181,8 @@ export type StudioGenerationResult = {
   styleModel?: string
   aspectRatio: string
   isCustom?: boolean
+  width?: number
+  height?: number
   videoMode?: "text" | "first_last_frame"
   duration?: string
   videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -266,6 +269,9 @@ export type StudioGenerationAccepted = Pick<
   | "model"
   | "styleModel"
   | "aspectRatio"
+  | "isCustom"
+  | "width"
+  | "height"
   | "taskId"
   | "images"
   | "progress"
@@ -1958,7 +1964,9 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     capability: record.capability,
     prompt: generationPrompt(data.input),
     displayPrompt: data.input.displayPrompt,
-    detailPrompt: data.input.detailPrompt,
+    // 与会话视图（turns.ts）同口径：detailPrompt 缺失且无 displayPrompt 时回退到用户提示词，
+    // 智能重绘/扩图在「我的资产」详情才有与会话一致的提示文案。
+    detailPrompt: studioFallbackDetailPrompt(data.input),
     detailTitle: data.input.detailTitle,
     provider: record.provider,
     model: result?.model ?? data.task?.model ?? data.input.styleModel ?? "internel",
@@ -1966,6 +1974,10 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     // 编辑类能力与工具输入同口径，不携带 styleModel。
     styleModel: isEditorGenerationCapability(record.capability) ? undefined : data.input.styleModel,
     aspectRatio: result?.aspectRatio ?? data.input.aspectRatio ?? "3:4",
+    // 自定义尺寸信息不进 result 列（老行没有），从 request.input 按会话视图同口径推导，
+    // 让「我的资产」详情的比例（自定义）与分辨率（自定义像素）和会话一致；
+    // 新行的 result 已带同值字段，覆盖后仍一致。
+    ...studioCustomSizeFields(data.input),
     taskId: result?.taskId ?? data.task?.taskId ?? record.provider_task_id ?? undefined,
     images: result?.images ?? [],
     progress: record.progress,
@@ -2049,6 +2061,9 @@ function buildGenerationResult(record: StudioGenerationRecord, output: ImageGene
     taskId: output.taskId,
     model: output.model,
     aspectRatio: input.aspectRatio ?? "3:4",
+    // 持久化自定义尺寸信息：历史物化（行内 is_custom/width/height）与会话删除后的
+    // 历史快照回退都读 result，缺失会让「我的资产」详情退回默认比例档。
+    ...studioCustomSizeFields(input),
     ...(input.capability === "video.generate"
       ? {
           videoMode: videoMode(input),
@@ -2875,6 +2890,8 @@ async function createGenerationImpl(request: StudioGenerationRequest): Promise<S
       throw new Error("卡片类型与生成能力不一致")
     if (input.prompt.trim() !== submission.input.snapshot.prompt.trim()) throw new Error("提示词与提交快照不一致")
   }
+  const unavailableModelMessage = input.capability === "image.generate" && studioModelUnavailableMessage(input.styleModel ?? "qwen")
+  if (unavailableModelMessage) throw new Error(unavailableModelMessage)
   const createdAt = Date.now()
   const id = Identifier.create("studio_gen", "ascending")
   assertCanGenerate(sessionID)
@@ -2992,6 +3009,7 @@ async function rebootGenerationImpl(
     const record = loadGenerationRecord(id)
     if (!record) throw new Error(`Studio generation not found: ${id}`)
     const data = generationRequest(record)
+    const unavailableModelMessage = historicalStudioModelUnavailableMessage({ capability: record.capability, request: record.request })
     assertCanGenerate(record.session_id)
     if (data.input.board) {
       if (!operationID || !z.string().uuid().safeParse(operationID).success)
@@ -3000,6 +3018,7 @@ async function rebootGenerationImpl(
         db.select().from(StudioBoardOperationTable).where(eq(StudioBoardOperationTable.id, operationID)).get(),
       )
       const canStart = record.status === "failed" && record.provider === "internel" && !!record.provider_task_id
+      if (!previous && canStart && unavailableModelMessage) throw new BoardError(unavailableModelMessage)
       // Snapshot before sending; a failed preflight has not submitted a reboot and must not leave a lock.
       const baseline =
         !previous && canStart
@@ -3029,6 +3048,7 @@ async function rebootGenerationImpl(
     if (!record.provider_task_id)
       throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
 
+    if (unavailableModelMessage) throw new Error(unavailableModelMessage)
     const reboot = await rebootInternalGeneration({
       taskId: record.provider_task_id,
       userIdx: data.input.extra && typeof data.input.extra.userIdx === "string" ? data.input.extra.userIdx : undefined,

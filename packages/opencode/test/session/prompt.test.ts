@@ -2272,6 +2272,12 @@ it.live(
             title: "Pinned",
             permission: [{ permission: "*", pattern: "*", action: "allow" }],
           })
+          yield* llm.text("assistant reply")
+          yield* prompt.prompt({
+            sessionID: chat.id,
+            agent: "build",
+            parts: [{ type: "text", text: `old context ${"x".repeat(80_000)}` }],
+          })
           yield* prompt.prompt({
             sessionID: chat.id,
             agent: "build",

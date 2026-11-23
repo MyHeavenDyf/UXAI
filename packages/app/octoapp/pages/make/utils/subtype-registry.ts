@@ -10,6 +10,7 @@ import gtsHandler from "../subtype-handlers/gts"
 import gtsEpHandler from "../subtype-handlers/gts-ep"
 import fastuiHandler from "../subtype-handlers/fastui"
 import pageHandler from "../subtype-handlers/page"
+import scene3dHandler from "../subtype-handlers/scene3d"
 
 const handlers = new Map<string, SubtypeHandler>()
 
@@ -34,3 +35,4 @@ registerSubtypeHandler(gtsHandler)
 registerSubtypeHandler(gtsEpHandler)
 registerSubtypeHandler(fastuiHandler)
 registerSubtypeHandler(pageHandler)
+registerSubtypeHandler(scene3dHandler)

@@ -4,6 +4,8 @@ import solid from "vite-plugin-solid"
 import { createComponent } from "solid-js"
 import { render } from "solid-js/web"
 import { BoardDocument, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
+import { STUDIO_STYLE_MODEL_CONFIG, defaultStudioStyleModel } from "@opencode-ai/core/studio/model-availability"
+import { styleModelLabel } from "../data"
 import { clearStudioPermissionCache, ensureStudioPermission } from "../studio-permission-store"
 import type { BoardGenerationRequest } from "./studio-board-api"
 
@@ -95,6 +97,7 @@ async function setup(
     status: "failed",
     capability: "image.generate",
     provider: "internel",
+    model: "seedream-5-pro",
     taskId: "provider-old",
     prompt: "原始提示词",
     error: "原任务失败原因",
@@ -555,16 +558,16 @@ test("extracted card views keep one composer across selection, then dispose a re
     button(value.container, "自定义").click()
     const width = value.container.querySelector<HTMLInputElement>('input[placeholder="宽"]')!
     const height = value.container.querySelector<HTMLInputElement>('input[placeholder="高"]')!
-    width.value = "2200"
+    width.value = "2100"
     width.dispatchEvent(new Event("input", { bubbles: true }))
-    height.value = "2200"
+    height.value = "2100"
     height.dispatchEvent(new Event("input", { bubbles: true }))
     selectCard("图片 02")
     expect(value.container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("第二张卡片的草稿")
     selectCard("图片 01")
     button(value.container, "图片设置").click()
-    expect(value.container.querySelector<HTMLInputElement>('input[placeholder="宽"]')?.value).toBe("2200")
-    expect(value.container.querySelector<HTMLInputElement>('input[placeholder="高"]')?.value).toBe("2200")
+    expect(value.container.querySelector<HTMLInputElement>('input[placeholder="宽"]')?.value).toBe("2100")
+    expect(value.container.querySelector<HTMLInputElement>('input[placeholder="高"]')?.value).toBe("2100")
     article.querySelector<HTMLButtonElement>("footer button")!.click()
     expect(value.container.querySelector(".studio-board-results")?.textContent).toContain("暂无成功结果")
     button(value.container, "关闭").click()
@@ -748,15 +751,15 @@ test("sending closes the actual settings popup and commits custom dimensions and
     button(value.container, "自定义").click()
     const width = value.container.querySelector<HTMLInputElement>('input[placeholder="宽"]')!
     const height = value.container.querySelector<HTMLInputElement>('input[placeholder="高"]')!
-    width.value = "2200"
+    width.value = "2100"
     width.dispatchEvent(new Event("input", { bubbles: true }))
-    height.value = "2200"
+    height.value = "2100"
     height.dispatchEvent(new Event("input", { bubbles: true }))
     button(value.container, "发送新任务").click()
     await Bun.sleep(30)
     expect(value.requests).toHaveLength(1)
     expect(value.requests[0].extra?.userIdx).toBe("current-user")
-    expect(value.requests[0].board.snapshot.settings).toMatchObject({ isCustom: true, width: 2200, height: 2200 })
+    expect(value.requests[0].board.snapshot.settings).toMatchObject({ isCustom: true, width: 2100, height: 2100 })
     expect(value.container.querySelector('[role="dialog"]')).toBeNull()
     expect(button(value.container, "发送新任务").disabled).toBe(false)
   } finally {
@@ -1256,7 +1259,28 @@ test.each(["network", "readback"])(
   },
 )
 
-test.each([2200, 1280])("switching a %spx custom size to Qwen keeps only valid settings", async (size) => {
+test("the board model menu reads the shared active configuration", async () => {
+  const value = await setup({ seedream: true })
+  try {
+    button(value.container, "新建图片卡片").click()
+    button(value.container, styleModelLabel(defaultStudioStyleModel())).click()
+    STUDIO_STYLE_MODEL_CONFIG.forEach((model) => {
+      expect(button(value.container, model.label)).toBeDefined()
+    })
+    expect(value.container.querySelector(".studio-menu")?.textContent).not.toContain("Seedream 5.0 Lite")
+    button(value.container, "千问").click()
+    const prompt = value.container.querySelector<HTMLTextAreaElement>("textarea")!
+    prompt.value = "统一配置模型"
+    prompt.dispatchEvent(new Event("input", { bubbles: true }))
+    button(value.container, "发送新任务").click()
+    await Bun.sleep(30)
+    expect(value.requests[0].board.snapshot.settings.styleModel).toBe("qwen")
+  } finally {
+    value.dispose()
+  }
+})
+
+test.each([2100, 1280])("switching a %spx custom size to Qwen keeps only valid settings", async (size) => {
   const value = await setup()
   try {
     button(value.container, "新建图片卡片").click()
@@ -1267,22 +1291,11 @@ test.each([2200, 1280])("switching a %spx custom size to Qwen keeps only valid s
     button(value.container, "自定义").click()
     const width = value.container.querySelector<HTMLInputElement>('input[placeholder="宽"]')!
     const height = value.container.querySelector<HTMLInputElement>('input[placeholder="高"]')!
-    width.value = "2200"
+    width.value = String(size)
     width.dispatchEvent(new Event("input", { bubbles: true }))
-    height.value = "2200"
+    height.value = String(size)
     height.dispatchEvent(new Event("input", { bubbles: true }))
-    button(value.container, "Seedream 5.0 Lite").click()
-    if (size === 1280) {
-      button(value.container, "Seedream 5.0 Pro").click()
-      button(value.container, "图片设置").click()
-      const w = value.container.querySelector<HTMLInputElement>('input[placeholder="宽"]')!
-      const h = value.container.querySelector<HTMLInputElement>('input[placeholder="高"]')!
-      w.value = "1280"
-      w.dispatchEvent(new Event("input", { bubbles: true }))
-      h.value = "1280"
-      h.dispatchEvent(new Event("input", { bubbles: true }))
-      button(value.container, "Seedream 5.0 Pro").click()
-    }
+    button(value.container, "Seedream 5.0 Pro").click()
     button(value.container, "千问").click()
     button(value.container, "发送新任务").click()
     await Bun.sleep(30)
@@ -1529,9 +1542,9 @@ test("reboot closes and commits the settings popup before locking draft writes",
     button(value.container, "自定义").click()
     const width = value.container.querySelector<HTMLInputElement>('input[placeholder="宽"]')!
     const height = value.container.querySelector<HTMLInputElement>('input[placeholder="高"]')!
-    width.value = "2200"
+    width.value = "2100"
     width.dispatchEvent(new Event("input", { bubbles: true }))
-    height.value = "2200"
+    height.value = "2100"
     height.dispatchEvent(new Event("input", { bubbles: true }))
     const ratio = button(value.container, "16:9")
     button(value.container, "重新生成").click()
@@ -1540,7 +1553,7 @@ test("reboot closes and commits the settings popup before locking draft writes",
     expect(button(value.container, "图片设置").disabled).toBe(true)
     const key = "studio.board.backup:http://board.test:/test:test-board"
     const before = JSON.parse(localStorage.getItem(key)!)
-    expect(before.document.cards[0].draft.settings).toMatchObject({ isCustom: true, width: 2200, height: 2200 })
+    expect(before.document.cards[0].draft.settings).toMatchObject({ isCustom: true, width: 2100, height: 2100 })
     expect(before.document.cards[0].taskLinks[0].snapshot.settings.isCustom).toBe(false)
     ratio.click()
     await Bun.sleep(30)

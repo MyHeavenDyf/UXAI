@@ -17,6 +17,7 @@ import {
   registerModelsApiRefresh,
 } from "@/network/models-api"
 import { Persist, persisted } from "@/utils/persist"
+import { isProviderApiKeyMissing } from "@/utils/provider-api-key"
 
 export type ModelKey = { providerID: string; modelID: string }
 
@@ -61,6 +62,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const mergeApiModels = (models: Awaited<ReturnType<typeof fetchModelsApi>>) => {
       const remoteProviders = modelsApiProviders(models)
       globalSync.replaceProviders(remoteProviders)
+      globalSync.invalidateProviders()
     }
     const [apiModels, setApiModels] = createSignal<Awaited<ReturnType<typeof fetchModelsApi>>>()
     const [refreshing, setRefreshing] = createSignal(false)
@@ -208,6 +210,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     }
 
     const visible = (model: ModelKey) => {
+      if (isProviderApiKeyMissing(find(model)?.provider)) return false
       const key = modelKey(model)
       const state = visibility().get(key)
       if (state === "hide") return false
@@ -220,6 +223,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     }
 
     const setVisibility = (model: ModelKey, state: boolean) => {
+      if (state && isProviderApiKeyMissing(find(model)?.provider)) return
       update(model, state ? "show" : "hide")
     }
 
@@ -251,6 +255,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       },
       list,
       find,
+      apiKeyMissing: (model: ModelKey) => isProviderApiKeyMissing(find(model)?.provider),
       visible,
       setVisibility,
       recent: {

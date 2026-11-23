@@ -269,6 +269,41 @@ function me_runBridge() {
     }
   }
 
+  // 滚动位置自愈：sessionStorage 持久化，重载后自动恢复（局部修改保存触发 iframe 重载后回到用户浏览位置）。
+  // key 用 pathname（不含 ?v=refreshKey，query 每次刷新都变）；local://（桌面）与 srcdoc（web, allow-same-origin）
+  // 的 sessionStorage 均跨 reload 持久。
+  var me_scrollKey = 'od-scroll:' + location.pathname;
+  var me_scrollTimer = null;
+  function me_saveScroll() {
+    if (me_scrollTimer) return;
+    me_scrollTimer = setTimeout(function() {
+      me_scrollTimer = null;
+      if (!me_enabled) return; // 只记录局部修改会话内的滚动
+      try { sessionStorage.setItem(me_scrollKey, JSON.stringify({ x: window.scrollX || 0, y: window.scrollY || 0 })); } catch (e) {}
+    }, 150);
+  }
+  window.addEventListener('scroll', me_saveScroll, true);
+
+  // 注入即恢复（bridge 是文档脚本，load 前执行；内容可能未渲染完 → rAF 重试至多 120 帧）
+  (function() {
+    var saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(me_scrollKey) || 'null'); } catch (e) {}
+    if (!saved || (!saved.x && !saved.y)) return;
+    var n = 0;
+    var root = document.documentElement;
+    var prevBehavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto'; // 页面可能启用 smooth 滚动（html{scroll-behavior:smooth}），逐帧重试会与其打架，恢复期间禁用
+    (function tryScroll() {
+      window.scrollTo(saved.x || 0, saved.y || 0);
+      var maxY = Math.max(0, root.scrollHeight - window.innerHeight);
+      if (Math.abs(window.scrollY - saved.y) <= 2 || saved.y >= maxY - 2 || ++n > 120) {
+        root.style.scrollBehavior = prevBehavior;
+        return;
+      }
+      requestAnimationFrame(tryScroll);
+    })();
+  })();
+
   function me_applyMode(enabled) {
     me_enabled = enabled;
     document.documentElement.toggleAttribute('data-od-edit-mode', me_enabled);

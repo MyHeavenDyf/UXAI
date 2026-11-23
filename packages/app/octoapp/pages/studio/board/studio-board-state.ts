@@ -7,8 +7,8 @@ import {
   type BoardSettings,
 } from "@opencode-ai/core/studio-board"
 import type { StudioGenerationResult, StudioImage } from "../types"
-import { styleModelRequiresSeedreamPermission } from "../data"
-import { isStudioCustomSizeValid } from "../studio-shared"
+import { isStyleModelAvailable, styleModelRequiresSeedreamPermission } from "../data"
+import { isStudioCustomSizeValid, studioGenerationModelUnavailableMessage } from "../studio-shared"
 export { boardEdgeError, emptyBoard, newBoardCard } from "@opencode-ai/core/studio-board"
 export type {
   BoardCard,
@@ -48,6 +48,7 @@ export function normalizeBoardDraft(document: BoardDocument): BoardDocument {
 export function boardCanGenerate(card: BoardCard, permission: { status: string; seedream: boolean; video: boolean }) {
   if (permission.status !== "ready") return false
   if (card.kind === "video") return permission.video
+  if (!isStyleModelAvailable(card.draft.settings.styleModel)) return false
   return !styleModelRequiresSeedreamPermission(card.draft.settings.styleModel) || permission.seedream
 }
 
@@ -58,7 +59,7 @@ export function boardFailed(result?: StudioGenerationResult) {
   return result?.status === "failed" || result?.status === "create_failed"
 }
 export function boardRebootable(result?: StudioGenerationResult) {
-  return result?.status === "failed" && result.provider === "internel" && !!result.taskId
+  return result?.status === "failed" && result.provider === "internel" && !!result.taskId && !studioGenerationModelUnavailableMessage(result)
 }
 export function boardMedia(card: BoardCard, results: BoardResults) {
   return card.taskLinks

@@ -8,6 +8,7 @@ import {
   type BoardResults,
 } from "./studio-board-state"
 import type { BoardOperation } from "./studio-board-operations"
+import { studioGenerationModelUnavailableMessage } from "../studio-shared"
 
 export function StudioBoardCardView(props: {
   card: BoardCard
@@ -27,6 +28,10 @@ export function StudioBoardCardView(props: {
   onPlay: (video: HTMLVideoElement) => void
 }) {
   const current = () => props.results[props.card.currentGenerationID ?? ""]
+  const unavailableModelMessage = () => {
+    const result = current()
+    return result && studioGenerationModelUnavailableMessage(result)
+  }
   const hasFailure = () => !props.operation && !props.failureSuppressed && boardFailed(current())
   const showFailure = () => !props.historyPreview && hasFailure()
   const shownMedia = createMemo(() => {
@@ -142,7 +147,7 @@ export function StudioBoardCardView(props: {
               >
                 <strong>生成失败</strong>
                 <span>
-                  {String(current()?.rawStatus) === "4" ? "用户取消生成" : current()?.error || "生成失败，请稍后重试"}
+                  {unavailableModelMessage() || (String(current()?.rawStatus) === "4" ? "用户取消生成" : current()?.error || "生成失败，请稍后重试")}
                 </span>
                 <Show when={!boardRebootable(current())}>
                   <small>请在输入区发送新任务</small>

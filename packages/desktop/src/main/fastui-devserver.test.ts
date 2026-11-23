@@ -7,7 +7,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import net from "node:net"
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
@@ -40,9 +40,17 @@ srv.listen(port, "127.0.0.1", () => {
 })
 `
 
+/** 本机建 / 复用过的工程根一定有指向共享池的 node_modules;没有就是未接手的导入工程(SPEC-DES-009 §3.2) */
+function linkDeps(projectDir: string) {
+  symlinkSync(depsDir, join(projectDir, "node_modules"), "dir")
+}
+
 function session(sid: string, projects: string[]) {
   const sessionDir = join(root, "work", ".octo", sid)
-  for (const p of projects) mkdirSync(join(sessionDir, "outputs", p, "packages", "portal"), { recursive: true })
+  for (const p of projects) {
+    mkdirSync(join(sessionDir, "outputs", p, "packages", "portal"), { recursive: true })
+    linkDeps(join(sessionDir, "outputs", p))
+  }
   writeFileSync(
     join(sessionDir, ".octo-fastui.json"),
     JSON.stringify({ projectDir: join(sessionDir, "outputs", projects.at(-1)!), envDir, depsDir, nodeBin }),
@@ -58,6 +66,7 @@ function codeProject(ws: string, name: string) {
   const dir = join(root, ws, name)
   mkdirSync(join(dir, "packages", "portal"), { recursive: true })
   writeFileSync(join(dir, ".octo-fastui.json"), JSON.stringify({ schema: 1, skill: "fastui-vue-creator", name, sessions: ["ses_a"], envDir, depsDir, nodeBin }))
+  linkDeps(dir)
   return dir
 }
 const codeTarget = (ws: string, name?: string, sessionId = "ses_a") => ({ workspaceDir: join(root, ws), sessionId, name })

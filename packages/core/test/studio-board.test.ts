@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { STUDIO_STYLE_MODEL_CONFIG, defaultStudioStyleModel } from "../src/studio/model-availability"
 import {
   BoardSnapshot,
   boardDraftReferences,
@@ -8,7 +9,6 @@ import {
 } from "../src/studio-board"
 
 test.each([
-  { model: "seedream-5-lite", limit: 4 },
   { model: "seedream-5-pro", limit: 4 },
   { model: "qwen", limit: 3 },
   { model: "portrait", limit: 1 },
@@ -27,6 +27,22 @@ test.each([
   expect(boardGenerationError("image", snapshot)).toBeUndefined()
   snapshot.references.push({ ...snapshot.references[0], mediaID: "extra", image: "https://example.test/extra.png" })
   expect(boardGenerationError("image", snapshot)).toBe("参考图数量超过模型上限")
+})
+
+test("new cards follow the active configuration while retired drafts remain readable", () => {
+  const retired = BoardSnapshot.parse({ prompt: "旧任务", settings: { styleModel: "seedream-5-lite" }, references: [] })
+  expect(retired.settings.styleModel).toBe("seedream-5-lite")
+  expect(boardGenerationError("image", retired)).toContain("模型已下架或不可用")
+  expect(boardGenerationError("video", retired)).toBeUndefined()
+  const model = STUDIO_STYLE_MODEL_CONFIG.shift()!
+  try {
+    expect(newBoardCard("new", "image").draft.settings.styleModel).toBe(defaultStudioStyleModel())
+    expect(newBoardCard("new", "image").draft.settings.styleModel).not.toBe(model.id)
+    expect(STUDIO_STYLE_MODEL_CONFIG.find((model) => model.id === defaultStudioStyleModel(false))?.requiresSeedreamPermission).not.toBe(true)
+    expect(boardGenerationError("image", { ...retired, settings: { ...retired.settings, styleModel: model.id } })).toContain("模型已下架或不可用")
+  } finally {
+    STUDIO_STYLE_MODEL_CONFIG.unshift(model)
+  }
 })
 
 test("video frame and 4K rules allow valid snapshots and keep image rules independent", () => {

@@ -3,6 +3,7 @@ import "./studio/board/studio-board-entry.css"
 import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSuccess, studioPermissionState } from "./studio/studio-permission-store"
 import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
+import { historicalStudioStyleModel, studioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
 import { tracker } from "@/utils/tracker"
 import { createSkillUsageTracker } from "@/utils/skill-usage-tracker"
 import { batch, createEffect, createMemo, createResource, createSignal, lazy, on, onCleanup, onMount, Show, Suspense, untrack, type JSX } from "solid-js"
@@ -112,6 +113,7 @@ import {
   isStudioGenerationStatusRegression,
   isPromptExpansionGeneration,
   studioRegenerationExtra,
+  studioGenerationModelUnavailableMessage,
   recordValue,
   STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
@@ -130,6 +132,7 @@ import {
   type StudioPendingResult,
   type StudioVideoDuration,
   type StudioVideoFrameSlot,
+  type StudioVideoInputMode,
   type StudioVideoMode,
   STUDIO_VIDEO_RESOLUTION,
   STUDIO_VIDEO_RESOLUTION_KEY,
@@ -299,6 +302,7 @@ type StudioGenerationOverrides = {
   mentionImages?: Record<string, string>
   extra?: Record<string, unknown>
   videoFrames?: { first?: string; last?: string }
+  videoInputMode?: StudioVideoInputMode
   styleModel?: string
   aspectRatio?: StudioAspectRatio
   width?: number
@@ -509,6 +513,7 @@ function StudioPageContent() {
       videoDuration: "5" as StudioVideoDuration,
       videoQualityMode: "480" as StudioVideoQualityMode,
       videoMode: "all-reference" as StudioVideoMode,
+      videoInputMode: "first-last-frame" as StudioVideoInputMode,
     }),
   )
   const videoDuration = () => videoSettingStore.videoDuration
@@ -517,6 +522,14 @@ function StudioPageContent() {
   const setVideoQualityMode = (v: StudioVideoQualityMode) => setVideoSettingStore("videoQualityMode", v)
   const videoMode = () => videoSettingStore.videoMode
   const setVideoMode = (v: StudioVideoMode) => setVideoSettingStore("videoMode", v)
+  const videoInputMode = () => videoSettingStore.videoInputMode
+  const setVideoInputMode = (v: StudioVideoInputMode) => {
+    if (v === videoSettingStore.videoInputMode) return
+    setVideoSettingStore("videoInputMode", v)
+    if (v === "multi-reference") clearVideoFrames()
+  }
+  const isVideoFirstLastFrameInput = () => capability() === "video.generate" && videoInputMode() === "first-last-frame"
+  const isVideoMultiReferenceInput = () => capability() === "video.generate" && videoInputMode() === "multi-reference"
   createEffect(() => {
     if (capability() === "video.generate" && videoQualityMode() === "4k" && count() !== 1) setCount(1)
   })
@@ -1969,15 +1982,25 @@ function StudioPageContent() {
     capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.inpaint" || capability() === "image.outpaint",
   )
   function resultRequiresSeedreamPermission(item?: StudioGenerationResult) {
-    return Boolean(item?.capability === "image.generate" && styleModelRequiresSeedreamPermission(item.styleModel ?? item.model))
+    return Boolean(item?.capability === "image.generate" && styleModelRequiresSeedreamPermission(historicalStudioStyleModel(item) ?? ""))
+  }
+  function checkGenerationModelAvailable(item: StudioGenerationResult) {
+    const message = studioGenerationModelUnavailableMessage(item)
+    if (!message) return true
+    showFloatingNotice("info", message)
+    return false
   }
   function resultRegenerateDisabled(item?: StudioGenerationResult) {
+    // Retired tasks remain clickable so their action can explain why the model is unavailable.
+    if (item && studioGenerationModelUnavailableMessage(item))
+      return recommendationMode.taskBlocked()
     return recommendationMode.taskBlocked() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
   }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const effectiveMaxReferenceImages = createMemo(() => {
     if (recommendationActive()) return 3
+    if (isVideoMultiReferenceInput()) return 4
     const template = selectedStyleTemplate()
     if (!template || capability() !== "image.generate") return maxReferenceImages()
     if (template.reference_image_setting === "not_supported") return 0
@@ -2023,7 +2046,9 @@ function StudioPageContent() {
     (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
       capability() === "video.generate"
-        ? !hasInvalidVideoFrames() && (prompt().trim().length > 0 || hasVideoFrames())
+        ? !hasInvalidVideoFrames() && (isVideoMultiReferenceInput()
+          ? prompt().trim().length > 0 || assets().length > 0
+          : prompt().trim().length > 0 || hasVideoFrames())
         : selectedStyleTemplate() && capability() === "image.generate"
           ? !styleTemplateSubmitError()
           : prompt().trim().length > 0
@@ -2604,8 +2629,12 @@ function StudioPageContent() {
 
   function applyStyleTemplate(template: StudioStyleTemplateListItem) {
     if (recommendationActive() || recommendationMode.taskBlocked()) return
-    expansionReview.dismiss()
     const targetModel = styleTemplateTargetModel(canUseSeedream(), styleModel())
+    if (!targetModel) {
+      showFloatingNotice("info", "当前模型已下架不可用，请选择其他模型。")
+      return
+    }
+    expansionReview.dismiss()
     seedreamAtSnapshot = undefined
     batch(() => {
       setSelectedStyleTemplate(template)
@@ -2703,7 +2732,7 @@ function StudioPageContent() {
     inputImageAssetFromUrl(url)
       .then((asset) => {
         if (!canRestore()) return
-        return capability() === "video.generate" ? addVideoFrameAsset(asset) : addReferenceAsset(asset)
+        return isVideoFirstLastFrameInput() ? addVideoFrameAsset(asset) : addReferenceAsset(asset)
       })
       .catch((error) => {
         showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
@@ -2802,7 +2831,7 @@ function StudioPageContent() {
   }
 
   function handlePasteReferenceImage(files: File[]) {
-    if (capability() === "video.generate") {
+    if (isVideoFirstLastFrameInput()) {
       addVideoFrame(videoFrames.first ? "last" : "first", files)
       return
     }
@@ -2810,7 +2839,7 @@ function StudioPageContent() {
   }
 
   function handleDropFiles(files: File[], slot?: StudioVideoFrameSlot) {
-    if (capability() === "video.generate") {
+    if (isVideoFirstLastFrameInput()) {
       addVideoFrame(slot ?? nextVideoFrameSlot(), files)
       return
     }
@@ -2823,7 +2852,7 @@ function StudioPageContent() {
     inputImageAssetFromUrl(url)
       .then((asset) => {
         if (!canRestore()) return
-        return capability() === "video.generate" ? addVideoFrameAsset(asset, slot) : addReferenceAsset(asset)
+        return isVideoFirstLastFrameInput() ? addVideoFrameAsset(asset, slot) : addReferenceAsset(asset)
       })
       .catch((error) => {
         showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
@@ -3067,13 +3096,20 @@ function StudioPageContent() {
     setVideoRiskDialogOpen(false)
   }
 
+  function applyPendingVideoFirstFrame() {
+    const asset = pendingVideoFirstFrame
+    if (!asset) return
+    if (isVideoFirstLastFrameInput()) setVideoFrames("first", asset)
+    else addReferenceAsset(asset).catch((error) => showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`))
+  }
+
   function confirmVideoRiskDialog() {
     if (recommendationMode.taskBlocked() || !videoRiskDialogOpen()) return
     if (params.id) setVideoRiskConfirmedSessionID(params.id)
     if (!params.id) setDraftVideoRiskConfirmed(true)
     setVideoRiskDialogOpen(false)
     applyStudioCapability("video.generate")
-    if (pendingVideoFirstFrame) setVideoFrames("first", pendingVideoFirstFrame)
+    applyPendingVideoFirstFrame()
     pendingVideoFirstFrame = undefined
   }
 
@@ -3107,7 +3143,7 @@ function StudioPageContent() {
           return
         }
         applyStudioCapability("video.generate")
-        setVideoFrames("first", pendingVideoFirstFrame)
+        applyPendingVideoFirstFrame()
         pendingVideoFirstFrame = undefined
       })
       .catch((error) => {
@@ -3257,6 +3293,10 @@ function StudioPageContent() {
     return STUDIO_VIDEO_RESOLUTION_KEY[value]
   }
 
+  function videoInputModeValue(value: unknown) {
+    return value === "multi-reference" || value === "first-last-frame" ? value : undefined
+  }
+
   function dataUrlFromBase64(value?: string) {
     if (!value) return
     return value.startsWith("data:image/") ? value : `data:image/png;base64,${value}`
@@ -3317,6 +3357,7 @@ function StudioPageContent() {
   function restoredVideoFrames(result: StudioGenerationResult) {
     const input = inputRecord(result)
     const extra = inputExtraRecord(result)
+    if (videoInputModeValue(recordValue(extra, "videoInputMode")) === "multi-reference") return {}
     const referenceImages = stringArrayValue(recordValue(input, "referenceImages"))
     const args = recordValue(taskRequestRecord(result), "args")
     const restoredFirstFrame =
@@ -3352,6 +3393,7 @@ function StudioPageContent() {
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
         extra: studioRegenerationExtra(extra),
         videoFrames: restoredVideoFrames(result),
+        videoInputMode: videoInputModeValue(recordValue(extra, "videoInputMode")),
         aspectRatio: nextAspectRatio,
         count: nextCount,
         width: result.width,
@@ -3376,7 +3418,7 @@ function StudioPageContent() {
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
         mentionImages: stringRecordValue(recordValue(extra, "mentionImages")),
         extra: studioRegenerationExtra(extra),
-        styleModel: styleModelId(stringValue(input, "styleModel")),
+        styleModel: styleModelId(historicalStudioStyleModel(result)),
         aspectRatio: nextAspectRatio,
         count: nextCount,
         width: result.width,
@@ -3416,7 +3458,7 @@ function StudioPageContent() {
         ? result.detailPrompt
         : stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
       mentionImages: stringRecordValue(recordValue(extra, "mentionImages")),
-      styleModel: styleModelId(stringValue(input, "styleModel") ?? result.styleModel ?? result.model),
+      styleModel: styleModelId(historicalStudioStyleModel(result)),
       aspectRatio: nextAspectRatio,
       count: nextCount,
       width: result.width,
@@ -3424,6 +3466,7 @@ function StudioPageContent() {
       referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
       referenceImageNames: stringArrayValue(recordValue(extra, "referenceImageNames")),
       videoFrames: restoredVideoFrames(result),
+      videoInputMode: videoInputModeValue(recordValue(extra, "videoInputMode")),
       videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
       videoQualityMode: videoResolutionValue(recordValue(extra, "resolution")) ?? result.videoQualityMode,
     }
@@ -3526,6 +3569,10 @@ function StudioPageContent() {
     if (!template || !canRestore() || !canRestoreReview() || !canRestoreDraft()) return
 
     const targetModel = styleTemplateTargetModel(canUseSeedream(), draft.styleModel ?? styleModel())
+    if (!targetModel) {
+      showFloatingNotice("info", "当前模型已下架不可用，请选择其他模型。")
+      return
+    }
     const templatePrompt = templateUsagePromptRecord(result)
     const restorableReferences = templateRestorableUserReferences(template, draft)
     const restoredAssets = await restoredImageAssets(
@@ -3603,6 +3650,7 @@ function StudioPageContent() {
   }
 
   async function editGenerationDraft(result: StudioGenerationResult) {
+    if (!checkGenerationModelAvailable(result)) return
     if (recommendationMode.taskBlocked()) return
     const canRestore = recommendationMode.capture()
     if (result.capability !== "image.generate" && result.capability !== "video.generate") return
@@ -3634,6 +3682,8 @@ function StudioPageContent() {
         return {
           capability: "video.generate" as const,
           frames: await restoredVideoFrameAssets(draft.videoFrames),
+          inputMode: draft.videoInputMode === "multi-reference" ? "multi-reference" as const : "first-last-frame" as const,
+          assets: draft.videoInputMode === "multi-reference" ? await restoredImageAssets(draft.referenceImages, [], 4) : [],
         }
       },
       valid: () => canRestore() && canRestoreReview() && canRestoreInput(),
@@ -3658,6 +3708,12 @@ function StudioPageContent() {
         setAssets([])
         if (draft.videoDuration) setVideoDuration(draft.videoDuration)
         if (draft.videoQualityMode) setVideoQualityMode(draft.videoQualityMode)
+        if (prepared.inputMode === "multi-reference") {
+          setVideoInputMode("multi-reference")
+          setAssets(prepared.assets)
+          return
+        }
+        setVideoInputMode("first-last-frame")
         replaceVideoFrames(prepared.frames)
       },
       afterApply: () => {
@@ -4233,7 +4289,9 @@ function StudioPageContent() {
     }
   }
 
-  async function rebootStudioGeneration(id: string) {
+  async function rebootStudioGeneration(result: StudioGenerationResult) {
+    if (!checkGenerationModelAvailable(result)) return
+    const id = result.id
     if (rebootingGenerationIDs().has(id) || recommendationMode.taskBlocked()) return
     const current = server.current
     if (!current) {
@@ -4365,6 +4423,11 @@ function StudioPageContent() {
     const consumesInput = overrides?.inputPolicy ? overrides.inputPolicy === "consume" : !overrides?.useRestoredInputs
     const nextCapability = overrides?.capability ?? capability()
     const nextStyleModel = overrides?.styleModel ?? styleModel()
+    const unavailableModelMessage = nextCapability === "image.generate" && studioModelUnavailableMessage(nextStyleModel)
+    if (unavailableModelMessage) {
+      showFloatingNotice("info", unavailableModelMessage)
+      return
+    }
     const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
     const nextWidth = overrides?.width ?? customWidth()
     const nextHeight = overrides?.height ?? customHeight()
@@ -4376,17 +4439,26 @@ function StudioPageContent() {
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
     const nextCount = nextCapability === "video.generate" && nextVideoQualityMode === "4k" ? 1 : overrides?.count ?? count()
+    const nextVideoInputMode = overrides?.videoInputMode ?? (overrides?.useRestoredInputs ? "first-last-frame" : videoInputMode())
     const restoredVideoFrames = overrides?.videoFrames
-    const nextVideoFrames = restoredVideoFrames
-      ? restoredVideoFrames
-      : overrides?.useRestoredInputs
-        ? {}
-        : {
-            first: videoFrames.first?.dataUrl,
-            last: videoFrames.last?.dataUrl,
-          }
-    const nextHasInvalidVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.last && !nextVideoFrames.first)
-    const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first)
+    const nextVideoFrames = nextCapability === "video.generate" && nextVideoInputMode === "multi-reference"
+      ? {}
+      : restoredVideoFrames
+        ? restoredVideoFrames
+        : overrides?.useRestoredInputs
+          ? {}
+          : {
+              first: videoFrames.first?.dataUrl,
+              last: videoFrames.last?.dataUrl,
+            }
+    const nextVideoReferenceImages = nextVideoInputMode === "multi-reference"
+      ? (overrides?.referenceImages ?? (overrides?.useRestoredInputs ? [] : assets().map((item) => item.dataUrl)))
+      : [nextVideoFrames.first, nextVideoFrames.first ? nextVideoFrames.last : undefined].filter((item): item is string => Boolean(item))
+    // 多图参考无图时回退为文生视频，不算非法输入
+    const nextHasInvalidVideoFrames = nextCapability === "video.generate" && nextVideoInputMode !== "multi-reference" &&
+      Boolean(nextVideoFrames.last && !nextVideoFrames.first)
+    const nextHasVideoFrames = nextCapability === "video.generate" &&
+      (nextVideoInputMode === "multi-reference" ? nextVideoReferenceImages.length > 0 : Boolean(nextVideoFrames.first))
     const actualUserPrompt = (overrides?.prompt ?? seedreamInputApi.serializeText()).trim()
     const mentionImages = overrides?.mentionImages ?? (overrides?.prompt ? {} : seedreamInputApi.serializeMentionImages())
     setMentionImagesMap(mentionImages)
@@ -4400,7 +4472,7 @@ function StudioPageContent() {
           : nextCapability === "image.outpaint"
             ? "保留主体和画面风格，扩展更大尺寸和更多环境内容"
             : nextCapability === "video.generate" && nextHasVideoFrames
-              ? "根据首尾帧生成自然连贯的视频"
+              ? nextVideoInputMode === "multi-reference" ? "根据参考图生成自然连贯的视频" : "根据首尾帧生成自然连贯的视频"
             : ""
     )
     if (!text || recommendationMode.taskBlocked() || nextHasInvalidVideoFrames) return
@@ -4419,17 +4491,13 @@ function StudioPageContent() {
     const videoFramesStillMatchSubmission = () =>
       videoFrames.first?.id === submittedVideoFrames.first?.id &&
       videoFrames.last?.id === submittedVideoFrames.last?.id
-    const videoReferenceImages = [
-      nextVideoFrames.first,
-      nextVideoFrames.first ? nextVideoFrames.last : undefined,
-    ].filter((item): item is string => Boolean(item))
     const referenceImages = overrides?.referenceImages ?? (
       nextCapability === "image.generate"
         ? overrides?.useRestoredInputs
           ? []
           : assets().map((item) => item.dataUrl)
         : nextCapability === "video.generate"
-          ? videoReferenceImages
+          ? nextVideoReferenceImages
           : []
     )
     tracker.interaction({
@@ -4464,6 +4532,7 @@ function StudioPageContent() {
           duration: nextVideoDuration,
           mode: STUDIO_VIDEO_MODE[nextVideoQualityMode],
           resolution: STUDIO_VIDEO_RESOLUTION[nextVideoQualityMode],
+          ...(nextVideoInputMode === "multi-reference" ? { videoInputMode: "multi-reference" as const } : {}),
           firstFrame: nextVideoFrames.first,
           lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
         }
@@ -4630,6 +4699,11 @@ function StudioPageContent() {
   }
 
   function runStyleTemplateGeneration(template: StudioStyleTemplateListItem) {
+    const targetModel = styleTemplateTargetModel(canUseSeedream(), styleModel())
+    if (!targetModel) {
+      showFloatingNotice("info", "当前模型已下架不可用，请选择其他模型。")
+      return
+    }
     const error = styleTemplateSubmitError()
     if (error) {
       showFloatingNotice("info", error)
@@ -4661,7 +4735,7 @@ function StudioPageContent() {
       detailTitle: buildStudioDisplayPrompt(displayPrompt),
       refinedPrompt: finalPrompt,
       effectivePrompt: finalPrompt,
-      styleModel: styleTemplateTargetModel(canUseSeedream(), styleModel()),
+      styleModel: targetModel,
       mentionImages,
       ...(referenceImages ? { referenceImages } : {}),
       extra: {
@@ -5194,6 +5268,7 @@ function StudioPageContent() {
   function regenerateCurrentResult() {
     const current = canvasResult() ?? result()
     if (!current) return
+    if (!checkGenerationModelAvailable(current)) return
     if (resultRegenerateDisabled(current)) return
     tracker.interaction({
       module: "studio",
@@ -5457,6 +5532,7 @@ function StudioPageContent() {
                   videoDuration={videoDuration()}
                   videoQualityMode={videoQualityMode()}
                   videoMode={videoMode()}
+                  videoInputMode={videoInputMode()}
                   status={effectiveStatus()}
                   busy={isBusy() || recommendation.busy()}
                   onRecommend={initializeRecommendation}
@@ -5485,6 +5561,7 @@ function StudioPageContent() {
                   onVideoDuration={setVideoDuration}
                   onVideoQualityMode={setVideoQualityMode}
                   onVideoMode={setVideoMode}
+                  onVideoInputMode={setVideoInputMode}
                   onOpenMenu={setOpenMenu}
                   onCreateTemplate={openTemplateCreator}
                   onListStyleTemplates={listStudioStyleTemplates}
@@ -5691,7 +5768,7 @@ function StudioPageContent() {
                 refreshingGenerationIDs={refreshingGenerationIDs()}
                 onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
                 onEditGeneration={(generation) => void editGenerationDraft(generation)}
-                onRebootGeneration={(generationID) => void rebootStudioGeneration(generationID)}
+                onRebootGeneration={(generation) => void rebootStudioGeneration(generation)}
                 onRefreshGeneration={(generationID) => void refreshStudioGeneration(generationID)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
@@ -5738,6 +5815,7 @@ function StudioPageContent() {
             videoDuration={videoDuration()}
             videoQualityMode={videoQualityMode()}
             videoMode={videoMode()}
+            videoInputMode={videoInputMode()}
             status={effectiveStatus()}
             busy={isBusy() || recommendation.busy()}
             onRecommend={initializeRecommendation}
@@ -5766,6 +5844,7 @@ function StudioPageContent() {
             onVideoDuration={setVideoDuration}
             onVideoQualityMode={setVideoQualityMode}
             onVideoMode={setVideoMode}
+            onVideoInputMode={setVideoInputMode}
             onOpenMenu={setOpenMenu}
             onCreateTemplate={openTemplateCreator}
             onListStyleTemplates={listStudioStyleTemplates}

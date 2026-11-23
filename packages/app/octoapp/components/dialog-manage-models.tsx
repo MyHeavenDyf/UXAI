@@ -9,6 +9,7 @@ import { popularProviders } from "@/hooks/use-providers"
 import { useLanguage } from "@/context/language"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogSelectProvider } from "./dialog-select-provider"
+import { isProviderApiKeyMissing } from "@/utils/provider-api-key"
 
 export const DialogManageModels: Component = () => {
   const local = useLocal()
@@ -56,6 +57,7 @@ export const DialogManageModels: Component = () => {
                 value={language.t("dialog.model.manage.provider.toggle", { provider: provider.name })}
               >
                 <Switch
+                  disabled={isProviderApiKeyMissing(provider)}
                   class="-mr-1"
                   checked={providerVisible(provider.id)}
                   onChange={(checked) => setProviderVisibility(provider.id, checked)}
@@ -87,6 +89,7 @@ export const DialogManageModels: Component = () => {
             <span>{i.name}</span>
             <div onClick={(e) => e.stopPropagation()}>
               <Switch
+                disabled={isProviderApiKeyMissing(i.provider)}
                 checked={!!local.model.visible({ modelID: i.id, providerID: i.provider.id })}
                 onChange={(checked) => {
                   local.model.setVisibility({ modelID: i.id, providerID: i.provider.id }, checked)

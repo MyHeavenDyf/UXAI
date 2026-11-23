@@ -5,13 +5,6 @@ export type ClientOptions = {
 }
 
 export type Event =
-  | EventSkillUsed
-  | EventTuiPromptAppend
-  | EventTuiCommandExecute
-  | EventTuiToastShow1
-  | EventTuiSessionSelect
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventServerInstanceDisposed
   | EventFileEdited
   | EventFileWatcherUpdated
@@ -24,6 +17,7 @@ export type Event =
   | EventSessionError
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
+  | EventSkillUsed
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
@@ -32,6 +26,10 @@ export type Event =
   | EventSessionIdle
   | EventSessionCompacted
   | EventSessionCompactionEstimated
+  | EventTuiPromptAppend
+  | EventTuiCommandExecute
+  | EventTuiToastShow1
+  | EventTuiSessionSelect
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -79,6 +77,8 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
+  | EventServerConnected
+  | EventGlobalDisposed
 
 export type OAuth = {
   type: "oauth"
@@ -104,61 +104,6 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
-
-export type EventTuiPromptAppend = {
-  id: string
-  type: "tui.prompt.append"
-  properties: {
-    text: string
-  }
-}
-
-export type EventTuiCommandExecute = {
-  id: string
-  type: "tui.command.execute"
-  properties: {
-    command:
-      | "session.list"
-      | "session.new"
-      | "session.share"
-      | "session.interrupt"
-      | "session.compact"
-      | "session.page.up"
-      | "session.page.down"
-      | "session.line.up"
-      | "session.line.down"
-      | "session.half.page.up"
-      | "session.half.page.down"
-      | "session.first"
-      | "session.last"
-      | "prompt.clear"
-      | "prompt.submit"
-      | "agent.cycle"
-      | string
-  }
-}
-
-export type EventTuiToastShow = {
-  id: string
-  type: "tui.toast.show"
-  properties: {
-    title?: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-    duration?: number
-  }
-}
-
-export type EventTuiSessionSelect = {
-  id: string
-  type: "tui.session.select"
-  properties: {
-    /**
-     * Session ID to navigate to
-     */
-    sessionID: string
-  }
-}
 
 export type PermissionRequest = {
   id: string
@@ -341,6 +286,61 @@ export type SessionStatus =
   | {
       type: "busy"
     }
+
+export type EventTuiPromptAppend = {
+  id: string
+  type: "tui.prompt.append"
+  properties: {
+    text: string
+  }
+}
+
+export type EventTuiCommandExecute = {
+  id: string
+  type: "tui.command.execute"
+  properties: {
+    command:
+      | "session.list"
+      | "session.new"
+      | "session.share"
+      | "session.interrupt"
+      | "session.compact"
+      | "session.page.up"
+      | "session.page.down"
+      | "session.line.up"
+      | "session.line.down"
+      | "session.half.page.up"
+      | "session.half.page.down"
+      | "session.first"
+      | "session.last"
+      | "prompt.clear"
+      | "prompt.submit"
+      | "agent.cycle"
+      | string
+  }
+}
+
+export type EventTuiToastShow = {
+  id: string
+  type: "tui.toast.show"
+  properties: {
+    title?: string
+    message: string
+    variant: "info" | "success" | "warning" | "error"
+    duration?: number
+  }
+}
+
+export type EventTuiSessionSelect = {
+  id: string
+  type: "tui.session.select"
+  properties: {
+    /**
+     * Session ID to navigate to
+     */
+    sessionID: string
+  }
+}
 
 export type Project = {
   id: string
@@ -794,13 +794,6 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
-    | EventSkillUsed
-    | EventTuiPromptAppend
-    | EventTuiCommandExecute
-    | EventTuiToastShow
-    | EventTuiSessionSelect
-    | EventServerConnected
-    | EventGlobalDisposed
     | EventServerInstanceDisposed
     | EventFileEdited
     | EventFileWatcherUpdated
@@ -813,6 +806,7 @@ export type GlobalEvent = {
     | EventSessionError
     | EventInstallationUpdated
     | EventInstallationUpdateAvailable
+    | EventSkillUsed
     | EventQuestionAsked
     | EventQuestionReplied
     | EventQuestionRejected
@@ -821,6 +815,10 @@ export type GlobalEvent = {
     | EventSessionIdle
     | EventSessionCompacted
     | EventSessionCompactionEstimated
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -868,6 +866,8 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
+    | EventServerConnected
+    | EventGlobalDisposed
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1259,6 +1259,8 @@ export type Config = {
   compaction?: {
     auto?: boolean
     prune?: boolean
+    tail_turns?: number
+    preserve_recent_tokens?: number
     reserved?: number
   }
   experimental?: {
@@ -1580,6 +1582,13 @@ export type Agent = {
   mcp?: Array<string>
 }
 
+export type NotFoundError = {
+  name: "NotFoundError"
+  data: {
+    message: string
+  }
+}
+
 export type LspStatus = {
   id: string
   name: string
@@ -1641,13 +1650,6 @@ export type BadRequestError = {
 
 export type InternalServerError = {
   message: string
-}
-
-export type NotFoundError = {
-  name: "NotFoundError"
-  data: {
-    message: string
-  }
 }
 
 export type EffectHttpApiErrorForbidden = {
@@ -2476,30 +2478,6 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
-export type EventSkillUsed = {
-  id: string
-  type: "skill.used"
-  properties: {
-    skillName: string
-  }
-}
-
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventServerInstanceDisposed = {
   id: string
   type: "server.instance.disposed"
@@ -2609,6 +2587,14 @@ export type EventInstallationUpdateAvailable = {
   type: "installation.update-available"
   properties: {
     version: string
+  }
+}
+
+export type EventSkillUsed = {
+  id: string
+  type: "skill.used"
+  properties: {
+    skillName: string
   }
 }
 
@@ -3225,6 +3211,22 @@ export type EventSessionNextCompactionEnded = {
     sessionID: string
     text: string
     include?: string
+  }
+}
+
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
   }
 }
 
@@ -5071,6 +5073,41 @@ export type AppSkillsRefreshResponses = {
 }
 
 export type AppSkillsRefreshResponse = AppSkillsRefreshResponses[keyof AppSkillsRefreshResponses]
+
+export type AppSkillsAvailableData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    agent: string
+  }
+  url: "/skill/available"
+}
+
+export type AppSkillsAvailableErrors = {
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type AppSkillsAvailableError = AppSkillsAvailableErrors[keyof AppSkillsAvailableErrors]
+
+export type AppSkillsAvailableResponses = {
+  /**
+   * Skills available to the agent
+   */
+  200: Array<{
+    name: string
+    description: string
+    location: string
+    content: string
+    type?: string
+  }>
+}
+
+export type AppSkillsAvailableResponse = AppSkillsAvailableResponses[keyof AppSkillsAvailableResponses]
 
 export type LspStatusData = {
   body?: never
@@ -9431,6 +9468,8 @@ export type StudioGenerationsCreateResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -9559,6 +9598,8 @@ export type StudioGenerationsCancelResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -9657,6 +9698,8 @@ export type StudioGenerationsRebootResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -9736,6 +9779,8 @@ export type StudioGenerationsGetResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"
@@ -9833,6 +9878,8 @@ export type StudioGenerationsRefreshResponses = {
     styleModel?: string
     aspectRatio: string
     isCustom?: boolean
+    width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     videoMode?: "text" | "first_last_frame"
     duration?: string
     videoQualityMode?: "480" | "720" | "1080" | "4k"

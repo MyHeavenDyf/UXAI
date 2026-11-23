@@ -1,6 +1,11 @@
 import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage, StudioInputImage, StudioMode } from "./types"
 import { styleModelId } from "./data"
 import * as imageSize from "@opencode-ai/core/studio-image-size"
+import { historicalStudioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
+
+export function studioGenerationModelUnavailableMessage(result: Pick<StudioGenerationResult, "capability" | "styleModel" | "model" | "request" | "taskType" | "task_type">) {
+  return historicalStudioModelUnavailableMessage(result)
+}
 
 export const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
@@ -106,6 +111,13 @@ export const STUDIO_VIDEO_MODES = [
   { label: "首尾帧", value: "first-last-frame" },
   { label: "超长视频", value: "ultra-long" },
 ] satisfies { label: string; value: StudioVideoMode }[]
+
+export type StudioVideoInputMode = "first-last-frame" | "multi-reference"
+
+export const STUDIO_VIDEO_INPUT_MODES = [
+  { label: "首尾帧", value: "first-last-frame", icon: "/studio/rectangle_split.png" },
+  { label: "多图参考", value: "multi-reference", icon: "/studio/ai_area.png" },
+] satisfies { label: string; value: StudioVideoInputMode; icon?: string }[]
 
 export function workspaceModeForCapability(capability: StudioCapability): Exclude<StudioMode, "preview"> | undefined {
   if (capability === "image.upscale") return "hd"

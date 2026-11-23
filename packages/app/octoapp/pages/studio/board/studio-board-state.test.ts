@@ -33,7 +33,7 @@ function fixture() {
       capability: "image.generate",
       prompt: "旧提示词",
       provider: "internel",
-      model: "seedream-5-lite",
+      model: "seedream-5-pro",
       aspectRatio: "1:1",
       images: [{ id: "m1", url: "https://example.test/a.png" }],
       createdAt: 1,
@@ -44,7 +44,7 @@ function fixture() {
       capability: "image.generate",
       prompt: "新提示词",
       provider: "internel",
-      model: "seedream-5-lite",
+      model: "seedream-5-pro",
       aspectRatio: "1:1",
       taskId: "provider-2",
       images: [],
@@ -150,6 +150,16 @@ describe("board task and draft boundaries", () => {
     expect(boardRebootable({ ...results.t2, status: "create_failed" })).toBe(false)
     expect(boardRebootable({ ...results.t2, taskId: undefined })).toBe(false)
     expect(boardRebootable({ ...results.t2, provider: "jimeng" })).toBe(false)
+    expect(boardRebootable({ ...results.t2, model: "seedream-5-lite" })).toBe(false)
+    expect(boardRebootable({ ...results.t2, model: "removed-style" })).toBe(false)
+    expect(boardRebootable({ ...results.t2, model: "txt2img_jimeng_v2", request: { input: { styleModel: "seedream-5-lite" } } })).toBe(false)
+  })
+  test("retired drafts preserve their model and require a new selection before generation", () => {
+    const card = newBoardCard("retired", "image")
+    card.draft.settings.styleModel = "seedream-5-lite"
+    const restored = boardDocumentSnapshot({ ...emptyBoard(), cards: [card] })
+    expect(restored.cards[0].draft.settings.styleModel).toBe("seedream-5-lite")
+    expect(boardCanGenerate(restored.cards[0], { status: "ready", seedream: true, video: true })).toBe(false)
   })
   test("hidden failure links do not contribute media or remove earlier success", () => {
     const { a, results } = fixture()

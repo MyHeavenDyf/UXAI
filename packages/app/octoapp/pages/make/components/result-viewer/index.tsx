@@ -20,6 +20,7 @@ import { PdfRenderer } from "./pdf-renderer"
 import { TextRenderer } from "./text-renderer"
 import { DesignPlanRenderer } from "./design-plan-renderer"
 import { StrategyFormRenderer } from "./strategy-form-renderer"
+import { AssetUploadDialog, type AssetUploadRequest } from "./asset-upload-dialog"
 import { PrototypeCtxMenu } from "./prototype-ctx-menu"
 import { PrototypePropertyEditor } from "./prototype-property-editor"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
@@ -27,7 +28,7 @@ import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
-import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } from "../../utils/artifact-file-api"
+import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath, pathToLocalUrl } from "../../utils/artifact-file-api"
 import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
 import { tracker } from "@/utils/tracker"
@@ -185,7 +186,7 @@ export function ResultViewer(props: {
   // ActionBar 切换到其它功能(局部修改/框选编辑/标注/归档等):暂停待修改评估。
   createEffect(() => {
     const s = featureMutex.state
-    if (s.editing || s.modelEditing || s.drawing || s.commenting || s.archiving || s.inspecting) {
+    if (s.editing || s.modelEditing || s.scene3dEditing || s.drawing || s.commenting || s.archiving || s.inspecting || s.assetPicking) {
       untrack(() => pauseAssessment())
     }
   })
@@ -351,6 +352,33 @@ export function ResultViewer(props: {
     tracker.interaction({ module: "design", name: "toggle-model-edit-mode", extend: JSON.stringify({ action: nextModelEditing ? "open" : "close" }) })
   }
 
+  /** 「保存到资产库(局部)」元素选择模式开关（与其他交互模式互斥）。
+   *  subtype 可经 handler.handleAssetPick 接管（返回 true 跳过通用 edit-bridge 选择流程）。 */
+  const handleAssetPickToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (ctx) {
+      const handled = await getSubtypeHandler(ctx.tab.subtype)?.handleAssetPick?.(ctx)
+      if (handled === true) return
+    }
+    const nextPicking = !featureMutex.state.assetPicking
+    featureMutex.toggleFeature('assetPicking')
+    tracker.interaction({ module: "design", name: "toggle-asset-pick-mode", extend: JSON.stringify({ action: nextPicking ? "open" : "close" }) })
+  }
+
+  /** 资产库保存进行中（全页面 / 局部共用）：ActionBar 下载按钮据此禁用 + hover「保存中」 */
+  const [assetSaving, setAssetSaving] = createSignal(false)
+
+  /** 「保存到资产库」上传弹窗请求（ActionBar 全页面 / HtmlRenderer 局部两处上报） */
+  const [assetUploadRequest, setAssetUploadRequest] = createSignal<AssetUploadRequest | null>(null)
+  const handleAssetUploadRequest = (req: AssetUploadRequest) => setAssetUploadRequest(req)
+
+  /** 关闭上传弹窗（取消 / 成功共用）：下载按钮退出激活态；局部变体同时退出元素选择模式 */
+  const closeAssetUploadDialog = () => {
+    const req = assetUploadRequest()
+    setAssetUploadRequest(null)
+    if (req?.variant === "partial") featureMutex.disableAll()
+  }
+
   const handleModelEditSave = async (element: ModelEditElement, prev: Record<string, any>, current: Record<string, any>, ctx: any): Promise<boolean | void> => {
     const tab = activeTab()
     if (!tab) return false
@@ -376,6 +404,32 @@ export function ResultViewer(props: {
     if (prompt) await sendTextToAgent(prompt, { source: 'model-edit' })
     tracker.interaction({ module: "design", name: "delete-model-edit-element", extend: JSON.stringify({ type: tab.type }) })
     return prompt ? undefined : true
+  }
+
+  const handleScene3dEditToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (!handler?.scene3dEditConfig) return
+    const nextScene3dEditing = !featureMutex.state.scene3dEditing
+    // 切态:进入时 HtmlRenderer 的 iframeSrc 给 iframe URL 加 ?edit=1,entry.ts 分流到
+    // edit-main.ts 挂载内置 3D 编辑面板;退出时去掉参数回到 main.ts 预览态。
+    // 保存不在 toggle 里处理——iframe 内置编辑器点保存时通过 postMessage(od:scene3d-save)
+    // 回传 payload,由 handleScene3dSave 接收并发给 AI。
+    featureMutex.toggleFeature('scene3dEditing')
+    tracker.interaction({ module: "design", name: "toggle-scene3d-edit-mode", extend: JSON.stringify({ action: nextScene3dEditing ? "open" : "close" }) })
+  }
+
+  // iframe 内置 3D 编辑器保存时回传 scene3d-changes 文本 → 包装 prompt 发 AI → 退出编辑态回预览
+  const handleScene3dSave = async (payload: string) => {
+    const tab = activeTab()
+    if (!tab) return
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.scene3dEditConfig) return
+    const prompt = handler.scene3dEditConfig.buildPrompt({ filePath: tab.filePath ?? '', payload })
+    await sendTextToAgent(prompt, { source: 'scene3d-edit' })
+    tracker.interaction({ module: "design", name: "save-scene3d-edit-changes", extend: JSON.stringify({ type: tab.type }) })
+    featureMutex.toggleFeature('scene3dEditing')
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -712,6 +766,8 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
                     modelEditing={featureMutex.state.modelEditing}
                     onModelEditToggle={htmlMode() === "edit" ? undefined : handleModelEditToggle}
+                    scene3dEditing={featureMutex.state.scene3dEditing}
+                    onScene3dEditToggle={htmlMode() === "edit" ? undefined : handleScene3dEditToggle}
                     drawing={featureMutex.state.drawing}
                     onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
                     commenting={featureMutex.state.commenting}
@@ -719,6 +775,11 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
 
 archiving={featureMutex.state.archiving}
                      onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
+                      assetPicking={featureMutex.state.assetPicking}
+                      onAssetPickToggle={htmlMode() === "edit" ? undefined : handleAssetPickToggle}
+                      assetDialogOpen={!!assetUploadRequest()}
+                      onAssetUploadRequest={handleAssetUploadRequest}
+                      assetSaving={assetSaving()}
                       onRefresh={handleRefresh}
                       observedResourceUrls={() => observedUrlsGetters[tabId]?.() || []}
                       focusMode={props.focusMode}
@@ -775,9 +836,13 @@ archiving={featureMutex.state.archiving}
                             modelEditConfig={getSubtypeHandler(tab.subtype)?.modelEditConfig}
                             onModelEditSave={handleModelEditSave}
                             onModelEditDelete={handleModelEditDelete}
+                            scene3dEditing={isActive() && featureMutex.state.scene3dEditing}
+                            onScene3dSave={handleScene3dSave}
                             drawing={isActive() && featureMutex.state.drawing}
                             commenting={isActive() && featureMutex.state.commenting}
                             archiving={isActive() && featureMutex.state.archiving}
+                            assetPicking={isActive() && featureMutex.state.assetPicking}
+                            onAssetUploadRequest={handleAssetUploadRequest}
                             onDrawActiveChange={(active) => active ? featureMutex.enableFeature('drawing') : featureMutex.toggleFeature('drawing')}
                             onResetArchiving={() => featureMutex.toggleFeature('archiving')}
                             inspectPanel={true}
@@ -819,7 +884,7 @@ archiving={featureMutex.state.archiving}
                     </Match>
                     <Match when={tabType === "svg"}>
                       <iframe
-                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${combinedRefreshKey()}`}
+                        src={`${pathToLocalUrl(tab.filePath || "")}?v=${combinedRefreshKey()}`}
                         style={{ width: "100%", height: "100%", border: "none" }}
                       />
                     </Match>
@@ -841,7 +906,7 @@ archiving={featureMutex.state.archiving}
                       <iframe
                         src={tab.absoluteFilePath?.match(/^https?:\/\//i)
                           ? tab.absoluteFilePath
-                          : `local:///${tab.absoluteFilePath?.replace(/\\/g, '/')}`}
+                          : pathToLocalUrl(tab.absoluteFilePath || "")}
                         style={{ width: "100%", height: "100%", border: "none" }}
                       />
                     </Match>
@@ -914,6 +979,18 @@ archiving={featureMutex.state.archiving}
         <span class="agent-exec-spinner" style={{ width: "12px", height: "12px", "border-width": "2px" }} />
         查看 Agent
       </button>
+    </Show>
+    <Show when={assetUploadRequest()} keyed>
+      {(req) => (
+        <AssetUploadDialog
+          request={req}
+          productId={props.productId}
+          saving={assetSaving()}
+          onSavingChange={setAssetSaving}
+          onCancel={closeAssetUploadDialog}
+          onSuccess={closeAssetUploadDialog}
+        />
+      )}
     </Show>
   </div>
 )

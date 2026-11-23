@@ -277,6 +277,9 @@ const StudioGenerationResult = Schema.Struct({
   styleModel: Schema.optional(Schema.String),
   aspectRatio: Schema.String,
   isCustom: Schema.optional(Schema.Boolean),
+  // 自定义尺寸生成：详情面板据此展示「自定义」比例与像素分辨率，与会话详情一致。
+  width: Schema.optional(Schema.Number),
+  height: Schema.optional(Schema.Number),
   videoMode: Schema.optional(Schema.Union([Schema.Literal("text"), Schema.Literal("first_last_frame")])),
   duration: Schema.optional(Schema.String),
   videoQualityMode: Schema.optional(Schema.Union([Schema.Literal("480"), Schema.Literal("720"), Schema.Literal("1080"), Schema.Literal("4k")])),

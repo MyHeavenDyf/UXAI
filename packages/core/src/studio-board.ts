@@ -1,9 +1,10 @@
 import z from "zod"
 import { isStudioCustomSizeValid } from "./studio-image-size"
+import { defaultStudioStyleModel, studioModelUnavailableMessage } from "./studio/model-availability"
 
 const point = z.object({ x: z.number().finite(), y: z.number().finite() })
 export const BoardSettings = z.object({
-  styleModel: z.string().min(1).default("seedream-5-lite"),
+  styleModel: z.string().min(1).default(() => defaultStudioStyleModel()),
   aspectRatio: z.enum(["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9", "21:9"]).default("1:1"),
   count: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).default(1),
   isCustom: z.boolean().default(false),
@@ -138,6 +139,8 @@ export function boardReferenceLimit(styleModel: string) {
 
 export function boardGenerationError(kind: BoardCard["kind"], snapshot: BoardSnapshot) {
   const settings = snapshot.settings
+  const unavailableModelMessage = kind === "image" && studioModelUnavailableMessage(settings.styleModel)
+  if (unavailableModelMessage) return unavailableModelMessage
   if (
     kind === "image" &&
     settings.isCustom &&

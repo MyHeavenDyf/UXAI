@@ -25,6 +25,7 @@ import { containsPath } from "../project/instance-context"
 import { zod } from "@/util/effect-zod"
 import { NonNegativeInt, PositiveInt, withStatics, type DeepMutable } from "@/util/schema"
 import { ConfigAgent } from "./agent"
+import { ConfigAliases } from "./aliases"
 import { ConfigCommand } from "./command"
 import { ConfigFormatter } from "./formatter"
 import { ConfigLayout } from "./layout"
@@ -70,8 +71,9 @@ function mergeConfigConcatArrays(target: Info, source: Info): Info {
 }
 
 function normalizeLoadedConfig(data: unknown, source: string) {
-  if (!isRecord(data)) return data
-  const copy = { ...data }
+  const normalized = ConfigAliases.normalize(data, source)
+  if (!isRecord(normalized)) return normalized
+  const copy = { ...normalized }
   const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
   if (!hadLegacy) return copy
   delete copy.theme
@@ -272,6 +274,13 @@ export const Info = Schema.Struct({
       }),
       prune: Schema.optional(Schema.Boolean).annotate({
         description: "Enable pruning of old tool outputs (default: true)",
+      }),
+      tail_turns: Schema.optional(NonNegativeInt).annotate({
+        description:
+          "Maximum number of recent user turns, including their following assistant/tool responses, to keep verbatim during compaction. By default retention is limited only by the preserved token budget.",
+      }),
+      preserve_recent_tokens: Schema.optional(NonNegativeInt).annotate({
+        description: "Maximum number of tokens from recent turns to preserve verbatim after compaction",
       }),
       reserved: Schema.optional(NonNegativeInt).annotate({
         description: "Token buffer for compaction. Leaves enough window to avoid overflow during compaction.",
@@ -846,6 +855,7 @@ export const layer = Layer.effect(
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
       const file = globalConfigFile()
       const before = (yield* readConfigFile(file)) ?? "{}"
+      const canonical = ConfigAliases.canonicalize(before, file)
       const patch = writableGlobal(config)
 
       // 诊断日志: 写入目标文件路径 + patch 内容, 用于判断写入路径与 Provider.list 读取路径是否一致
@@ -865,14 +875,14 @@ export const layer = Layer.effect(
       let next: Info
       let changed: boolean
       if (!file.endsWith(".jsonc")) {
-        const existing = ConfigParse.effectSchema(Info, ConfigParse.jsonc(before, file), file)
+        const existing = ConfigParse.effectSchema(Info, ConfigParse.jsonc(canonical, file), file)
         const merged = mergeDeep(writable(existing), patch)
         const serialized = JSON.stringify(merged, null, 2)
         changed = serialized !== before
         if (changed) yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
         next = merged
       } else {
-        const updated = patchJsonc(before, patch)
+        const updated = patchJsonc(canonical, patch)
         next = ConfigParse.effectSchema(Info, ConfigParse.jsonc(updated, file), file)
         changed = updated !== before
         if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
@@ -888,7 +898,8 @@ export const layer = Layer.effect(
     ) {
       const file = globalConfigFile()
       const before = (yield* readConfigFile(file)) ?? "{}"
-      const existing = ConfigParse.effectSchema(Info, ConfigParse.jsonc(before, file), file)
+      const canonical = ConfigAliases.canonicalize(before, file)
+      const existing = ConfigParse.effectSchema(Info, ConfigParse.jsonc(canonical, file), file)
       const next = {
         ...writable(existing),
         provider: {
@@ -898,8 +909,8 @@ export const layer = Layer.effect(
       }
       const updated = file.endsWith(".jsonc")
         ? applyEdits(
-            before,
-            modify(before, ["provider", providerID], provider, {
+            canonical,
+            modify(canonical, ["provider", providerID], provider, {
               formattingOptions: {
                 insertSpaces: true,
                 tabSize: 2,

@@ -11,6 +11,7 @@ import {
   type BoardSubmission,
 } from "@opencode-ai/core/studio-board"
 import { studioPermissionState } from "../studio-permission-store"
+import { defaultStudioStyleModel, studioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
 import { createBoardOperations } from "./studio-board-operations"
 import { isSeedreamStyleModel, referenceImageLimit, styleModelId } from "../data"
 import { resolveStudioMediaUrl } from "../studio-media"
@@ -324,8 +325,8 @@ export default function StudioBoard(props: {
     )!
     const card = newBoardCard(crypto.randomUUID(), kind, point)
     card.title = `${kind === "image" ? "图片" : "视频"} ${String(state.document.cards.filter((item) => item.kind === kind).length + 1).padStart(2, "0")}`
-    if (kind === "image" && !props.demo && studioPermissionState.status === "ready" && !studioPermissionState.seedream)
-      card.draft.settings.styleModel = "qwen"
+    if (kind === "image" && !props.demo && studioPermissionState.status === "ready")
+      card.draft.settings.styleModel = defaultStudioStyleModel(studioPermissionState.seedream)
     setState("document", "cards", (cards) => [...cards, card])
     mountCard(card)
     if (menu?.sourceID && !connect(menu.sourceID, card.id, kind === "video" ? "firstFrame" : "reference")) {
@@ -925,6 +926,11 @@ export default function StudioBoard(props: {
     )
       return
     const settings = card.draft.settings
+    const unavailableModelMessage = card.kind === "image" && studioModelUnavailableMessage(settings.styleModel)
+    if (unavailableModelMessage) {
+      notify(unavailableModelMessage)
+      return
+    }
     if (!props.demo && !boardCanGenerate(card, studioPermissionState)) {
       notify("请先加载模型权限或选择有权限的模型")
       return

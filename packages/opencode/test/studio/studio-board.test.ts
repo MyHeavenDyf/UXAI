@@ -120,8 +120,6 @@ test.each([
   { model: "qwen", width: 1280, height: undefined, valid: false },
   { model: "qwen", width: 2200, height: 2200, valid: false },
   { model: "qwen", width: 1280, height: 1280, valid: true },
-  { model: "seedream-5-lite", width: 1280, height: 720, valid: false },
-  { model: "seedream-5-lite", width: 2200, height: 2200, valid: true },
   { model: "seedream-5-pro", width: 1280, height: 720, valid: true },
   { model: "seedream-5-pro", width: 3000, height: 3000, valid: false },
   { model: "seedream-5-pro", width: 120, height: 30000, valid: false },
@@ -202,6 +200,48 @@ test("new submissions hide only the failed association and preserve original sna
       expect(() =>
         saveBoard(id, 4, { ...getBoard(id).document, cards: [{ ...getBoard(id).document.cards[0], taskLinks: [] }] }),
       ).toThrow("任务历史")
+    },
+  })
+})
+
+test("retired board tasks reject new work without leaving reboot locks and still replay accepted operations", async () => {
+  await using dir = await tmpdir()
+  await provideTestInstance({
+    directory: dir.path,
+    fn: async () => {
+      const id = session("board")
+      const card = newBoardCard("retired", "image")
+      card.draft.prompt = "旧画布任务"
+      card.draft.settings.styleModel = "seedream-5-lite"
+      saveBoard(id, 0, { ...emptyBoard(), cards: [card] })
+      const board: BoardSubmission = {
+        cardID: card.id,
+        submissionID: crypto.randomUUID(),
+        revision: 1,
+        snapshot: { prompt: card.draft.prompt, settings: card.draft.settings, references: [] },
+      }
+      const input = { sessionID: id, capability: "image.generate" as const, prompt: "外层参数", styleModel: "qwen", board }
+      await expect(createGeneration(input)).rejects.toThrow("模型已下架或不可用")
+      expect(Database.use((db) => db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.session_id, id)).all())).toHaveLength(0)
+      task(id, "retired-board-task")
+      Database.use((db) => db.update(StudioGenerationTable).set({
+        provider_task_id: "retired-provider-task",
+        request: { input: { ...input, prompt: card.draft.prompt, styleModel: "seedream-5-lite" } },
+      }).where(eq(StudioGenerationTable.id, "retired-board-task")).run())
+      attachBoardGeneration(id, board, "retired-board-task")
+      const before = getBoard(id)
+      expect((await createGeneration(input)).id).toBe("retired-board-task")
+      await expect(rebootGeneration("retired-board-task", crypto.randomUUID())).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringContaining("模型已下架或不可用"),
+      })
+      expect(getBoard(id)).toEqual(before)
+      expect(Database.use((db) => db.select().from(StudioBoardOperationTable).where(eq(StudioBoardOperationTable.session_id, id)).all())).toHaveLength(0)
+      const operationID = crypto.randomUUID()
+      boardRebootOperation(id, "retired-board-task", "retired-provider-task", operationID)
+      finishBoardReboot(operationID)
+      expect((await rebootGeneration("retired-board-task", operationID)).id).toBe("retired-board-task")
+      expect(getBoard(id).pendingReboots).toHaveLength(0)
     },
   })
 })
@@ -551,6 +591,7 @@ test.each(["stored", "legacy"])(
         const input = {
           sessionID: id,
           capability: "image.generate" as const,
+          styleModel: "seedream-5-lite",
           prompt: card.draft.prompt,
           effectivePrompt: "不得继承的旧扩写",
           extra: { userIdx: "current-board-user", studioContext: "不得继承的对话上下文" },
@@ -584,6 +625,14 @@ test.each(["stored", "legacy"])(
         await expect(unresolved).rejects.toThrow("尚未确认")
         await expect(unresolved).rejects.toMatchObject({ status: 409 })
         expect(getBoard(id).pendingReboots).toEqual([{ cardID: card.id, generationID: accepted.id, operationID }])
+        const persisted = Database.use((db) => db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, accepted.id)).get())!
+        Database.use((db) => db.update(StudioGenerationTable).set({
+          request: { ...persisted.request, input: { ...input, styleModel: "seedream-5-lite" } },
+        }).where(eq(StudioGenerationTable.id, accepted.id)).run())
+        await expect(rebootGeneration(accepted.id, operationID)).rejects.toThrow("上游尚未确认")
+        expect(reboots).toHaveLength(1)
+        expect(getBoard(id).pendingReboots).toHaveLength(1)
+        Database.use((db) => db.update(StudioGenerationTable).set({ request: persisted.request }).where(eq(StudioGenerationTable.id, accepted.id)).run())
         const before = getBoard(id)
         expect(() => saveBoard(id, before.revision, { ...before.document, cards: [] })).toThrow("活动任务")
         upstreamState.queryStatus = 4
