@@ -21,6 +21,15 @@ async function signWindows(configuration: { path: string }) {
   )
 }
 
+// 渠道在文件顶部解析,图标全部取自 git 已提交的 icons/<channel>/(任何能拉到代码的
+// 构建机都必然有),不再依赖 gitignore 的生成目录 resources/icons——那需要构建机
+// 先跑 copy-icons,链路一断图标就静默缺失(dock 深浅切换失效的根因)。
+const channel = (() => {
+  const raw = process.env.OCTO_CHANNEL
+  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
+  return "dev"
+})()
+
 const getBase = (): Configuration => ({
   // jk-j60099994-replace-with-electron-builder-config-2-start
   artifactName: "octo-desktop-${os}-${arch}.${ext}",
@@ -74,10 +83,9 @@ const getBase = (): Configuration => ({
       filter: ["**/*"],
     },
     // icons 必须落在 asar 外的 Contents/Resources/icons：运行时 iconsDir() 在打包态
-    // 读 process.resourcesPath/icons（dock 深浅图标、窗口图标都在这里），files 只会把它打进 asar 内，
-    // 打包态永远找不到。dev 态读 packages/desktop/resources/icons，与本条目同源（copy-icons 生成）。
+    // 读 process.resourcesPath/icons。来源是已提交的 icons/<channel>/,不依赖构建机生成。
     {
-      from: "resources/icons",
+      from: `icons/${channel}`,
       to: "icons",
       filter: ["**/*"],
     },
@@ -86,7 +94,7 @@ const getBase = (): Configuration => ({
   ],
   mac: {
     category: "public.app-category.developer-tools",
-    icon: `resources/icons/icon.icns`,
+    icon: `icons/${channel}/icon.icns`,
     hardenedRuntime: true,
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
@@ -102,7 +110,7 @@ const getBase = (): Configuration => ({
     schemes: ["octo-agent"],
   },
   win: {
-    icon: `resources/icons/icon.ico`,
+    icon: `icons/${channel}/icon.ico`,
     signtoolOptions: {
       sign: signWindows,
     },
@@ -112,25 +120,20 @@ const getBase = (): Configuration => ({
   nsis: {
     oneClick: true,
     perMachine: false,
-    installerIcon: `resources/icons/icon.ico`,
-    installerHeaderIcon: `resources/icons/icon.ico`,
+    installerIcon: `icons/${channel}/icon.ico`,
+    installerHeaderIcon: `icons/${channel}/icon.ico`,
     shortcutName: "Octo Agent",
     uninstallDisplayName: "Octo Agent",
     guid: "cf72eba9-3682-4bca-bf7b-6c8053afd856",
   },
   linux: {
-    icon: `resources/icons`,
+    icon: `icons/${channel}`,
     category: "Development",
     target: ["AppImage", "deb", "rpm"],
   },
 })
 
 // jk-j60099994-replace-with-electron-builder-config-1-start
-const channel = (() => {
-  const raw = process.env.OCTO_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  return "dev"
-})()
 function getConfig() {
   const base = getBase()
 

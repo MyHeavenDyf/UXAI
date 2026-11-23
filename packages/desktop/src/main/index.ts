@@ -277,9 +277,9 @@ function setupApp() {
     registerRendererProtocol()
     registerLocalProtocol()
     setDockIcon()
-    nativeTheme.on("updated", () => setDockIcon(300))
+    nativeTheme.on("updated", () => setDockIcon())
     if (process.platform === "darwin") {
-      systemPreferences.subscribeNotification("AppleInterfaceThemeChangedNotification", () => setDockIcon(300))
+      systemPreferences.subscribeNotification("AppleInterfaceThemeChangedNotification", () => setDockIcon())
     }
     startPreviewServer()
     // fastui 预览(SPEC-DES-004):先收掉上次崩溃遗留的 dev server,再开始响应 skill 的起服务请求

@@ -25,6 +25,7 @@ import { getBridgeConfigForSubtype } from "./bridge-config"
 import { getCustomBridge } from "./custom-bridge-registry"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
+import { CHANNEL } from "./constants"
 import { insightDebugLog } from "./logging"
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -68,8 +69,11 @@ export function getBackgroundColor(): string | undefined {
   return backgroundColor
 }
 
+// dev 与打包态都指向"已提交进 git 的渠道图标目录"：打包态由 electron-builder
+// extraResources 把 icons/<channel>/ 落到 Contents/Resources/icons;dev 态直接读源码树。
+// 不再依赖 gitignore 的生成目录 resources/icons。
 function iconsDir() {
-  return app.isPackaged ? join(process.resourcesPath, "icons") : join(root, "../../resources/icons")
+  return app.isPackaged ? join(process.resourcesPath, "icons") : join(root, `../../icons/${CHANNEL}`)
 }
 
 function iconPath() {
@@ -110,11 +114,15 @@ export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
   updateTitlebar(win)
 }
 
-let dockIconTimer: ReturnType<typeof setTimeout> | undefined
+// 系统外观切换后 Dock 进程会异步用 bundle 的 icon.icns 回写图标,单次 setIcon 可能被覆盖
+// (回写时机随 macOS 版本差异大)。切换后按梯度多次重设,保证最终生效。
+const dockIconReapplyDelaysMs = [0, 300, 1000, 2500]
+let dockIconTimers: ReturnType<typeof setTimeout>[] = []
 
-export function setDockIcon(delay = 0) {
+export function setDockIcon() {
   if (process.platform !== "darwin") return
-  clearTimeout(dockIconTimer)
+  dockIconTimers.forEach(clearTimeout)
+  dockIconTimers = []
   const apply = () => {
     const dark = nativeTheme.shouldUseDarkColors
     const variantPath = join(iconsDir(), `dock-${dark ? "dark" : "light"}.png`)
@@ -125,11 +133,7 @@ export function setDockIcon(delay = 0) {
     log.info("[dock] setDockIcon", info)
     if (!icon.isEmpty()) app.dock?.setIcon(icon)
   }
-  if (delay <= 0) return apply()
-  dockIconTimer = setTimeout(() => {
-    dockIconTimer = undefined
-    apply()
-  }, delay)
+  dockIconTimers = dockIconReapplyDelaysMs.map((ms) => setTimeout(apply, ms))
 }
 
 export function createMainWindow() {
