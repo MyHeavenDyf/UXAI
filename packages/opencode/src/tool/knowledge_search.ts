@@ -35,7 +35,7 @@ function env(name: string) {
 // 一篇去重后的来源文档(底部「参考资料」的一条 = 一篇文档)。
 type KbDoc = {
   id: string
-  title: string // chunkTitle(干净标题);兜底取正文首个 markdown 标题 / id
+  title: string // 文档标题优先，兼容只返回 chunkTitle 的结果
   url?: string
   content: string // chunkContent(供模型作答 + 行内链接)
 }
@@ -72,7 +72,7 @@ function deriveTitle(content: string): string | undefined {
   return undefined
 }
 
-// 解析新接口响应:**扁平 chunk 数组** `[{ documentId, chunkTitle, chunkContent, documentUrl }]`。
+// 解析新接口响应:**扁平 chunk 数组** `[{ documentId, documentTitle?, chunkTitle, chunkContent, documentUrl }]`。
 // 后端已按文档(documentId)去重、并按相关性降序返回;此处按 documentId 兜底去重(保留首次出现=
 // 相关性更高的那条),**保持返回序**(Map 按插入序),不再自己排序/截断(排序已由服务端 rerank 承担)。
 export function parseDocs(payload: unknown): KbDoc[] {
@@ -84,7 +84,10 @@ export function parseDocs(payload: unknown): KbDoc[] {
     const url = str(item.documentUrl)
     const id = str(item.documentId) ?? url ?? `doc_${byId.size}`
     if (byId.has(id)) continue // 兜底去重:保留首次(相关性更高)出现
-    const title = str(item.chunkTitle) ?? deriveTitle(content) ?? id
+    // chunkTitle 可能是分栏名。仅用独占首行的一级标题补全文档标题，避免把压平的正文当成标题。
+    const articleHeading = content.match(/^#[\t ]+([^\r\n]+)\r?\n/)?.[1].trim()
+    const documentTitle = typeof item.documentTitle === "string" ? item.documentTitle.trim() : ""
+    const title = str(documentTitle) ?? str(articleHeading) ?? str(item.chunkTitle) ?? deriveTitle(content) ?? id
     byId.set(id, { id, title, url, content })
   }
   return [...byId.values()]
