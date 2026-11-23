@@ -113,8 +113,8 @@ import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/resul
 import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
 import { setAssessmentContext, harvestAssessmentReview, pauseAssessment, pendingAssessment } from "./utils/assessment-state"
 import { processMentions } from "./utils/mention-processor"
-import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
-import { autoSaveArtifact, inferArtifactFilePath, sanitizeFilename } from "./utils/artifact-auto-save"
+import { buildRevertDraft, collectRevertedFiles, collectWriteEditFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
+import { autoSaveArtifact, inferArtifactFilePath, sanitizeFilename, extractFileContent } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
 import { saveSessionTabs, loadSessionTabs } from "./utils/tab-state-store"
@@ -140,6 +140,11 @@ import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubC
 import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
 import { isVisibleUserMessage, isHiddenCompactionTurn } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
+import { uploadZipPackage, codeArchiveDedupKey, startArchivePoll, pauseArchivePolls, resumeArchivePolls, type AutoArchiveResult, type PendingArchivePoll } from "./utils/auto-archive"
+import { isAssetLibraryLoggedIn } from "./utils/asset-upload"
+import { createIndexHtmlZip } from "./utils/html-assets-zip"
+import { getSubtypeConfig } from "./utils/subtype-config"
+import { AutoArchiveSelector } from "./components/auto-archive-selector"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限;
 // 2026-10 起图片上限统一 1MB,超过即自动压缩(见 addImageAttachment / utils/image-compression)
@@ -151,6 +156,10 @@ const MAX_LOCAL_PREVIEW_BYTES = 1024 * 1024
 
 // 跟踪已上报的设计方案打点（localStorage 持久化去重，跨重启不重报）
 const planTrackReported = createReportedSet("octo:make:design-plan-reported")
+
+// 自动归档：已上传产物去重（key = card.id，localStorage 持久化——InsightTurn 重挂载/
+// 刷新/切 session 后 auto-save effect 会重跑，防止同一产物重复上传）
+const autoArchiveReported = createReportedSet("octo:make:auto-archived")
 
 export default function MakePage() {
   const layout = useLayout()
@@ -1103,6 +1112,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // 切走了直接丢弃（基线已记录，用户可从文件面板手动打开）。
   const globalToolCallMap = new Map<string, { tool: string; path?: string }>()
   const pendingCodeArtifactTabs = new Map<string, Set<string>>()
+  const doneToolPaths = new Map<string, Set<string>>()
   createEffect(() => {
     const unsub = sdk.event.listen((evt) => {
       const e = evt.details
@@ -1132,6 +1142,10 @@ const sessionMessagesLoaded = createMemo(() => {
         const entry = globalToolCallMap.get(callID)
         globalToolCallMap.delete(callID)
         if (!entry?.path) return
+        const doneSet = doneToolPaths.get(eventSessionID) ?? new Set<string>()
+        if (doneSet.has(entry.path)) return
+        doneSet.add(entry.path)
+        doneToolPaths.set(eventSessionID, doneSet)
         if (isOutputsWriteTool(entry.tool, entry.path, eventSessionID)) {
           void recordToolVersionsAfter(entry.path)
         }
@@ -1142,10 +1156,44 @@ const sessionMessagesLoaded = createMemo(() => {
           set.add(entry.path)
           pendingCodeArtifactTabs.set(eventSessionID, set)
         }
+      } else if (e.type === "message.part.updated") {
+        const part = props?.part as Record<string, unknown> | undefined
+        if (part?.type !== "tool") return
+        const state = part.state as Record<string, unknown> | undefined
+        const status = state?.status as string | undefined
+        const toolName = part.tool as string | undefined
+        const input = (state?.input ?? {}) as Record<string, unknown>
+        const toolPath = ((input.path ?? input.filepath ?? input.filePath ?? "") as string) || undefined
+        if (!toolName || !toolPath) return
+        if (status === "pending" || status === "running") {
+          if (isOutputsWriteTool(toolName, toolPath, eventSessionID)) recordArtifactInit(toolPath)
+          if (isCodeHtmlArtifactWrite(toolName, toolPath)) recordArtifactInit(toolPath)
+          return
+        }
+        if (status !== "completed") return
+        const doneSet = doneToolPaths.get(eventSessionID) ?? new Set<string>()
+        if (doneSet.has(toolPath)) return
+        doneSet.add(toolPath)
+        doneToolPaths.set(eventSessionID, doneSet)
+        if (isOutputsWriteTool(toolName, toolPath, eventSessionID)) {
+          void recordToolVersionsAfter(toolPath)
+        }
+        if (isCodeHtmlArtifactWrite(toolName, toolPath)) {
+          void recordToolVersionsAfter(toolPath)
+          const set = pendingCodeArtifactTabs.get(eventSessionID) ?? new Set<string>()
+          set.add(toolPath)
+          pendingCodeArtifactTabs.set(eventSessionID, set)
+        }
       } else if (e.type === "session.idle") {
         const paths = pendingCodeArtifactTabs.get(eventSessionID)
         pendingCodeArtifactTabs.delete(eventSessionID)
+        doneToolPaths.delete(eventSessionID)
         if (!paths || paths.size === 0) return
+        // 自动归档不受视图切换守卫：后台 session 的 code 模式产物照常归档
+        // （与版本基线全局监听同设计动机——切走不丢）
+        for (const path of paths) {
+          handleCodeHtmlArtifactArchive(path)
+        }
         // 切走的 session：tab 直接丢弃（基线已记录，不补开）
         if (params.id !== eventSessionID) return
         for (const path of paths) {
@@ -2435,6 +2483,146 @@ const sessionMessagesLoaded = createMemo(() => {
     void historyController.recordInitIfNeeded(pseudoHistoryTab(filePath))
   }
 
+  // ── 自动归档（html 产物生成落盘后自动打包 ZIP 归档上传，独立功能非资产库） ────────
+
+  /** 自动归档开关（localStorage 持久化，默认关闭——仅开启状态下生成的产物会归档） */
+  const [autoArchive, setAutoArchive] = createSignal<"on" | "off">(
+    localStorage.getItem("octo:make:auto-archive") === "on" ? "on" : "off",
+  )
+
+  function toggleAutoArchive(value: "on" | "off") {
+    setAutoArchive(value)
+    localStorage.setItem("octo:make:auto-archive", value)
+    tracker.interaction({ module: "design", name: "toggle-auto-archive", extend: JSON.stringify({ enabled: value === "on" }) })
+  }
+
+  const reportAutoArchiveResult = (info: { title: string; subtype?: string; mode: "normal" | "code"; resumed?: boolean }, result: AutoArchiveResult) => {
+    tracker.interaction({
+      module: "design",
+      name: "auto-archive-result",
+      extend: JSON.stringify({
+        mode: info.mode,
+        title: info.title.slice(0, 100),
+        subtype: info.subtype ?? "",
+        success: result.success,
+        ...(info.resumed ? { resumed: true } : {}),
+        ...(result.message ? { message: result.message.slice(0, 100) } : {}),
+      }),
+    })
+  }
+
+  /** 轮询终态统一处理（上传成功后的解压处理结果，或挂载恢复的未终态任务）：
+   *  上传成功的 toast 延迟到轮询终态才提示（仅终态 toast）。 */
+  const handleArchiveTerminal = (task: PendingArchivePoll, result: AutoArchiveResult) => {
+    reportAutoArchiveResult({ title: task.name, mode: task.mode, resumed: task.resumed }, result)
+    if (result.success) {
+      showOctoToast({ title: "已自动归档", description: task.name })
+    } else {
+      showOctoToast({ title: "自动归档失败", description: result.message })
+    }
+  }
+
+  /** html 产物自动落盘后回调（insight-turn onHtmlArtifactSaved）：
+   *  开关开启 + 非 legacy subtype 时打包 index.html ZIP → uploadZipPackage 归档上传，
+   *  toast 反馈成败；非登录态提示后跳过（不记去重，登录后新生成的产物可正常归档）。 */
+  function handleHtmlArtifactSaved(card: OutputCard, filePath: string) {
+    if (autoArchive() !== "on") return
+    if (getSubtypeConfig(card.subtype).features.downloadUI === "legacy") return
+    if (!isAssetLibraryLoggedIn()) {
+      reportAutoArchiveResult({ title: card.title, subtype: card.subtype, mode: "normal" }, { success: false, message: "未登录" })
+      showOctoToast({ title: "自动归档失败", description: "未登录" })
+      return
+    }
+    if (autoArchiveReported.has(card.id)) return
+    autoArchiveReported.add(card.id)
+    const title = card.title.replace(/\.html?$/i, "")
+    void (async () => {
+      tracker.interaction({ module: "design", name: "auto-archive-upload", extend: JSON.stringify({ mode: "normal" }) })
+      let uploaded: AutoArchiveResult
+      try {
+        const zipBlob = await createIndexHtmlZip({ htmlContent: extractFileContent(card), htmlFilePath: filePath })
+        uploaded = await uploadZipPackage({ name: `${title}.zip`, zipBlob })
+      } catch (err) {
+        uploaded = { success: false, message: err instanceof Error ? err.message : String(err) }
+      }
+      // 构建失败/上传失败即时提示（触发时必在 Make 页）；上传成功 → 轮询终态才 toast
+      if (!uploaded.success) {
+        reportAutoArchiveResult({ title: card.title, subtype: card.subtype, mode: "normal" }, uploaded)
+        showOctoToast({ title: "自动归档失败", description: uploaded.message })
+        return
+      }
+      startArchivePoll({ id: uploaded.id!, name: title, mode: "normal", startedAt: Date.now() }, handleArchiveTerminal)
+    })()
+  }
+
+  /** code 工作区 html 产物自动归档（全局 SSE 监听器 session.idle 时触发）：
+   */
+  function handleCodeHtmlArtifactArchive(filePath: string) {
+    if (autoArchive() !== "on") return
+    if (!isAssetLibraryLoggedIn()) {
+      reportAutoArchiveResult({ title: filePath.split(/[/\\]/).pop() ?? filePath, mode: "code" }, { success: false, message: "未登录" })
+      showOctoToast({ title: "自动归档失败", description: "未登录" })
+      return
+    }
+    const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+    const subtype = extractSubtypeFromFilename(fileName)
+    if (getSubtypeConfig(subtype).features.downloadUI === "legacy") return
+    const readFileBuffer = getDesktopApi()?.readFileBuffer
+    if (!readFileBuffer) {
+      console.log("[AutoArchive] code mode skipped: no desktop readFileBuffer", filePath)
+      return
+    }
+    void (async () => {
+      const info = { title: fileName.replace(/\.html?$/i, ""), subtype, mode: "code" as const }
+      let uploaded: AutoArchiveResult
+      try {
+        // code 模式磁盘权威：write 工具刚落盘的最终态；读盘失败即本轮产物未就绪，跳过
+        const buf = await readFileBuffer(filePath)
+        if (!buf) {
+          console.log("[AutoArchive] code mode skipped: file not readable", filePath)
+          return
+        }
+        const htmlContent = new TextDecoder().decode(buf)
+        const dedupKey = codeArchiveDedupKey(filePath, htmlContent)
+        if (autoArchiveReported.has(dedupKey)) return
+        autoArchiveReported.add(dedupKey)
+        // 漏斗尝试打点：去重登记后、构建 ZIP 前（文件不可读/去重命中的静默跳过不计尝试）
+        tracker.interaction({ module: "design", name: "auto-archive-upload", extend: JSON.stringify({ mode: "code" }) })
+        const zipBlob = await createIndexHtmlZip({ htmlContent, htmlFilePath: filePath })
+        uploaded = await uploadZipPackage({ name: `${info.title}.zip`, zipBlob })
+      } catch (err) {
+        uploaded = { success: false, message: err instanceof Error ? err.message : String(err) }
+      }
+      // 构建失败/上传失败即时提示（触发时必在 Make 页）；上传成功 → 轮询终态才 toast
+      if (!uploaded.success) {
+        reportAutoArchiveResult(info, uploaded)
+        showOctoToast({ title: "自动归档失败", description: uploaded.message })
+        return
+      }
+      startArchivePoll({ id: uploaded.id!, name: info.title, mode: "code", startedAt: Date.now() }, handleArchiveTerminal)
+    })()
+  }
+
+  // code 模式产物补偿扫描（catch-up）
+  createEffect(
+    on(
+      () => [params.id, sessionMessagesLoaded(), userMessages().length] as const,
+      ([sid]) => {
+        if (!sid || !sessionMessagesLoaded()) return
+        const paths = new Set<string>()
+        for (const sessionSid of [sid, ...childSessionIDs()]) {
+          for (const msg of (sync.data.message?.[sessionSid] ?? []) as Message[]) {
+            const parts = (sync.data.part?.[msg.id] ?? []) as RevertDraftPart[]
+            for (const filePath of collectWriteEditFiles(parts)) {
+              if (isCodeHtmlArtifactWrite("write", filePath)) paths.add(filePath)
+            }
+          }
+        }
+        for (const path of paths) handleCodeHtmlArtifactArchive(path)
+      },
+    ),
+  )
+
   /** write-edit 工具落盘后（该文件无真实 tab 持有时）→ write 新建补 init + 记 agent（模型编辑）。
    *  有真实 tab 时走既有 onFileRefresh 路径，避免同一次编辑记两份。 */
   async function recordToolVersionsAfter(filePath: string) {
@@ -2461,6 +2649,12 @@ const sessionMessagesLoaded = createMemo(() => {
   // 卸载兜底(Make→Insight/Pattern 等跨页面导航时 MakeContent 会被卸载):
   // onCleanup 不保证在浏览器刷新时执行,刷新场景由每次 mutation 即存覆盖。
   onCleanup(() => persistTabsFor(params.id, true))
+
+  // 自动归档轮询生命周期：仅 Make 页挂载期间轮询——
+  // 切走暂停(pauseArchivePolls 取消 in-flight)、切回/刷新恢复(resumeArchivePolls
+  // 从 localStorage store 重启未终态任务,标 resumed),见 utils/auto-archive.ts。
+  onMount(() => resumeArchivePolls(handleArchiveTerminal))
+  onCleanup(pauseArchivePolls)
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -6453,18 +6647,22 @@ onPreview={(url) => {
                          >
                            <ModelTriggerLabel model={local.model} />
                           </ModelSelectorPopover>
-                          <DesignSystemSelector
-                            options={designSystemOptions()}
-                            selected={designSystemSelected()}
-                            onSelect={(label) => {
-                              setDesignSystemChoice(label)
-                              getDesktopApi()?.setDesignSystemSkillConfig?.(label ?? DESIGN_SYSTEM_NONE)?.catch((err) =>
-                                console.warn("[MakePage] setDesignSystemSkillConfig failed", err)
-                              )
-                              tracker.interaction({ module: "design", name: "select-design-system", extend: JSON.stringify({ designSystem: label ?? "none" }) })
-                            }}
-                          />
-                        </div>
+                           <DesignSystemSelector
+                             options={designSystemOptions()}
+                             selected={designSystemSelected()}
+                             onSelect={(label) => {
+                               setDesignSystemChoice(label)
+                               getDesktopApi()?.setDesignSystemSkillConfig?.(label ?? DESIGN_SYSTEM_NONE)?.catch((err) =>
+                                 console.warn("[MakePage] setDesignSystemSkillConfig failed", err)
+                               )
+                               tracker.interaction({ module: "design", name: "select-design-system", extend: JSON.stringify({ designSystem: label ?? "none" }) })
+                             }}
+                           />
+                           <AutoArchiveSelector
+                             value={autoArchive()}
+                             onChange={toggleAutoArchive}
+                           />
+                         </div>
  <IconButton
                           data-action="prompt-submit"
                           type="submit"
@@ -6591,6 +6789,7 @@ onPreview={(url) => {
                         onRevertToMessage={() => handleRevertToMessage(userMessages()[0])}
                         onRegenerateMessage={() => handleRegenerateMessage(userMessages()[0])}
                         onArtifactSaved={recordArtifactInit}
+                        onHtmlArtifactSaved={handleHtmlArtifactSaved}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -6631,6 +6830,7 @@ onPreview={(url) => {
                             onRevertToMessage={() => handleRevertToMessage(msg)}
                             onRegenerateMessage={() => handleRegenerateMessage(msg)}
                             onArtifactSaved={recordArtifactInit}
+                            onHtmlArtifactSaved={handleHtmlArtifactSaved}
                           />
                         )
                       }}
@@ -6907,12 +7107,16 @@ onPreview={(url) => {
                        >
                          <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
                        </ModelSelectorPopover>
-                      <DesignSystemSelector
-                        options={designSystemOptions()}
-                        selected={sessionDesignSystem()}
-                        displayOnly
-                      />
-                     </div>
+                       <DesignSystemSelector
+                         options={designSystemOptions()}
+                         selected={sessionDesignSystem()}
+                         displayOnly
+                       />
+                       <AutoArchiveSelector
+                         value={autoArchive()}
+                         onChange={toggleAutoArchive}
+                       />
+                      </div>
 <IconButton
                        data-action="prompt-submit"
                        type="submit"
