@@ -16,3 +16,7 @@ extracted `icon_128x128@2x.png` from that channel's `icon.icns` so the dev Dock 
 The runtime Dock icon also follows the macOS appearance: `setDockIcon` (in `src/main/windows.ts`) picks `dock-light.png` /
 `dock-dark.png` per system dark/light mode and falls back to `dock.png` when the variant is missing. Keep all three files
 in sync per channel folder (`dev` / `beta` / `prod`).
+
+As a last-resort fallback the variants are also embedded in `src/main/dock-icons.ts` (512px, base64 data URLs, used when
+the channel folder files are missing at runtime, e.g. packaged builds without the `icons` extraResource). When you update
+`dock-*.png`, regenerate that module too (512px LANCZOS resize + base64) so the packaged fallback stays in sync.
