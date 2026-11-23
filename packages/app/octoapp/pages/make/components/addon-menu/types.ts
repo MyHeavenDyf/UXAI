@@ -59,6 +59,7 @@ export interface AddonMenuProps {
   productAssetsDisabledReason?: string
   /** assetLibrary 项入口不可用原因 */
   assetLibraryDisabledReason?: string
+  strictAssetLibraryMessages?: boolean
   onAssetDownloadError?: (error: unknown) => void
   onAssetSelect?: (selection: MenuSelection) => void
   onAssetDeselect?: (selection: MenuSelection) => void

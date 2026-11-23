@@ -42,6 +42,7 @@ import type {
 import * as FastuiDevServer from "./fastui-devserver"
 import * as SkillRefresh from "./skill-refresh"
 import * as FastuiExport from "./fastui-export"
+import * as FastuiPrepare from "./fastui-prepare"
 import { effectiveXdgConfigHome } from "./storage"
 import { getStore } from "./store"
 import { proxyConfigFile, maskProxyUrl } from "./proxy-config"
@@ -379,6 +380,11 @@ export function registerIpcHandlers(deps: Deps) {
   )
   ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
     FastuiDevServer.restart(target),
+  )
+  // 分享导入的工程在本机接手(octo-agent SPEC-DES-009):open / restart 返回 needsPrepare 时调,
+  // 首装可能要几分钟,渲染进程按独立超时等。同样约定「返回结果对象、永不 throw」。
+  ipcMain.handle("fastui-preview-prepare", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiPrepare.prepare(target),
   )
   // 这个(会话, 产物名)有没有 fastui 工程:导出按钮与老卡片转换用,与预览同一个查找函数
   ipcMain.handle("fastui-resolve", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) => {
@@ -1271,17 +1277,6 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
-  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
-    try {
-      mkdirSync(dirname(skillConfigPath), { recursive: true })
-      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
-      void SkillRefresh.refreshSidecarSkills()
-    } catch (err) {
-      console.error("set-skill-config failed", err)
-      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  })
-
   ipcMain.handle("get-assets-config", () => {
     try {
       if (!existsSync(assetsConfigPath)) return {}
@@ -1302,6 +1297,18 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      // skill_config 是全局配置,写完即通知 sidecar 失效缓存,避免 server 继续读旧清单
+      void SkillRefresh.refreshSidecarSkills()
+    } catch (err) {
+      console.error("set-skill-config failed", err)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
   ipcMain.handle("set-Design-System-Skill-Config", async (_event: IpcMainInvokeEvent, skillName: string) => {
   })
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end

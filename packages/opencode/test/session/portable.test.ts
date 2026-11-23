@@ -229,6 +229,34 @@ describe("portable session", () => {
     }
   })
 
+  // octo-agent SPEC-DES-009:fastui / chart 工程标记要随包走(接收方靠它在本机接手),运行时目录不走
+  test.each([undefined, "project"] as const)("carries the fastui project marker but not its runtime directory (scope: %s)", async (scope) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "fastui marker" }))
+      const project = scope === "project" ? path.join(source.path, "alpha") : path.join(source.path, ".octo", session.id, "outputs", "alpha")
+      await Bun.write(path.join(project, ".octo-fastui.json"), JSON.stringify({ schema: 1, name: "alpha" }))
+      await Bun.write(path.join(project, ".octo-fastui", "devserver.json"), JSON.stringify({ pid: 4242, port: 8090 }))
+      await Bun.write(path.join(project, ".octo-fastui", "octo-fastui.log"), "log")
+      await Bun.write(path.join(project, "package.json"), "{}")
+      if (scope === "project") await Bun.write(path.join(project, ".env"), "SECRET=1")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as { files: { path: string }[] }
+    const prefix = scope === "project" ? "alpha" : "outputs/alpha"
+    expect(manifest.files.map((file) => file.path).filter((file) => file.includes("alpha")).sort()).toEqual([
+      `${prefix}/.octo-fastui.json`,
+      `${prefix}/package.json`,
+    ])
+    const imported = await provideTestInstance({ directory: target.path, fn: () => AppRuntime.runPromise(importPortableSession(exported.output, scope)) })
+    const marker = scope === "project"
+      ? path.join(target.path, "alpha", ".octo-fastui.json")
+      : path.join(target.path, ".octo", imported.sessionID, "outputs", "alpha", ".octo-fastui.json")
+    expect(await Bun.file(marker).exists()).toBe(true)
+  })
+
   test.each(["session", "project"] as const)(
     "imports legacy colon filenames and rewrites page/chat references (%s)",
     async (scope) => {
@@ -872,6 +900,53 @@ describe("portable session", () => {
       expect(output).not.toContain("secret-cookie-value")
     } finally {
       logging.mockRestore()
+      server.stop(true)
+      if (previousUpload === undefined) delete process.env.OCTO_SHARE_API_URL
+      else process.env.OCTO_SHARE_API_URL = previousUpload
+      if (previousPage === undefined) delete process.env.OCTO_SHARE_PAGE_URL
+      else process.env.OCTO_SHARE_PAGE_URL = previousPage
+    }
+  })
+
+  test("limits uploaded ZIP names without truncating session titles or splitting Unicode characters", async () => {
+    const uploads: { name: string; description: string; title: string }[] = []
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const form = await request.formData()
+        const file = form.get("file")
+        if (!(file instanceof File)) return new Response("file is required", { status: 400 })
+        const zip = await JSZip.loadAsync(await file.arrayBuffer())
+        const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+        uploads.push({
+          name: file.name,
+          description: String(form.get("description") ?? ""),
+          title: manifest.sessions[0].info.title,
+        })
+        return Response.json({ content: { uniqueId: "short-name" }, success: true })
+      },
+    })
+    const previousUpload = process.env.OCTO_SHARE_API_URL
+    const previousPage = process.env.OCTO_SHARE_PAGE_URL
+    process.env.OCTO_SHARE_API_URL = `http://127.0.0.1:${server.port}/upload`
+    process.env.OCTO_SHARE_PAGE_URL = "https://share.example/session"
+    try {
+      await using source = await tmpdir({ git: true })
+      await provideTestInstance({ directory: source.path, fn: async () => {
+        for (const agent of ["octo_insight", "octo_make", "octo_studio"]) {
+          for (const title of ["分享标题".repeat(30), "a".repeat(9) + "😀后续内容", "短标题", "  "]) {
+            const session = await runSession((service) => service.create({ title, agent }))
+            await AppRuntime.runPromise(sharePortableSession({ sessionID: session.id }))
+          }
+          expect(uploads.splice(0)).toEqual([
+            { name: "分享标题".repeat(2) + "分享.zip", description: "分享标题".repeat(2) + "分享", title: "分享标题".repeat(30) },
+            { name: "a".repeat(9) + "😀.zip", description: "a".repeat(9) + "😀", title: "a".repeat(9) + "😀后续内容" },
+            { name: "短标题.zip", description: "短标题", title: "短标题" },
+            { name: "session.zip", description: "  ", title: "  " },
+          ])
+        }
+      } })
+    } finally {
       server.stop(true)
       if (previousUpload === undefined) delete process.env.OCTO_SHARE_API_URL
       else process.env.OCTO_SHARE_API_URL = previousUpload

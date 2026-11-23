@@ -63,6 +63,34 @@ export function splitHistoryFilter(value?: string): string[] | undefined {
   return parts.length > 0 ? parts : undefined
 }
 
+// 自定义尺寸生成不携带 aspectRatio，尺寸写在工具/生成入参的 target_size 或 extra 里。
+// 会话视图（octoapp turns.ts）按此推导 isCustom 与像素尺寸，生成详情接口与导入物化
+// 必须同口径，否则「我的资产」详情会把自定义尺寸误显示成默认比例档（如 3:4）。
+export function studioCustomSizeFields(input: unknown): { isCustom?: boolean; width?: number; height?: number } {
+  const record = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : undefined
+  if (!record) return {}
+  const extra = record.extra && typeof record.extra === "object" && !Array.isArray(record.extra) ? record.extra as Record<string, unknown> : undefined
+  const target = record.target_size && typeof record.target_size === "object" && !Array.isArray(record.target_size)
+    ? record.target_size as Record<string, unknown>
+    : undefined
+  const num = (src: Record<string, unknown> | undefined, key: string): number | undefined =>
+    src && typeof src[key] === "number" ? src[key] as number : undefined
+  const width = num(target, "width") ?? num(record, "width") ?? num(extra, "width")
+  const height = num(target, "height") ?? num(record, "height") ?? num(extra, "height")
+  return {
+    isCustom: Boolean(record.isCustom) || Boolean(extra?.isCustom) || Boolean(width && height) || undefined,
+    ...(width !== undefined ? { width } : {}),
+    ...(height !== undefined ? { height } : {}),
+  }
+}
+
+// 智能重绘/扩图详情的提示词与会话视图（octoapp turns.ts）同口径回退：
+// detailPrompt 缺失且无 displayPrompt 时取用户提示词——编辑类能力不落 detailPrompt，
+// 会话侧靠该回退显示重绘/扩图的具体提示，生成详情接口缺失时「我的资产」会显示 "-"。
+export function studioFallbackDetailPrompt(fields: { detailPrompt?: string; displayPrompt?: string; prompt?: string }) {
+  return fields.detailPrompt ?? (fields.displayPrompt ? undefined : fields.prompt)
+}
+
 type StudioHistoryRow = typeof StudioHistoryTable.$inferSelect
 
 const DEFAULT_LIMIT = 48
@@ -384,8 +412,9 @@ export function generationHistorySnapshot(directory: string, generationID: strin
     capability: head.capability,
     prompt: head.prompt,
     displayPrompt: head.displayPrompt,
-    // 历史行可能未存 detailPrompt（旧数据），回退到展示文案/提示词，供详情面板复用。
-    detailPrompt: head.detailPrompt ?? head.displayPrompt ?? head.prompt,
+    // 历史行可能未存 detailPrompt（旧数据），回退到提示词供详情面板复用，
+    // 与 generationSnapshot 的回退口径一致（displayPrompt 存在时不替代）。
+    detailPrompt: studioFallbackDetailPrompt(head),
     detailTitle: head.detailTitle,
     model: head.model,
     styleModel: head.styleModel,
@@ -849,7 +878,6 @@ export function materializeStudioSessionParts(directory: string, sessionID: Sess
     if (images.length === 0) return []
     const studio = part.state.metadata.studio as Record<string, unknown> | undefined
     const input = importedToolInput(part.state.input)
-    const extra = input && typeof input.extra === "object" && !Array.isArray(input.extra) ? input.extra as Record<string, unknown> : undefined
     return extractMediaFromResult(
       {
         ...output,
@@ -857,9 +885,8 @@ export function materializeStudioSessionParts(directory: string, sessionID: Sess
         // 据此派生会让重导产生重复历史行），callID 保留包内原值，跨导入稳定可去重。
         id: typeof studio?.generationID === "string" ? studio.generationID : `studio_${part.callID}`,
         images,
-        isCustom:
-          input && (Boolean(input.isCustom) || Boolean(extra?.isCustom) || (typeof input.width === "number" && typeof input.height === "number"))
-            || undefined,
+        // 与生成详情接口同口径：工具入参里的 target_size/width/extra 推导自定义尺寸。
+        ...studioCustomSizeFields(input),
       },
       sessionID,
       importedAt,

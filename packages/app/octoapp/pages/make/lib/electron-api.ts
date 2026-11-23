@@ -32,6 +32,11 @@ export interface CodeManifest {
  * 工程在哪由主进程查(先会话范围、再工作区范围),渲染进程不拼路径 —— 普通 / 代码工作区布局不同。
  */
 export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: string }
+/** `needsPrepare`:工程在本机跑不起来(分享导入未接手等),先调 fastuiPreviewPrepare 再 open(octo-agent SPEC-DES-009) */
+export type FastuiOpenResult =
+  | { ok: true; port: number; reused: boolean }
+  | { ok: false; error: string; logTail?: string }
+  | { ok: false; needsPrepare: true; error: string }
 
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
@@ -40,13 +45,13 @@ export type DesktopApi = {
    * fastui 预览(SPEC-DES-004):卡片只记产物,点击时当场给地址 —— 服务活着且应答就复用,
    * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
    */
-  fastuiPreviewOpen?: (
-    target: FastuiTarget,
-  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  fastuiPreviewOpen?: (target: FastuiTarget) => Promise<FastuiOpenResult>
   /** 「重新编译」:结束当前服务并当场重起 */
-  fastuiPreviewRestart?: (
+  fastuiPreviewRestart?: (target: FastuiTarget) => Promise<FastuiOpenResult>
+  /** 分享导入的工程在本机接手(octo-agent SPEC-DES-009):open / restart 返回 needsPrepare 时调,完成后再 open */
+  fastuiPreviewPrepare?: (
     target: FastuiTarget,
-  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  ) => Promise<{ ok: true; adopted: boolean } | { ok: false; error: string; logTail?: string }>
   /** 这个(会话, 产物名)有没有 fastui 工程 —— 导出按钮与老卡片转换的判据,与预览同一个查找函数 */
   fastuiResolve?: (target: FastuiTarget) => Promise<{ ok: true; projectDir: string; name: string } | { ok: false; error: string }>
   /** 文件属于哪个 fastui 工程(往上找工程标记,不出工作区),SPEC-DES-008 §3.8 */

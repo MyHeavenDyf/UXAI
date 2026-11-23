@@ -806,9 +806,17 @@ export function StudioComposer(props: {
   createEffect(() => {
     if (!videoInputModeOpen()) return
     queueMicrotask(() => {
-      if (!videoInputModeBtnRef || !videoInputModeAnchorRef || !toolbarRef) return
-      const btnRect = videoInputModeBtnRef.getBoundingClientRect()
+      if (!videoInputModeAnchorRef || !toolbarRef) return
       const toolbarRect = toolbarRef.getBoundingClientRect()
+      if (toolbarOverflow().includes("videoInputMode") && moreMenuRef) {
+        const menuRect = moreMenuRef.getBoundingClientRect()
+        videoInputModeAnchorRef.style.left = `${menuRect.right - toolbarRect.left + 1}px`
+        videoInputModeAnchorRef.style.top = "auto"
+        videoInputModeAnchorRef.style.bottom = `${toolbarRect.bottom - menuRect.bottom - 8}px`
+        return
+      }
+      if (!videoInputModeBtnRef) return
+      const btnRect = videoInputModeBtnRef.getBoundingClientRect()
       videoInputModeAnchorRef.style.left = `${btnRect.left - toolbarRect.left}px`
       videoInputModeAnchorRef.style.top = ""
       videoInputModeAnchorRef.style.bottom = ""
@@ -1363,15 +1371,6 @@ export function StudioComposer(props: {
                   </StudioToolbarTooltip>
                 </div>
               </Show>
-              <Show when={toolbarOverflow().length > 0}>
-                <button
-                  type="button"
-                  ref={moreButtonRef!}
-                  class="studio-composer-toolbar-more"
-                  onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-more-open" }); setMoreMenuOpen((v) => !v) }}
-                  title="更多"
-                />
-              </Show>
             </Show>
             <Show when={isVideoGeneration()}>
               <div class="relative studio-composer-toolbar-item" ref={videoModeBtnRef!} data-toolbar-item="videoMode">
@@ -1389,30 +1388,43 @@ export function StudioComposer(props: {
                   }}
                 />
               </div>
-              <div class="relative studio-composer-toolbar-item" ref={videoInputModeBtnRef!} data-toolbar-item="videoInputMode">
-                <ToolButton
-                  label={videoInputModeLabel()}
-                  active={videoInputModeOpen()}
-                  disabled={isBusy()}
-                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                  onClick={() => {
-                    tracker.interaction({ module: "studio", name: "toolbar-video-input-mode-open" })
-                    if (videoInputModeOpen()) { setVideoInputModeOpen(false); return }
-                    props.onOpenMenu(null)
-                    setVideoModeOpen(false)
-                    setVideoInputModeOpen(true)
-                  }}
-                />
-              </div>
-              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("video-settings", el)} data-toolbar-item="settings">
-                <IconTool
-                  label="参数"
-                  children={imageSettingsLabel()}
-                  disabled={isBusy()}
-                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                  onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-settings-open" }); props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings") }}
-                />
-              </div>
+              <Show when={!toolbarOverflow().includes("videoInputMode")}>
+                <div class="relative studio-composer-toolbar-item" ref={videoInputModeBtnRef!} data-toolbar-item="videoInputMode">
+                  <ToolButton
+                    label={videoInputModeLabel()}
+                    active={videoInputModeOpen()}
+                    disabled={isBusy()}
+                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                    onClick={() => {
+                      tracker.interaction({ module: "studio", name: "toolbar-video-input-mode-open" })
+                      if (videoInputModeOpen()) { setVideoInputModeOpen(false); return }
+                      props.onOpenMenu(null)
+                      setVideoModeOpen(false)
+                      setVideoInputModeOpen(true)
+                    }}
+                  />
+                </div>
+              </Show>
+              <Show when={!toolbarOverflow().includes("settings")}>
+                <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("settings", el)} data-toolbar-item="settings">
+                  <IconTool
+                    label="参数"
+                    children={imageSettingsLabel()}
+                    disabled={isBusy()}
+                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                    onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-settings-open" }); props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings") }}
+                  />
+                </div>
+              </Show>
+            </Show>
+            <Show when={toolbarOverflow().length > 0}>
+              <button
+                type="button"
+                ref={moreButtonRef!}
+                class="studio-composer-toolbar-more"
+                onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-more-open" }); setMoreMenuOpen((v) => !v) }}
+                title="更多"
+              />
             </Show>
           </div>
           <Show when={moreMenuOpen()}>
@@ -1509,6 +1521,37 @@ export function StudioComposer(props: {
                     </button>
                   </Show>
                 </Show>
+                <Show when={isVideoGeneration()}>
+                  <Show when={toolbarOverflow().includes("videoInputMode")}>
+                    <button
+                      type="button"
+                      class="studio-composer-toolbar-more-item"
+                      classList={{ active: videoInputModeOpen() }}
+                      onClick={() => {
+                        tracker.interaction({ module: "studio", name: "toolbar-video-input-mode-open" })
+                        if (videoInputModeOpen()) { setVideoInputModeOpen(false); return }
+                        props.onOpenMenu(null)
+                        setVideoModeOpen(false)
+                        setVideoInputModeOpen(true)
+                      }}
+                    >
+                      <img src={STUDIO_VIDEO_INPUT_MODES.find((item) => item.value === props.videoInputMode)?.icon} alt="" class="studio-composer-toolbar-more-item-icon" />
+                      <span>{videoInputModeLabel()}</span>
+                      <svg class="studio-composer-toolbar-more-item-arrow" viewBox="0 0 6 11" width="5.74" height="10.6"><path d="M0.5 0.5l5 5-5 5" fill="none" stroke="rgba(0,0,0,0.9)" stroke-width="1"/></svg>
+                    </button>
+                  </Show>
+                  <Show when={toolbarOverflow().includes("settings")}>
+                    <button
+                      type="button"
+                      class="studio-composer-toolbar-more-item"
+                      classList={{ active: props.openMenu === "settings" }}
+                      onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-settings-open" }); props.onOpenMenu("settings") }}
+                    >
+                      <img src="/studio/IconParameter.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
+                      <span>视频设置</span>
+                    </button>
+                  </Show>
+                </Show>
               </div>
           </Show>
           <Show when={props.openMenu === "capability"}>
@@ -1574,7 +1617,7 @@ export function StudioComposer(props: {
             </div>
           </Show>
           <Show when={isVideoGeneration() && props.openMenu === "settings"}>
-            <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("video-settings", el)}>
+            <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("settings", el)}>
               <VideoSettings
                 aspectRatio={props.aspectRatio}
                 count={props.count}
@@ -1996,7 +2039,7 @@ function VideoModeMenu<T extends string>(props: { value: T; modes: { label: stri
                 "font-size": "14px",
                 "line-height": "20px",
                 "text-align": "left",
-                cursor: "pointer",
+                cursor: "default",
                 "white-space": "nowrap",
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "#f3f3f3" }}
@@ -2081,7 +2124,9 @@ function StyleMenu(props: {
                 return (
                   <Tooltip
                     inactive={!description}
-                    placement="top"
+                    placement="bottom-start"
+                    flip={false}
+                    getAnchorRect={(anchor) => anchor?.querySelector(".studio-style-description")?.getBoundingClientRect()}
                     gutter={10}
                     openDelay={0}
                     arrow

@@ -939,6 +939,10 @@ export function StudioDetails(props: {
   })
   const resolution = createMemo(() => {
     if (props.image?.width && props.image.height) return `${props.image.width} x ${props.image.height}`
+    // 「我的资产」详情的媒体行可能没有像素尺寸（provider 不返回），自定义尺寸时
+    // 生成级 width/height 承载用户选择的尺寸，优先于按比例档推导的默认分辨率，
+    // 保证与会话详情一致。
+    if (props.result.width && props.result.height) return `${props.result.width} x ${props.result.height}`
     const dimensions = getDefaultDimensions(props.result.styleModel ?? props.result.model, props.result.aspectRatio)
     return dimensions ? `${dimensions.width} x ${dimensions.height}` : "-"
   })

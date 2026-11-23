@@ -71,6 +71,7 @@ const api: ElectronAPI = {
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
   fastuiPreviewOpen: (target) => ipcRenderer.invoke("fastui-preview-open", target),
   fastuiPreviewRestart: (target) => ipcRenderer.invoke("fastui-preview-restart", target),
+  fastuiPreviewPrepare: (target) => ipcRenderer.invoke("fastui-preview-prepare", target),
   fastuiResolve: (target) => ipcRenderer.invoke("fastui-resolve", target),
   fastuiProjectOf: (target) => ipcRenderer.invoke("fastui-project-of", target),
   fastuiExportZip: (target) => ipcRenderer.invoke("fastui-export-zip", target),
@@ -139,6 +140,7 @@ const api: ElectronAPI = {
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
   mcpConfigWrite: (input) => ipcRenderer.invoke("mcp-config-write", input),
   getSkillConfig: () => ipcRenderer.invoke("get-skill-config"),
+  setSkillConfig: (config) => ipcRenderer.invoke("set-skill-config", config),
   // jk-j60099994-replace-with-60062650-preload-index-1-start
   setDesignSystemSkillConfig: (skillName) => ipcRenderer.invoke("set-Design-System-Skill-Config", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end
