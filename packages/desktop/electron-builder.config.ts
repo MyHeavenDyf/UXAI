@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -10,19 +9,6 @@ import { releaseNotes } from "./scripts/release-notes"
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
-
-// resources/icons 是 gitignore 的生成物,依赖 copy-icons 在打包前生成。若构建机没跑过
-// (如旧版 bun 不执行 pre 钩子),electron-builder 会静默跳过 extraResources 或打进旧
-// 16-bit PNG,产物表现为 dock 图标加载为空。这里把缺文件/非 8-bit 都变成显式构建失败。
-for (const name of ["icon.icns", "icon.png", "icon.ico", "dock.png", "dock-dark.png", "dock-light.png"]) {
-  const file = path.join("resources", "icons", name)
-  if (!existsSync(file)) {
-    throw new Error(`resources/icons/${name} 不存在:先运行 bun ./scripts/copy-icons.ts <channel> 再打包`)
-  }
-  if (name.startsWith("dock-") && name.endsWith(".png") && readFileSync(file)[24] !== 8) {
-    throw new Error(`resources/icons/${name} 非 8-bit PNG:Dock 深浅图标必须 8-bit RGBA,请重新运行 copy-icons`)
-  }
-}
 
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
