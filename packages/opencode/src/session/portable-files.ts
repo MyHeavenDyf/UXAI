@@ -1,6 +1,7 @@
 import path from "node:path"
-import { lstat } from "node:fs/promises"
+import { lstat, readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
+import { glob } from "glob"
 import { parse } from "jsonc-parser"
 import type { MessageV2 } from "./message-v2"
 
@@ -281,8 +282,7 @@ export async function collectPortableProjectFiles(input: {
   const config = (file: string) => {
     const previous = configs.get(file)
     if (previous) return previous
-    const value = Bun.file(file)
-      .text()
+    const value = readFile(file, "utf8")
       .then((text) => record(parse(text) as unknown))
       .catch(() => record(undefined))
     configs.set(file, value)
@@ -297,13 +297,15 @@ export async function collectPortableProjectFiles(input: {
       for (const pattern of patterns) {
         if (typeof pattern !== "string" || pattern.startsWith("!")) continue
         if (!inside(path.resolve(parent, pattern.split(/[*?[{]/)[0]))) continue
-        const glob = path.posix.join(pattern.replaceAll("\\", "/"), "package.json")
+        const patternPath = path.posix.join(pattern.replaceAll("\\", "/"), "package.json")
         try {
-          for await (const match of new Bun.Glob(glob).scan({
+          for (const match of await glob(patternPath, {
             cwd: parent,
             absolute: true,
-            onlyFiles: true,
-            followSymlinks: false,
+            nodir: true,
+            follow: false,
+            dot: false,
+            ignore: ["**/node_modules/**", "**/.*/**"],
           })) {
             if (
               !inside(match) ||
@@ -370,9 +372,7 @@ export async function collectPortableProjectFiles(input: {
       }
     }
     for (const name of ["vite.config.ts", "vite.config.js", "vite.config.mts", "webpack.config.js"]) {
-      const text = await Bun.file(path.join(directory, name))
-        .text()
-        .catch(() => "")
+      const text = await readFile(path.join(directory, name), "utf8").catch(() => "")
       // Resolve only literal paths; never import a Vite/Webpack config to inspect it.
       for (const match of text.matchAll(
         /(?:\bresolve\(\s*__dirname\s*,\s*|new\s+URL\(\s*)["'](\.{1,2}\/[^"']+)["']/g,
