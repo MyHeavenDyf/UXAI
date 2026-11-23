@@ -9,6 +9,7 @@ import { Skill } from "@/skill"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
+import { notFound } from "../errors"
 import { ApiVcsApplyError } from "../groups/instance"
 import { markInstanceForDisposal } from "../lifecycle"
 
@@ -89,6 +90,14 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return { success: true }
     })
 
+    const getSkillAvailable = Effect.fn("InstanceHttpApi.skillAvailable")(function* (ctx: {
+      query: { agent: string }
+    }) {
+      const info = yield* agent.get(ctx.query.agent)
+      if (!info) return yield* Effect.fail(notFound(`Agent not found: ${ctx.query.agent}`))
+      return yield* skill.available(info)
+    })
+
     const getLsp = Effect.fn("InstanceHttpApi.lsp")(function* () {
       return yield* lsp.status()
     })
@@ -109,6 +118,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("agent", getAgent)
       .handle("skill", getSkill)
       .handle("skillRefresh", refreshSkill)
+      .handle("skillAvailable", getSkillAvailable)
       .handle("lsp", getLsp)
       .handle("formatter", getFormatter)
   }),

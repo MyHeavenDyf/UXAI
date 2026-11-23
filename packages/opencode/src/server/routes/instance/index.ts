@@ -14,6 +14,7 @@ import { InstanceRuntime } from "@/project/instance-runtime"
 import { Vcs } from "@/project/vcs"
 import { Agent } from "@/agent/agent"
 import { Skill } from "@/skill"
+import { NotFoundError } from "@/storage/storage"
 import { Global } from "@opencode-ai/core/global"
 import { LSP } from "@/lsp/lsp"
 import { Command } from "@/command"
@@ -123,6 +124,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): H
     app.get(InstancePaths.command, (c) => handler(c.req.raw, context))
     app.get(InstancePaths.agent, (c) => handler(c.req.raw, context))
     app.get(InstancePaths.skill, (c) => handler(c.req.raw, context))
+    app.get(InstancePaths.skillAvailable, (c) => handler(c.req.raw, context))
     app.get(InstancePaths.lsp, (c) => handler(c.req.raw, context))
     app.get(InstancePaths.formatter, (c) => handler(c.req.raw, context))
     app.get(McpPaths.status, (c) => handler(c.req.raw, context))
@@ -520,6 +522,38 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): H
           const command = yield* Command.Service
           yield* command.refresh()
           return { success: true }
+        }),
+    )
+    .get(
+      "/skill/available",
+      describeRoute({
+        summary: "List skills available to an agent",
+        description: "Get the list of skills available to the given agent — the same filter used for <available_skills> in the prompt.",
+        operationId: "app.skills.available",
+        responses: {
+          200: {
+            description: "Skills available to the agent",
+            content: {
+              "application/json": {
+                schema: resolver(Skill.Info.zod.array()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("query", z.object({ agent: z.string() })),
+      async (c) =>
+        jsonRequest("InstanceRoutes.skill.available", c, function* () {
+          const agent = yield* Agent.Service
+          const info = yield* agent.get(c.req.valid("query").agent)
+          if (!info) {
+            return yield* Effect.fail(
+              new NotFoundError({ message: `Agent not found: ${c.req.valid("query").agent}` }),
+            )
+          }
+          const skill = yield* Skill.Service
+          return yield* skill.available(info)
         }),
     )
     .get(
