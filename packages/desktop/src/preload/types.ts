@@ -61,7 +61,7 @@ export type DownloadSavePathInfo = {
 }
 
 // jk-j60099994-replace-with-60062650-preload-types-1-start
-export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+export type SkillConfigEntry = { description?: string; import?: boolean; type?: string; usage?: string }
 // jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
@@ -243,6 +243,8 @@ export type ElectronAPI = {
   ensureSkillConfig: () => Promise<void>
   openSkillFolder: () => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-start
+  getSkillsByUsage: (usage: string) => Promise<SkillConfigEntry[]>
+  getSkillKeyByName: (skillName: string) => Promise<string | undefined>
   setDesignSystemSkillConfig: (skillName: string) => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
