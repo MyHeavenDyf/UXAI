@@ -2,9 +2,10 @@ import path from "node:path"
 import { lstat, realpath } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { isExcludedPortableFile } from "./portable-exclusions"
+import { portableProjectHiddenFiles } from "./portable-files"
 
-const textFile = /\.(?:html?|css|[cm]?js|jsx|tsx?|svg)$/i
-const entryFile = /\.(?:html?|svg|jsx|tsx)$/i
+const textFile = /\.(?:html?|css|[cm]?js|jsx|tsx?|svg|vue|svelte)$/i
+const entryFile = textFile
 const resourceFile =
   /\.(?:[cm]?js|jsx|tsx?|css|json|wasm|map|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|eot|mp[34]|webm|ogg|wav)$/i
 const moduleExtensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json"]
@@ -45,6 +46,16 @@ function moduleReferences(text: string) {
   }
   while (peek(0) !== undefined) {
     const token = buffer.shift()
+    const local = literal(token)
+    // Static path literals also cover fetch(), dynamic import maps, and resource
+    // directory prefixes used to compose filenames. Never evaluate expressions.
+    if (local && /^\.\.?\//.test(local) && /\/(?:assets|images|uploads|data|fonts|media|resource)\/$/i.test(local)) {
+      refs.push(local)
+    }
+    if (["fetch", "Worker", "SharedWorker"].includes(token ?? "") && peek(0) === "(") {
+      const ref = literal(peek(1))
+      if (ref && /^\.\.?\//.test(ref)) refs.push(ref)
+    }
     const assignment = previous.at(-1) === "{" ? previous.slice(0, -1) : previous
     const property = assignment.at(-2)
     if (
@@ -225,12 +236,15 @@ function inside(root: string, file: string) {
 export async function collectPortableDependencies(input: {
   root: string
   files: string[]
+  /** Additional owned documents to inspect without adding them to this scope's archive. */
+  entries?: string[]
   /** Kept for caller compatibility; real dependency targets are no longer restricted to these roots. */
   trustedRoots: string[]
   read: (file: string) => Promise<Uint8Array>
+  list?: (directory: string) => Promise<string[]>
   blacklist?: readonly string[]
 }) {
-  if (!input.files.length) return []
+  if (!(input.entries ?? input.files).length) return []
   const known = new Set(input.files)
   const found = new Map<string, string>()
   const visited = new Set<string>()
@@ -254,14 +268,14 @@ export async function collectPortableDependencies(input: {
     )
   }
   const pending = new Map<string, { file: string; source: string; document?: string }>(
-    input.files
+    (input.entries ?? input.files)
       .filter(
         (file) =>
           entryFile.test(file) &&
-          !path
+          (input.entries !== undefined || !path
             .relative(input.root, file)
             .split(path.sep)
-            .some((part) => part.startsWith(".")),
+            .some((part) => part.startsWith("."))),
       )
       .map((file) => [key(file), { file, source: file }]),
   )
@@ -323,11 +337,22 @@ export async function collectPortableDependencies(input: {
           })()
           if (!target) continue
           const relative = path.relative(input.root, target)
-          if (!inside(input.root, target) || relative.split(path.sep).some((part) => part.startsWith("."))) {
+          if (!inside(input.root, target) || relative.split(path.sep).some((part) => part.startsWith(".") && !portableProjectHiddenFiles.has(part))) {
             warnSkipped(file, raw, reference.base, "outside-portable-root")
             continue
           }
           if (isExcludedPortableFile(target, input.blacklist)) continue
+          // Only explicitly named resource directories, never an inferred project
+          // or disk root. This preserves runtime-composed assets without executing JS.
+          if (input.list && /\/(?:assets|images|uploads|data|fonts|media|resource)\/$/i.test(ref)) {
+            const files = await input.list(target).catch(() => [])
+            for (const file of files) {
+              if (!inside(input.root, file) || isExcludedPortableFile(file, input.blacklist)) continue
+              if (!known.has(file)) found.set(file, file)
+              if (textFile.test(file) && !visited.has(key(file, page))) pending.set(key(file, page), { file, source: file, document: page })
+            }
+            continue
+          }
           const candidates = /\.(?:[cm]?js|jsx|tsx?)$/i.test(file)
             ? [target, ...moduleExtensions.flatMap((ext) => [`${target}${ext}`, path.join(target, `index${ext}`)])]
             : [target]

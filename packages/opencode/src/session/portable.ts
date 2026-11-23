@@ -16,6 +16,7 @@ import { Session } from "./session"
 import { SessionStatus } from "./status"
 import { Todo } from "./todo"
 import { collectPortableDependencies } from "./portable-dependencies"
+import { collectPortableProjectFiles, portableProjectHiddenFiles } from "./portable-files"
 import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
 import { isExcludedPortableFile, loadPortableFileBlacklist } from "./portable-exclusions"
 import { materializeStudioSessionParts } from "@/studio/studio-history-service"
@@ -220,10 +221,9 @@ function digest(value: Uint8Array) {
 
 // fastui / chart skill 的工程标记:接收方靠它认出工程,点预览时在本机补环境后起服务(octo-agent SPEC-DES-009)。
 // 精确到文件名,不放开其他点开头的文件。导出过滤与导入校验共用 isProjectFile,两边同时生效。
-const PORTABLE_ALLOWED_HIDDEN = new Set([".octo-fastui.json"])
-// fastui / chart 的运行时目录:日志与带本机 pid / 端口的服务记录,换台机器没有意义(octo-agent SPEC-DES-009)。
-// 两种导出范围都排除;session 范围本身不过滤点开头的文件,不能只靠 isProjectFile。
-const PORTABLE_EXCLUDED_DIRS = new Set([".octo-fastui"])
+const PORTABLE_ALLOWED_HIDDEN = portableProjectHiddenFiles
+// Exclude local runtimes, installed dependencies and caches in both private and shared scopes.
+const PORTABLE_EXCLUDED_DIRS = new Set([".octo-fastui", "node_modules", ".cache", ".vite", ".turbo", "__pycache__"])
 
 function isProjectFile(value: string, legacy = false) {
   return value
@@ -318,13 +318,28 @@ function collectFiles(
       ]),
       scope === "project" ? [{ scope: "project" as const, sessionID: entries[0].info.id, root: sourceDirectory }] : [],
     ].flat()
+    const owned = new Map(yield* Effect.forEach(
+      locations.filter((location) => location.scope !== "project"),
+      (location) => Effect.promise(async () => [location.root, await listFiles(location.root, false, blacklist)] as const),
+      { concurrency: 2 },
+    ))
     const files = yield* Effect.forEach(
       locations,
       (location) =>
         Effect.promise(async () => {
-          const files = (await listFiles(location.root, location.scope === "project", blacklist)).filter((file) => path.resolve(file) !== output)
+          const files = (location.scope === "project"
+            ? await collectPortableProjectFiles({
+                root: location.root,
+                sessions: entries,
+                list: (directory) => listFiles(directory, true, blacklist),
+              })
+            : owned.get(location.root)!)
+            .filter((file) => path.resolve(file) !== output && !isExcludedPortableFile(file, blacklist) &&
+              (location.scope !== "project" || isProjectFile(path.relative(location.root, file), true)))
           const dependencies = await collectPortableDependencies({
             root: location.root, files, read, blacklist,
+            list: (directory) => listFiles(directory, location.scope === "project", blacklist),
+            ...(location.scope === "project" ? { entries: [...files, ...[...owned.values()].flat()] } : {}),
             trustedRoots: ["skill", "skills"].map((dir) => path.join(global.octoConfig, dir, "ict-react-coder", "scripts", "preview", "assets")),
           })
           return [
@@ -438,7 +453,7 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
       "workspace binding",
       ...blacklist.map((extension) => `*${extension} files and archive contents`),
       ...(input.scope === "project"
-        ? ["hidden workspace files", "node_modules", "symbolic links", "export target"]
+        ? ["hidden workspace files", "node_modules", "symbolic links", "export target", "unreferenced workspace files"]
         : []),
     ],
     sessions: entries,

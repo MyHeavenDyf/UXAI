@@ -200,7 +200,8 @@ describe("session HttpApi", () => {
   it.live("restores shared archives into private file lists through both backends",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
       const session = yield* createSession(tmp.path, { title: "Shared to private" })
-      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "index.html"), '<link href="assets/theme.css">'))
+      yield* createTextMessage(tmp.path, session.id, "查看 [页面](index.html)")
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "index.html"), '<link rel="stylesheet" href="assets/theme.css">'))
       yield* Effect.promise(() => Bun.write(path.join(tmp.path, "assets", "theme.css"), "body {}"))
       yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".octo", session.id, "uploads", "brief.txt"), "attachment"))
       const output = path.join(tmp.path, ".exports", "shared.zip")
@@ -263,7 +264,9 @@ describe("session HttpApi", () => {
   it.live("exports shared workspace files only when requested through both backends",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
       const session = yield* createSession(tmp.path, { title: "Shared files" })
+      yield* createTextMessage(tmp.path, session.id, "查看 [页面](shared.html)")
       yield* Effect.promise(() => Bun.write(path.join(tmp.path, "shared.html"), "<h1>shared</h1>"))
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "unrelated.html"), "<h1>unrelated</h1>"))
       const endpoint = pathFor(SessionPaths.portableExport, { sessionID: session.id })
       for (const experimental of [true, false]) {
         for (const scope of [undefined, "project"]) {
@@ -272,11 +275,11 @@ describe("session HttpApi", () => {
             method: "POST", headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
             body: JSON.stringify({ path: output, scope }),
           })
-          expect(yield* json(response)).toEqual({ output, sessions: 1, files: scope ? 2 : 0 })
+          expect(yield* json(response)).toEqual({ output, sessions: 1, files: scope ? 1 : 0 })
           const zip = yield* Effect.promise(async () => JSZip.loadAsync(await Bun.file(output).arrayBuffer()))
           const manifest = yield* Effect.promise(async () => JSON.parse(await zip.file("manifest.json")!.async("string")))
           expect(manifest.files.map((file: { scope: string; path: string }) => ({ scope: file.scope, path: file.path })))
-            .toEqual(scope ? [{ scope: "project", path: "opencode.json" }, { scope: "project", path: "shared.html" }] : [])
+            .toEqual(scope ? [{ scope: "project", path: "shared.html" }] : [])
         }
       }
     })),

@@ -32,7 +32,142 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
+async function linkFile(sessionID: SessionID, file: string) {
+  const message = await runSession((service) => service.updateMessage({
+    id: MessageID.ascending(), sessionID, role: "assistant", parentID: MessageID.ascending(),
+    agent: "octo_make", mode: "octo_make", modelID: ModelID.make("test"), providerID: ProviderID.make("test"),
+    time: { created: Date.now(), completed: Date.now() }, path: { cwd: "/tmp", root: "/tmp" },
+    cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  }))
+  await runSession((service) => service.updatePart({
+    id: PartID.ascending(), sessionID, messageID: message.id,
+    type: "text", text: `<artifact type="text/link">${file}</artifact>`,
+  }))
+}
+
 describe("portable session", () => {
+  test.each(["package.json", "tsconfig.json", "vite.config.ts"])("does not expand a workspace-level %s into unrelated sessions", async (marker) => {
+    await using source = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Workspace boundary" }))
+      await linkFile(session.id, "index.html")
+      await linkFile(session.id, "selected/src/main.ts")
+      await Bun.write(path.join(source.path, marker), "{}")
+      await Bun.write(path.join(source.path, "index.html"), '<img src="./images/selected.png"><script src="./missing.js"></script>')
+      await Bun.write(path.join(source.path, "selected/src/main.ts"), 'import "./detail.ts"')
+      await Bun.write(path.join(source.path, "selected/src/detail.ts"), "export const value = 1")
+      for (const file of ["images/selected.png", "images/unrelated.png", "other-session.html", "other-project/package.json", "other-project/src/main.ts", "old-export.zip"]) {
+        await Bun.write(path.join(source.path, file), file.endsWith(".json") ? "{}" : "contents")
+      }
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "selected.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "images/selected.png", "index.html", "selected/src/detail.ts", "selected/src/main.ts",
+    ])
+  })
+
+  test("collects mentioned folders, complex links, plain paths and shell outputs without requiring every path to exist", async () => {
+    await using source = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Selection gaps" }))
+      await linkFile(session.id, "missing.html")
+      const message = (await runSession((svc) => svc.messages({ sessionID: session.id })))[0]
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID: message.info.id, sessionID: session.id, type: "text",
+        text: '[引用文件] 用户引用的文件\n- 素材目录: ./uploads\n\n[页面](./login(test).html?v=2#preview "页面")\n[文档](<./需求%20说明.pdf?download=1>)\n生成 `report.csv`，另有 notes.md\n[损坏链接](file://%invalid)\n[缺失](./missing.png)',
+      }))
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID: message.info.id, sessionID: session.id, type: "tool", callID: "shell",
+        tool: "bash", state: {
+          status: "completed", input: { command: "printf result > shell-result.txt" }, output: "Created shell-result.txt",
+          title: "Generate", metadata: {}, time: { start: 1, end: 2 },
+        },
+      }))
+      for (const file of ["uploads/nested/photo.png", "login(test).html", "需求 说明.pdf", "report.csv", "notes.md", "shell-result.txt", "unrelated.txt"]) {
+        await Bun.write(path.join(source.path, file), file)
+      }
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "selected.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "login(test).html", "notes.md", "report.csv", "shell-result.txt", "uploads/nested/photo.png", "需求 说明.pdf",
+    ])
+  })
+
+  test("collects local packages, workspace packages, alias directories and non-secret build inputs", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Local packages" }))
+      await linkFile(session.id, "apps/dashboard/src/App.vue")
+      await Bun.write(path.join(source.path, "package.json"), JSON.stringify({ workspaces: ["packages/*"] }))
+      await Bun.write(path.join(source.path, "apps/dashboard/package.json"), JSON.stringify({ dependencies: {
+        ui: "workspace:*", local: "file:../../local", missing: "link:../../missing",
+      } }))
+      await Bun.write(path.join(source.path, "apps/dashboard/tsconfig.json"), '{"extends":"../../tsconfig.base.json","compilerOptions":{"paths":{"@common/*":["../../common/*"]}}}')
+      await Bun.write(path.join(source.path, "tsconfig.base.json"), '{"extends":"./apps/dashboard/tsconfig.json","compilerOptions":{"paths":{"@types/*":["./types/*"]}}}')
+      await Bun.write(path.join(source.path, "apps/dashboard/vite.config.ts"), 'export default {resolve:{alias:{"@assets":new URL("../../common-assets",import.meta.url).pathname}}}')
+      await Bun.write(path.join(source.path, "packages/ui/package.json"), '{"name":"ui"}')
+      await Bun.write(path.join(source.path, "packages/unused/package.json"), '{"name":"unused"}')
+      for (const file of ["apps/dashboard/src/App.vue", "apps/dashboard/.env.example", "apps/dashboard/.env", "local/util.ts", "common/types.ts", "types/global.d.ts", "common-assets/icon.svg", "packages/ui/index.ts", "packages/unused/index.ts"]) {
+        await Bun.write(path.join(source.path, file), file)
+      }
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "selected.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    const files = manifest.files.map((file: { path: string }) => file.path)
+    expect(files).toContain("apps/dashboard/.env.example")
+    expect(files).toContain("local/util.ts")
+    expect(files).toContain("common/types.ts")
+    expect(files).toContain("types/global.d.ts")
+    expect(files).toContain("common-assets/icon.svg")
+    expect(files).toContain("tsconfig.base.json")
+    expect(files).toContain("packages/ui/index.ts")
+    expect(files).not.toContain("packages/unused/index.ts")
+    expect(files).not.toContain("apps/dashboard/.env")
+    await provideTestInstance({ directory: target.path, fn: () => AppRuntime.runPromise(importPortableSession(exported.output, "project")) })
+    expect(await Bun.file(path.join(target.path, "apps/dashboard/.env.example")).exists()).toBe(true)
+  })
+
+  test("collects a markerless project and runtime data without including unrelated siblings", async () => {
+    await using source = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Static project" }))
+      await linkFile(session.id, "site/index.html")
+      for (const file of ["site/index.html", "site/data/config.json", "site/images/runtime.png", "other/index.html"]) {
+        await Bun.write(path.join(source.path, file), "contents")
+      }
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "selected.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "site/data/config.json", "site/images/runtime.png", "site/index.html",
+    ])
+  })
+
+  test("collects fetch resources and runtime asset directories while skipping missing resources", async () => {
+    await using source = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Runtime resources" }))
+      await linkFile(session.id, "page.html")
+      await Bun.write(path.join(source.path, "page.html"), '<script>fetch("./data/settings.json");const prefix="./images/";const img=prefix+window.name;fetch("./missing.json");</script>')
+      for (const file of ["data/settings.json", "images/photo.png", "images/nested/other.png", "unused.png"]) {
+        await Bun.write(path.join(source.path, file), file.endsWith(".json") ? "{}" : "image")
+      }
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "selected.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "data/settings.json", "images/nested/other.png", "images/photo.png", "page.html",
+    ])
+  })
+
   test("clamps negative token counts from legacy archives", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
@@ -112,6 +247,8 @@ describe("portable session", () => {
       const session = await runSession((svc) => svc.create({ title: "Website-root dependency" }))
       await Bun.write(path.join(source.path, "unrelated/index.html"), html)
       await Bun.write(path.join(source.path, "src/entry.ts"), "export const ready = true")
+      await linkFile(session.id, "unrelated/index.html")
+      await linkFile(session.id, "src/entry.ts")
       return AppRuntime.runPromise(exportPortableSession({
         sessionID: session.id,
         output: path.join(source.path, "bundle.zip"),
@@ -213,6 +350,7 @@ describe("portable session", () => {
       await Bun.write(path.join(source.path, ".octo", "design", "history", session.id, "old.asar"), "archive bytes")
       await Bun.write(path.join(source.path, "project.asar"), "archive bytes")
       await Bun.write(path.join(source.path, "project.asar.unpacked", "library.dll"), "library bytes")
+      await linkFile(session.id, "project.asar.unpacked/library.dll")
       return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope }))
     } })
     const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
@@ -241,6 +379,7 @@ describe("portable session", () => {
       await Bun.write(path.join(project, ".octo-fastui", "octo-fastui.log"), "log")
       await Bun.write(path.join(project, "package.json"), "{}")
       if (scope === "project") await Bun.write(path.join(project, ".env"), "SECRET=1")
+      await linkFile(session.id, "fastui://alpha")
       return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope }))
     } })
     const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
@@ -350,6 +489,8 @@ describe("portable session", () => {
         directory: source.path,
         fn: async () => {
           const session = await runSession((svc) => svc.create({ title: "Mac filenames" }))
+          await linkFile(session.id, "assets:README.md")
+          await linkFile(session.id, "index.html")
           return AppRuntime.runPromise(
             exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }),
           )
@@ -470,7 +611,107 @@ describe("portable session", () => {
     } })
   })
 
-  test("keeps the complete shared directory and HTML references unchanged despite missing resources in another page", async () => {
+  test.each(["fastui://admin-platform", "admin-platform/src/main.ts"])("exports a selected complete project without sibling projects or runtime caches (%s)", async (link) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Complete project" }))
+      await linkFile(session.id, link)
+      for (const file of [
+        "admin-platform/.octo-fastui.json", "admin-platform/package.json", "admin-platform/src/main.ts",
+        "admin-platform/src/Dashboard.vue", "admin-platform/public/dynamic-image.png", "admin-platform/dist/index.html",
+        "admin-platform/node_modules/vue/index.js", "admin-platform/.octo-fastui/devserver.json", "admin-platform/.cache/test",
+        "admin-platform/.env", "other-platform/package.json", "other-platform/src/main.ts", "old-export.zip",
+      ]) await Bun.write(path.join(source.path, file), file.endsWith(".json") ? "{}" : "file contents")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "admin-platform/.octo-fastui.json", "admin-platform/dist/index.html", "admin-platform/package.json",
+      "admin-platform/public/dynamic-image.png", "admin-platform/src/Dashboard.vue", "admin-platform/src/main.ts",
+    ])
+    await provideTestInstance({ directory: target.path, fn: () => AppRuntime.runPromise(importPortableSession(exported.output, "project")) })
+    expect(await Bun.file(path.join(target.path, "admin-platform/src/Dashboard.vue")).text()).toBe("file contents")
+    expect(await Bun.file(path.join(target.path, "other-platform/src/main.ts")).exists()).toBe(false)
+  })
+
+  test("does not select a same-named shared project when the preview belongs to a private project", async () => {
+    await using source = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Private preview" }))
+      await linkFile(session.id, "fastui://alpha")
+      await Bun.write(path.join(source.path, ".octo", session.id, "outputs/alpha/.octo-fastui.json"), '{"schema":1}')
+      await Bun.write(path.join(source.path, ".octo", session.id, "outputs/alpha/index.html"), "private page")
+      await Bun.write(path.join(source.path, "alpha/package.json"), "{}")
+      await Bun.write(path.join(source.path, "alpha/index.html"), "another session's page")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.every((file: { scope: string }) => file.scope === "session")).toBe(true)
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "outputs/alpha/.octo-fastui.json", "outputs/alpha/index.html",
+    ])
+  })
+
+  test("exports successful tool files and standalone CSS dependencies from child sessions", async () => {
+    await using source = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Tool files" }))
+      const child = await runSession((svc) => svc.create({ parentID: session.id, title: "Child tool output" }))
+      await linkFile(child.id, "styles/theme.css")
+      const message = (await runSession((svc) => svc.messages({ sessionID: child.id })))[0]
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID: message.info.id, sessionID: child.id,
+        type: "tool", callID: "write-file", tool: "write",
+        state: { status: "completed", input: { filePath: "notes.txt" }, output: "written", title: "notes", metadata: {}, time: { start: 1, end: 2 } },
+      }))
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID: message.info.id, sessionID: child.id,
+        type: "tool", callID: "browse-directory", tool: "read",
+        state: { status: "completed", input: { filePath: source.path }, output: "directory listing", title: "root", metadata: {}, time: { start: 1, end: 2 } },
+      }))
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), messageID: message.info.id, sessionID: child.id,
+        type: "tool", callID: "script-output", tool: "bash",
+        state: { status: "completed", input: {}, output: "created", title: "script", metadata: {
+          exit: 0, artifactScript: { version: 1, files: [{ path: "report.json", reason: "verified-change" }] },
+        }, time: { start: 1, end: 2 } },
+      }))
+      await Bun.write(path.join(source.path, "styles/theme.css"), '@import "./colors.css"; body { background: url("../images/bg.png") }')
+      await Bun.write(path.join(source.path, "styles/colors.css"), "body { color: blue }")
+      await Bun.write(path.join(source.path, "images/bg.png"), "image")
+      await Bun.write(path.join(source.path, "notes.txt"), "notes")
+      await Bun.write(path.join(source.path, "report.json"), "{}")
+      await Bun.write(path.join(source.path, "unrelated.html"), "not used")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.sessions).toHaveLength(2)
+    expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
+      "images/bg.png", "notes.txt", "report.json", "styles/colors.css", "styles/theme.css",
+    ])
+  })
+
+  test("adds shared resources referenced by private session output without exporting unrelated files", async () => {
+    await using source = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Private page with shared resources" }))
+      await Bun.write(path.join(source.path, ".octo", session.id, "outputs/index.html"), '<img src="../../../images/shared.png">')
+      await Bun.write(path.join(source.path, "images/shared.png"), "shared image")
+      await Bun.write(path.join(source.path, "images/unrelated.png"), "unrelated image")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope: "project" }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    expect(manifest.files.map((file: { scope: string; path: string }) => `${file.scope}/${file.path}`).sort()).toEqual([
+      "project/images/shared.png", "session/outputs/index.html",
+    ])
+  })
+
+  test("exports only the selected page and its dependencies without scanning unrelated pages", async () => {
     await using source = await tmpdir({ git: true })
     await using target = await tmpdir({ git: true })
     const html = '<img src="./outputs/resource/icon/icon.svg">'
@@ -479,12 +720,13 @@ describe("portable session", () => {
     await Bun.write(path.join(source.path, "outputs/resource/icon/icon.svg"), "<svg/>")
     const exported = await provideTestInstance({ directory: source.path, fn: async () => {
       const session = await runSession((svc) => svc.create({ title: "Register" }))
+      await linkFile(session.id, "register.html")
       return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
     } })
     const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
     const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
     expect(manifest.files.map((file: { path: string }) => file.path).sort()).toEqual([
-      "output/login.html", "outputs/resource/icon/icon.svg", "register.html",
+      "outputs/resource/icon/icon.svg", "register.html",
     ])
     for (const file of manifest.files as { path: string; blob: string }[]) {
       expect(await zip.file(file.blob)!.async("string")).toBe(file.path.endsWith(".html") ? html : "<svg/>")
@@ -493,7 +735,7 @@ describe("portable session", () => {
       await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
     } })
     expect(await Bun.file(path.join(target.path, "register.html")).text()).toBe(html)
-    expect(await Bun.file(path.join(target.path, "output/login.html")).text()).toBe(html)
+    expect(await Bun.file(path.join(target.path, "output/login.html")).exists()).toBe(false)
     expect(await Bun.file(path.join(target.path, "outputs/resource/icon/icon.svg")).text()).toBe("<svg/>")
     expect(await Bun.file(path.join(target.path, "output/outputs/resource/icon/icon.svg")).exists()).toBe(false)
   })
@@ -540,6 +782,7 @@ describe("portable session", () => {
       const session = await runSession((svc) => svc.create({ title: "External dashboard assets" }))
       await Bun.write(path.join(source.path, "ecommerce-dashboard/index.html"), html)
       await symlink(resources.path, path.join(source.path, "ecommerce-dashboard/assets"), process.platform === "win32" ? "junction" : "dir")
+      await linkFile(session.id, "ecommerce-dashboard/index.html")
       return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, scope: "project", output: path.join(source.path, "bundle.zip") }))
     } })
     const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
@@ -570,6 +813,7 @@ describe("portable session", () => {
         id: PartID.ascending(), messageID, sessionID: session.id, type: "text",
         text: `${path.join(source.path, "index.html")}:12\n${path.join(source.path, "index.html")}，完成\n${path.join(source.path, "index.html")}.bak`,
       }))
+      await linkFile(session.id, "index.html")
       const archive = await AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
       const imported = await AppRuntime.runPromise(importPortableSession(archive.output, "session"))
       const messages = await runSession((svc) => svc.messages({ sessionID: imported.sessionID }))
@@ -602,6 +846,8 @@ describe("portable session", () => {
         id: PartID.ascending(), messageID, sessionID: session.id, type: "text",
         text: `${windows}\\index.html\n[页面](${url.href})`,
       }))
+      await linkFile(session.id, "index.html")
+      await linkFile(session.id, "需求.txt")
       return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
     } })
     const zip = await JSZip.loadAsync(await Bun.file(archive.output).arrayBuffer())
@@ -629,6 +875,7 @@ describe("portable session", () => {
       const session = await runSession((svc) => svc.create({ title: "Mixed files" }))
       await Bun.write(path.join(source.path, "index.html"), "shared page")
       await Bun.write(path.join(source.path, ".octo", session.id, "outputs", "index.html"), conflict ? "private page" : "shared page")
+      await linkFile(session.id, "index.html")
       return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "session.zip"), scope: "project" }))
     } })
     await provideTestInstance({ directory: target.path, fn: async () => {
@@ -651,7 +898,7 @@ describe("portable session", () => {
       const session = await runSession((svc) => svc.create({ title: "Layout compatibility" }))
       const outputs = sourceScope ? source.path : path.join(source.path, ".octo", session.id, "outputs")
       const uploads = sourceScope ? source.path : path.join(source.path, ".octo", session.id, "uploads")
-      await Bun.write(path.join(outputs, "index.html"), '<link href="assets/theme.css">')
+      await Bun.write(path.join(outputs, "index.html"), '<link rel="stylesheet" href="assets/theme.css">')
       await Bun.write(path.join(outputs, "assets", "theme.css"), "body { color: blue }")
       await Bun.write(path.join(uploads, "资料 空间", "需求.txt"), "uploaded attachment")
       await Bun.write(path.join(uploads, "guide.pdf"), "uploaded document")
@@ -681,7 +928,7 @@ describe("portable session", () => {
       const privateRoot = path.join(target.path, ".octo", imported.sessionID)
       const outputs = targetScope === "session" ? path.join(privateRoot, "outputs") : target.path
       const uploads = targetScope === "session" || !sourceScope ? path.join(privateRoot, "uploads") : target.path
-      expect(await Bun.file(path.join(outputs, "index.html")).text()).toBe('<link href="assets/theme.css">')
+      expect(await Bun.file(path.join(outputs, "index.html")).text()).toBe('<link rel="stylesheet" href="assets/theme.css">')
       expect(await Bun.file(path.join(outputs, "assets", "theme.css")).text()).toBe("body { color: blue }")
       expect(await Bun.file(path.join(uploads, "资料 空间", "需求.txt")).text()).toBe("uploaded attachment")
       expect(await Bun.file(path.join(uploads, "guide.pdf")).text()).toBe("uploaded document")
@@ -700,7 +947,7 @@ describe("portable session", () => {
       const again = await AppRuntime.runPromise(importPortableSession(archive.output, targetScope))
       expect(again.sessionID).not.toBe(imported.sessionID)
       expect(await Bun.file(path.join(target.path, ".octo", again.sessionID, "outputs", "index.html")).text())
-        .toBe('<link href="assets/theme.css">')
+        .toBe('<link rel="stylesheet" href="assets/theme.css">')
     } })
   })
 
@@ -766,9 +1013,10 @@ describe("portable session", () => {
       directory: source.path,
       fn: async () => {
         const root = await runSession((svc) => svc.create({ title: "Shared workspace" }))
-        await runSession((svc) => svc.create({ parentID: root.id, title: "Child" }))
+        const child = await runSession((svc) => svc.create({ parentID: root.id, title: "Child" }))
+        await linkFile(child.id, "index.html")
         const other = await runSession((svc) => svc.create({ title: "Unrelated session" }))
-        await Bun.write(path.join(source.path, "index.html"), '<link href="assets/theme.css">')
+        await Bun.write(path.join(source.path, "index.html"), '<link rel="stylesheet" href="assets/theme.css">')
         await Bun.write(path.join(source.path, "assets/theme.css"), "body { color: blue }")
         await Bun.write(path.join(source.path, "brief.txt"), "shared attachment")
         await Bun.write(path.join(source.path, "other-session.html"), "unrelated shared artifact")
@@ -806,7 +1054,7 @@ describe("portable session", () => {
       },
     })
     expect(original.sessions).toBe(2)
-    expect(original.files).toBe(5)
+    expect(original.files).toBe(4)
     const zip = await JSZip.loadAsync(await Bun.file(archive).arrayBuffer())
     const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
     expect(
@@ -814,8 +1062,8 @@ describe("portable session", () => {
         .filter((file: { scope: string }) => file.scope === "project")
         .map((file: { path: string }) => file.path)
         .sort(),
-    ).toEqual(["assets/theme.css", "brief.txt", "index.html", "other-session.html"])
-    expect(Object.keys(zip.files).filter((name) => name.startsWith("blobs/") && !zip.files[name].dir)).toHaveLength(4)
+    ).toEqual(["assets/theme.css", "brief.txt", "index.html"])
+    expect(Object.keys(zip.files).filter((name) => name.startsWith("blobs/") && !zip.files[name].dir)).toHaveLength(3)
     await Bun.write(path.join(target.path, "brief.txt"), "shared attachment")
     const result = await provideTestInstance({
       directory: target.path,
@@ -826,14 +1074,14 @@ describe("portable session", () => {
         return imported
       },
     })
-    expect(result.files).toBe(5)
-    expect(await Bun.file(path.join(target.path, "index.html")).text()).toBe('<link href="assets/theme.css">')
+    expect(result.files).toBe(4)
+    expect(await Bun.file(path.join(target.path, "index.html")).text()).toBe('<link rel="stylesheet" href="assets/theme.css">')
     expect(await Bun.file(path.join(target.path, "assets/theme.css")).text()).toBe("body { color: blue }")
     expect(await Bun.file(path.join(target.path, ".octo", result.sessionID, "uploads/brief.txt")).text()).toBe(
       "shared attachment",
     )
     expect(await Bun.file(path.join(target.path, ".env")).exists()).toBe(false)
-    expect(await Bun.file(path.join(target.path, "other-session.html")).text()).toBe("unrelated shared artifact")
+    expect(await Bun.file(path.join(target.path, "other-session.html")).exists()).toBe(false)
   })
 
   test("skips conflicting or symlinked shared paths without interrupting import", async () => {
@@ -845,6 +1093,7 @@ describe("portable session", () => {
       fn: async () => {
         const session = await runSession((svc) => svc.create({ title: "Shared conflict" }))
         await Bun.write(path.join(source.path, "assets/index.html"), "new artifact")
+        await linkFile(session.id, "assets/index.html")
         return AppRuntime.runPromise(
           exportPortableSession({
             sessionID: session.id,
@@ -976,10 +1225,9 @@ describe("portable session", () => {
           expect.objectContaining({ info: expect.objectContaining({ id: manifest.rootSessionID }) }),
           expect.objectContaining({ info: expect.objectContaining({ parentID: manifest.rootSessionID }) }),
         ]))
-        expect(manifest.files).toHaveLength(2)
+        expect(manifest.files).toHaveLength(1)
         expect(manifest.files).toEqual(expect.arrayContaining([
           expect.objectContaining({ scope: "project", path: "shared.html" }),
-          expect.objectContaining({ scope: "project", path: "output/login.html" }),
         ]))
         uploads.push({
           fileName: file.name,
@@ -1008,6 +1256,7 @@ describe("portable session", () => {
           await runSession((service) => service.create({ parentID: session.id, title: "Child session" }))
           await Bun.write(path.join(source.path, "shared.html"), "<h1>Shared</h1>")
           await Bun.write(path.join(source.path, "output/login.html"), '<img src="./outputs/resource/icon/missing.svg">')
+          await linkFile(session.id, "shared.html")
           return AppRuntime.runPromise(
             sharePortableSession({
               sessionID: session.id,
@@ -1034,8 +1283,8 @@ describe("portable session", () => {
 
     expect(result).toEqual({ uniqueId: "Ab12Cd34Ef", url: "https://share.example/session?uniqueId=Ab12Cd34Ef" })
     expect(uploads).toHaveLength(1)
-    expect(uploads[0].fileName).toBe("Shared session.zip")
-    expect(uploads[0].description).toBe("Shared session")
+    expect(uploads[0].fileName).toBe("Shared ses.zip")
+    expect(uploads[0].description).toBe("Shared ses")
     expect(uploads[0].size).toBeGreaterThan(0)
   })
 
