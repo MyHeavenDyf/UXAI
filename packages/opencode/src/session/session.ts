@@ -72,6 +72,7 @@ export function fromRow(row: SessionRow, category?: string): Info {
     parentID: row.parent_id ?? undefined,
     title: row.title,
     agent: row.agent ?? undefined,
+    studio_mode: row.studio_mode ?? (row.agent === "octo_studio" ? "conversation" : undefined),
     category: CATEGORY_VALUES.has(category ?? "") ? (category as Info["category"]) : undefined,
     model: row.model
       ? {
@@ -107,6 +108,7 @@ export function toRow(info: Info) {
     path: info.path,
     title: info.title,
     agent: info.agent,
+    studio_mode: info.studio_mode,
     model: info.model,
     version: info.version,
     share_url: info.share?.url,
@@ -184,6 +186,7 @@ export const Info = Schema.Struct({
   share: optionalOmitUndefined(Share),
   title: Schema.String,
   agent: optionalOmitUndefined(Schema.String),
+  studio_mode: optionalOmitUndefined(Schema.Literals(["conversation", "board"])),
   category: optionalOmitUndefined(Schema.Union([
     Schema.Literal("dev"),
     Schema.Literal("design"),
@@ -227,6 +230,10 @@ export const CreateInput = Schema.optional(
     parentID: Schema.optional(SessionID),
     title: Schema.optional(Schema.String),
     agent: Schema.optional(Schema.String),
+    studio_mode: Schema.optional(Schema.Literals(["conversation", "board"])),
+    studio_creation_id: Schema.optional(
+      Schema.String.check(Schema.isPattern(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)),
+    ),
     model: Schema.optional(Model),
     permission: Schema.optional(Permission.Ruleset),
     workspaceID: Schema.optional(WorkspaceID),
@@ -524,6 +531,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       id?: SessionID
       title?: string
       agent?: string
+      studio_mode?: "conversation" | "board"
       model?: Schema.Schema.Type<typeof Model>
       parentID?: SessionID
       workspaceID?: WorkspaceID
@@ -543,6 +551,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
         parentID: input.parentID,
         title: input.title ?? createDefaultTitle(!!input.parentID),
         agent: input.agent,
+        studio_mode: input.agent === "octo_studio" ? (input.studio_mode ?? "conversation") : undefined,
         model: input.model,
         permission: input.permission,
         time: {
@@ -692,18 +701,36 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       parentID?: SessionID
       title?: string
       agent?: string
+      studio_mode?: "conversation" | "board"
+      studio_creation_id?: string
       model?: Schema.Schema.Type<typeof Model>
       permission?: Permission.Ruleset
       workspaceID?: WorkspaceID
     }) {
       const ctx = yield* InstanceState.context
       const workspace = yield* InstanceState.workspaceID
+      const creationID =
+        input?.agent === "octo_studio" && input.studio_mode === "board" && input.studio_creation_id
+          ? SessionID.make(`ses_${input.studio_creation_id.replaceAll("-", "")}`)
+          : undefined
+      const existing = creationID ? CategoryQuery.getWithCategory(creationID) : null
+      if (existing) {
+        if (
+          existing.directory !== ctx.directory ||
+          existing.agent !== "octo_studio" ||
+          existing.studio_mode !== "board"
+        )
+          throw new Error("画布创建标识不属于当前目录")
+        return existing
+      }
       return yield* createNext({
+        id: creationID,
         parentID: input?.parentID,
         directory: ctx.directory,
         path: sessionPath(ctx.worktree, ctx.directory),
         title: input?.title,
         agent: input?.agent,
+        studio_mode: input?.studio_mode,
         model: input?.model,
         permission: input?.permission,
         workspaceID: input?.workspaceID ?? workspace,
@@ -955,6 +982,7 @@ export function* listGlobal(input?: {
   agent?: string
   pinned?: boolean
   grouped?: boolean
+  studio_mode?: "conversation" | "board"
   order?: "sort_order"
 }) {
   yield* CategoryQuery.listGlobalWithCategory(input)

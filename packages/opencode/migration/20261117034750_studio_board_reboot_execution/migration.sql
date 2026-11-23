@@ -1,0 +1,1 @@
+ALTER TABLE `studio_board_operation` ADD `execution_baseline` text;

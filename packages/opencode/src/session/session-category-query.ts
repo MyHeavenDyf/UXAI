@@ -117,6 +117,7 @@ export function* listGlobalWithCategory(input?: {
   agent?: string
   pinned?: boolean
   grouped?: boolean
+  studio_mode?: "conversation" | "board"
   /** "sort_order": page in the sidebar's "最近" display order (sort_order asc,
    *  then time_updated desc, then id desc). Default pages by time_updated desc only.
    *  Without this, clients that display sort_order-first (AgentSidebar's recentSessions)
@@ -132,6 +133,14 @@ export function* listGlobalWithCategory(input?: {
   }
   if (input?.agent) {
     conditions.push(eq(SessionTable.agent, input.agent))
+  }
+  if (input?.studio_mode) {
+    conditions.push(eq(SessionTable.agent, "octo_studio"))
+    conditions.push(
+      input.studio_mode === "board"
+        ? eq(SessionTable.studio_mode, "board")
+        : or(eq(SessionTable.studio_mode, "conversation"), isNull(SessionTable.studio_mode))!,
+    )
   }
   if (input?.pinned === true) {
     conditions.push(eq(SessionTable.pinned, 1))

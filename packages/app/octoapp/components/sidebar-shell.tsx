@@ -155,6 +155,7 @@ export type SidebarShellProps = ParentProps & {
   /** Icon element for the section header */
   sectionIcon?: () => JSX.Element
   /** Title text for the section header */
+  hideSectionHeader?: boolean
   sectionTitle: string
   /** Whether section is collapsed. Controlled externally. */
   collapsed: boolean
@@ -257,12 +258,14 @@ export function SidebarShell(props: SidebarShellProps) {
 
       <Show when={!props.inlineBeforeSection}>
         {props.beforeSection?.()}
-        <SidebarSectionHeader
-          title={props.sectionTitle}
-          icon={props.sectionIcon}
-          collapsed={collapsed()}
-          onToggleCollapse={props.onToggleCollapse}
-        />
+        <Show when={!props.hideSectionHeader}>
+          <SidebarSectionHeader
+            title={props.sectionTitle}
+            icon={props.sectionIcon}
+            collapsed={collapsed()}
+            onToggleCollapse={props.onToggleCollapse}
+          />
+        </Show>
       </Show>
 
       {/* ─── Scrollable content area ─── */}
@@ -275,13 +278,15 @@ export function SidebarShell(props: SidebarShellProps) {
         >
           <Show when={props.inlineBeforeSection}>
             {props.beforeSection?.()}
-            <SidebarSectionHeader
-              title={props.sectionTitle}
-              icon={props.sectionIcon}
-              collapsed={collapsed()}
-              onToggleCollapse={props.onToggleCollapse}
-              class="section-header-inline"
-            />
+            <Show when={!props.hideSectionHeader}>
+              <SidebarSectionHeader
+                title={props.sectionTitle}
+                icon={props.sectionIcon}
+                collapsed={collapsed()}
+                onToggleCollapse={props.onToggleCollapse}
+                class="section-header-inline"
+              />
+            </Show>
           </Show>
           <Show when={!collapsed()}>
             {props.children}

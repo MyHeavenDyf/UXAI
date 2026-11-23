@@ -1,3 +1,5 @@
+import { BoardSubmission } from "@opencode-ai/core/studio-board"
+import { BoardError, getBoard, saveBoard } from "@/studio/studio-board-service"
 import {
   cancelGeneration,
   createEditorEntry,
@@ -65,6 +67,11 @@ import {
 } from "@/studio/studio-media-thumbnail"
 
 function recommendationFailure(error: unknown) {
+  if (error instanceof BoardError)
+    return HttpServerResponse.jsonUnsafe(
+      { name: "StudioBoardError", data: { message: error.message } },
+      { status: error.status },
+    )
   if (error instanceof RecommendationError) return HttpServerResponse.jsonUnsafe(error.body(), { status: error.status })
   throw error
 }
@@ -178,6 +185,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
           Instance.restore(instance, () =>
             createGeneration({
               sessionID: ctx.payload.sessionID,
+              board: ctx.payload.board ? BoardSubmission.parse(ctx.payload.board) : undefined,
               capability: ctx.payload.capability,
               prompt: ctx.payload.prompt,
               displayPrompt: ctx.payload.displayPrompt,
@@ -235,11 +243,16 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
-    const reboot = Effect.fn("StudioHttpApi.rebootGeneration")(function* (ctx: { params: { generationID: string } }) {
+    const reboot = Effect.fn("StudioHttpApi.rebootGeneration")(function* (ctx: {
+      params: { generationID: string }
+      query: { operationID?: string }
+    }) {
       const instance = yield* InstanceState.context
       return yield* Effect.tryPromise({
         try: () =>
-          Instance.restore(instance, () => rebootGeneration(ctx.params.generationID)).catch(recommendationFailure),
+          Instance.restore(instance, () => rebootGeneration(ctx.params.generationID, ctx.query.operationID)).catch(
+            recommendationFailure,
+          ),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -641,7 +654,26 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const boardRequest = (work: () => unknown) =>
+      Effect.gen(function* () {
+        const instance = yield* InstanceState.context
+        return yield* Effect.tryPromise({
+          try: () =>
+            Promise.resolve()
+              .then(() => Instance.restore(instance, work))
+              .catch(recommendationFailure),
+          catch: (error) =>
+            new ApiStudioGenerationError({
+              name: "StudioGenerationError",
+              data: { message: error instanceof Error ? error.message : String(error) },
+            }),
+        })
+      })
     return handlers
+      .handle("getBoard", (ctx) => boardRequest(() => getBoard(ctx.params.sessionID)))
+      .handle("saveBoard", (ctx) =>
+        boardRequest(() => saveBoard(ctx.params.sessionID, ctx.payload.revision, ctx.payload.document)),
+      )
       .handleRaw("initializeRecommendation", () => recommendation("initialize"))
       .handleRaw("submitExpansion", () => recommendation("submit"))
       .handleRaw("getRecommendationState", (ctx) => recommendation("state", ctx.params))

@@ -1,42 +1,107 @@
-export type BoardReference = { sourceID: string; title: string; image: string }
+import {
+  BoardDocument,
+  boardEdgeError,
+  boardDraftReferences,
+  type BoardCard,
+  type BoardReference,
+  type BoardSettings,
+} from "@opencode-ai/core/studio-board"
+import type { StudioGenerationResult, StudioImage } from "../types"
+import { styleModelRequiresSeedreamPermission } from "../data"
+import { isStudioCustomSizeValid } from "../studio-shared"
+export { boardEdgeError, emptyBoard, newBoardCard } from "@opencode-ai/core/studio-board"
+export type {
+  BoardCard,
+  BoardDocument,
+  BoardEdge,
+  BoardReference,
+  BoardSettings,
+  BoardSnapshot,
+} from "@opencode-ai/core/studio-board"
+export type BoardResults = Record<string, StudioGenerationResult>
 
-export type BoardCard = {
-  id: string
-  title: string
-  prompt: string
-  status: "draft" | "running" | "succeeded"
-  progress: number
-  image?: string
-  inputs?: BoardReference[]
+export function boardDocumentSnapshot(document: unknown) {
+  return BoardDocument.parse(document)
 }
 
-export type BoardEdge = { id: string; sourceID: string; targetID: string }
+export function boardDocumentJSON(document: BoardDocument) {
+  return JSON.stringify(boardDocumentSnapshot(document))
+}
 
-export function boardReferences(cards: BoardCard[], edges: BoardEdge[], targetID: string): BoardReference[] {
-  const target = cards.find((card) => card.id === targetID)
-  if (target?.inputs) return target.inputs
-  return edges
-    .filter((edge) => edge.targetID === targetID)
-    .flatMap((edge) => {
-      const source = cards.find((card) => card.id === edge.sourceID)
-      return source?.image ? [{ sourceID: source.id, title: source.title, image: source.image }] : []
+export function normalizeBoardSettings(settings: BoardSettings) {
+  if (!settings.isCustom || isStudioCustomSizeValid(settings.styleModel, settings.width, settings.height))
+    return settings
+  return { ...settings, isCustom: false, width: undefined, height: undefined }
+}
+
+export function normalizeBoardDraft(document: BoardDocument): BoardDocument {
+  return {
+    ...document,
+    cards: document.cards.map((card) =>
+      card.kind === "image"
+        ? { ...card, draft: { ...card.draft, settings: normalizeBoardSettings(card.draft.settings) } }
+        : card,
+    ),
+  }
+}
+
+export function boardCanGenerate(card: BoardCard, permission: { status: string; seedream: boolean; video: boolean }) {
+  if (permission.status !== "ready") return false
+  if (card.kind === "video") return permission.video
+  return !styleModelRequiresSeedreamPermission(card.draft.settings.styleModel) || permission.seedream
+}
+
+export function boardBusy(result?: StudioGenerationResult) {
+  return !!result && ["creating", "queued", "running", "abnormal"].includes(result.status)
+}
+export function boardFailed(result?: StudioGenerationResult) {
+  return result?.status === "failed" || result?.status === "create_failed"
+}
+export function boardRebootable(result?: StudioGenerationResult) {
+  return result?.status === "failed" && result.provider === "internel" && !!result.taskId
+}
+export function boardMedia(card: BoardCard, results: BoardResults) {
+  return card.taskLinks
+    .filter((link) => link.visible)
+    .flatMap((link) => {
+      const result = results[link.generationID]
+      if (result?.status !== "succeeded") return []
+      return result.images
+        .filter((media) => (media.kind ?? "image") === card.kind)
+        .map((media) => ({
+          generationID: link.generationID,
+          mediaID: media.id,
+          media,
+        }))
     })
 }
+export function boardCover(card: BoardCard, results: BoardResults): StudioImage | undefined {
+  return boardMedia(card, results).find(
+    (item) => item.generationID === card.cover?.generationID && item.mediaID === card.cover.mediaID,
+  )?.media
+}
+export function boardReferences(document: BoardDocument, targetID: string, results: BoardResults): BoardReference[] {
+  return boardDraftReferences(document, targetID, (source) => {
+    const image = source && boardCover(source, results)
+    return image?.remoteUrl ?? image?.url
+  })
+}
+export function boardConnectionError(
+  document: BoardDocument,
+  results: BoardResults,
+  sourceID: string,
+  targetID: string,
+  role = "reference",
+) {
+  const error = boardEdgeError(document, sourceID, targetID, role)
+  if (error) return error
+  const source = document.cards.find((card) => card.id === sourceID)!
+  const target = document.cards.find((card) => card.id === targetID)!
+  if (!boardCover(source, results)) return "上游封面不可用"
+  if (boardBusy(results[target.currentGenerationID ?? ""])) return "请等待目标任务结束后修改引用"
+}
 
-export function boardConnectionError(cards: BoardCard[], edges: BoardEdge[], sourceID: string, targetID: string) {
-  if (sourceID === targetID) return "不能连接到自身"
-  const source = cards.find((card) => card.id === sourceID)
-  const target = cards.find((card) => card.id === targetID)
-  if (!source?.image || source.status !== "succeeded") return "请先生成上游图片"
-  if (!target || target.status !== "draft") return "只能连接到尚未生成的图片卡片"
-  if (edges.some((edge) => edge.sourceID === sourceID && edge.targetID === targetID)) return "这两张卡片已经连接"
-  const visited = new Set<string>()
-  const reachesSource = (id: string): boolean => {
-    if (id === sourceID) return true
-    if (visited.has(id)) return false
-    visited.add(id)
-    return edges.filter((edge) => edge.sourceID === id).some((edge) => reachesSource(edge.targetID))
-  }
-  if (reachesSource(targetID)) return "不能创建循环连接"
-  return undefined
+export function boardWheelZoom(zoom: number, deltaY: number, deltaMode: number, height: number) {
+  const pixels = deltaY * (deltaMode === 1 ? 16 : deltaMode === 2 ? height : 1)
+  return Math.max(0.35, Math.min(1.8, zoom * Math.exp(-Math.max(-60, Math.min(60, pixels)) * 0.0015)))
 }

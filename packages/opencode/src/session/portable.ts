@@ -356,6 +356,8 @@ export const exportPortableSession = Effect.fn("SessionPortable.export")(functio
   const context = yield* InstanceState.context
   update({ type: "export", stage: "正在整理聊天记录", percent: 1 })
   const entries = yield* collectSessions(input.sessionID)
+  if (entries.some((entry) => entry.info.studio_mode === "board"))
+    return yield* new PortableValidationError({ message: "画布暂不支持分享或导出，请保留原会话" })
   // 模型展示名快照:分享页没有 provider 目录,导出时把用到的 providerID/modelID 解析成友好名一并带走
   const providerSvc = yield* Provider.Service
   const providers = yield* providerSvc.list()
@@ -974,6 +976,8 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
     process.platform === "win32" ? 240 - context.directory.length - 65 : undefined,
     update,
   )
+  if (bundle.manifest.sessions.some((entry) => entry.info.studio_mode === "board"))
+    return yield* new PortableValidationError({ message: "画布暂不支持导入" })
   const plan = importFiles(bundle.manifest, scope)
   const files = plan.files
   const sessionIDs = new Map<string, SessionID>()

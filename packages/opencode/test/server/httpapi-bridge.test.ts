@@ -213,6 +213,55 @@ afterEach(async () => {
 })
 
 describe("HttpApi server", () => {
+  test("Studio board routes, creation retry keys and revisions work on both HTTP stacks", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const effect = app()
+    const hono = Server.Legacy().app
+    const headers = { "x-opencode-directory": tmp.path, "content-type": "application/json" }
+    for (const client of [hono, effect]) {
+      const payload = JSON.stringify({
+        agent: "octo_studio",
+        studio_mode: "board",
+        studio_creation_id: crypto.randomUUID(),
+      })
+      const created = await client.request("http://localhost/session", { method: "POST", headers, body: payload })
+      expect(created.status).toBe(200)
+      const session = (await created.json()) as { id: string; studio_mode?: string }
+      expect(session.studio_mode).toBe("board")
+      const repeated = await client.request("http://localhost/session", { method: "POST", headers, body: payload })
+      expect(((await repeated.json()) as { id: string }).id).toBe(session.id)
+      const url = `http://localhost/studio/sessions/${session.id}/board`
+      const read = await client.request(url, { headers })
+      expect(read.status).toBe(200)
+      const initial = (await read.json()) as { revision: number; document: unknown; pendingReboots: unknown[] }
+      expect(initial.pendingReboots).toEqual([])
+      const saved = await client.request(url, { method: "PUT", headers, body: JSON.stringify(initial) })
+      expect(saved.status).toBe(200)
+      expect(((await saved.json()) as { revision: number }).revision).toBe(1)
+      const conflict = await client.request(url, { method: "PUT", headers, body: JSON.stringify(initial) })
+      expect(conflict.status).toBe(409)
+      expect(((await conflict.json()) as { name: string }).name).toBe("StudioBoardError")
+      const filtered = await client.request(
+        `http://localhost/experimental/session?directory=${encodeURIComponent(tmp.path)}&studio_mode=board&limit=1`,
+        { headers },
+      )
+      expect(filtered.status).toBe(200)
+      expect(((await filtered.json()) as { studio_mode: string }[]).every((item) => item.studio_mode === "board")).toBe(
+        true,
+      )
+    }
+  })
+  test("Studio board OpenAPI paths and parameters match both stacks", async () => {
+    const hono = await Server.openapiHono()
+    const effect = effectOpenApi()
+    const routes = ["GET /studio/sessions/{sessionID}/board", "PUT /studio/sessions/{sessionID}/board"]
+    for (const route of routes) {
+      expect(openApiRouteKeys(hono)).toContain(route)
+      expect(openApiRouteKeys(effect)).toContain(route)
+      expect(openApiParameters(hono)[route]).toEqual(openApiParameters(effect)[route])
+    }
+  })
+
   test("Studio prompt recommendation contracts match both HTTP stacks", async () => {
     const hono = await Server.openapiHono()
     const effect = effectOpenApi()

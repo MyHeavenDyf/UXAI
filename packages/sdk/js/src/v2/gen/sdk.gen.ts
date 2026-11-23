@@ -241,6 +241,10 @@ import type {
   SessionUnshareResponses,
   SessionUpdateErrors,
   SessionUpdateResponses,
+  StudioBoardGetErrors,
+  StudioBoardGetResponses,
+  StudioBoardSaveErrors,
+  StudioBoardSaveResponses,
   StudioEditorEntriesCreateErrors,
   StudioEditorEntriesCreateResponses,
   StudioGenerationsCancelErrors,
@@ -1635,6 +1639,7 @@ export class Session extends HeyApiClient {
       grouped?: boolean | "true" | "false"
       archived?: boolean | "true" | "false"
       agent?: string
+      studio_mode?: "conversation" | "board"
       order?: "updated" | "sort_order"
     },
     options?: Options<never, ThrowOnError>,
@@ -1655,6 +1660,7 @@ export class Session extends HeyApiClient {
             { in: "query", key: "grouped" },
             { in: "query", key: "archived" },
             { in: "query", key: "agent" },
+            { in: "query", key: "studio_mode" },
             { in: "query", key: "order" },
           ],
         },
@@ -3931,6 +3937,8 @@ export class Session2 extends HeyApiClient {
       parentID?: string
       title?: string
       agent?: string
+      studio_mode?: "conversation" | "board"
+      studio_creation_id?: string
       model?: {
         id: string
         providerID: string
@@ -3951,6 +3959,8 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "parentID" },
             { in: "body", key: "title" },
             { in: "body", key: "agent" },
+            { in: "body", key: "studio_mode" },
+            { in: "body", key: "studio_creation_id" },
             { in: "body", key: "model" },
             { in: "body", key: "permission" },
             { in: "body", key: "workspaceID" },
@@ -6299,6 +6309,77 @@ export class Tui extends HeyApiClient {
   }
 }
 
+export class Board extends HeyApiClient {
+  /**
+   * Read Studio board
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<StudioBoardGetResponses, StudioBoardGetErrors, ThrowOnError>({
+      url: "/studio/sessions/{sessionID}/board",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Save Studio board with revision check
+   */
+  public save<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      revision?: number
+      document?: unknown
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "document" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<StudioBoardSaveResponses, StudioBoardSaveErrors, ThrowOnError>({
+      url: "/studio/sessions/{sessionID}/board",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class PromptRecommendations extends HeyApiClient {
   /**
    * Initialize Studio prompt recommendation
@@ -7019,6 +7100,7 @@ export class Generations extends HeyApiClient {
       directory?: string
       workspace?: string
       sessionID?: string
+      board?: unknown
       capability?:
         | "image.generate"
         | "video.generate"
@@ -7059,6 +7141,7 @@ export class Generations extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "sessionID" },
+            { in: "body", key: "board" },
             { in: "body", key: "capability" },
             { in: "body", key: "prompt" },
             { in: "body", key: "displayPrompt" },
@@ -7142,6 +7225,7 @@ export class Generations extends HeyApiClient {
       generationID: string
       directory?: string
       workspace?: string
+      operationID?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -7153,6 +7237,7 @@ export class Generations extends HeyApiClient {
             { in: "path", key: "generationID" },
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "query", key: "operationID" },
           ],
         },
       ],
@@ -7207,7 +7292,7 @@ export class Generations extends HeyApiClient {
   /**
    * Refresh Studio generation
    *
-   * Queries and restores an abnormal asynchronous Studio generation.
+   * Queries an abnormal Studio generation or reconciles an unresolved board reboot.
    */
   public refresh<ThrowOnError extends boolean = false>(
     parameters: {
@@ -7370,7 +7455,7 @@ export class History2 extends HeyApiClient {
   /**
    * Snapshot session media to history
    *
-   * Copies a session's media to the history table before session deletion.
+   * Copies a session's media to the history table before session deletion, and re-materializes imported session parts so re-opening a share restores assets deleted from history.
    */
   public snapshot<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -7488,6 +7573,11 @@ export class History2 extends HeyApiClient {
 }
 
 export class Studio2 extends HeyApiClient {
+  private _board?: Board
+  get board(): Board {
+    return (this._board ??= new Board({ client: this.client }))
+  }
+
   private _promptRecommendations?: PromptRecommendations
   get promptRecommendations(): PromptRecommendations {
     return (this._promptRecommendations ??= new PromptRecommendations({ client: this.client }))

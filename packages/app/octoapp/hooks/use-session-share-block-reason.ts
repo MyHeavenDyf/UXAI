@@ -6,6 +6,7 @@ export function useSessionShareBlockReason(session: Accessor<Session | null>, en
   const busy = useSessionShareBusy(session)
   return createMemo(() => {
     if (!session() || !enabled()) return undefined
+    if (session()?.studio_mode === "board") return "画布暂不支持分享或导出"
     if (busy()) return "对话正在进行中，请等待结束后再分享"
     return undefined
   })

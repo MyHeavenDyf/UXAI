@@ -23,7 +23,18 @@ export class ApiStudioGenerationError extends Schema.ErrorClass<ApiStudioGenerat
   { httpApiStatus: 400 },
 ) {}
 
+export class ApiStudioBoardError extends Schema.ErrorClass<ApiStudioBoardError>("StudioBoardError")(
+  { name: Schema.Literal("StudioBoardError"), data: Schema.Struct({ message: Schema.String }) },
+  { httpApiStatus: 400 },
+) {}
+const boardErrors = [
+  ApiStudioBoardError,
+  ApiStudioBoardError.annotate({ httpApiStatus: 404 }),
+  ApiStudioBoardError.annotate({ httpApiStatus: 409 }),
+]
+
 export const StudioPaths = {
+  board: `${root}/sessions/:sessionID/board`,
   generations: `${root}/generations`,
   generation: `${root}/generations/:generationID`,
   generationCancel: `${root}/generations/:generationID/cancel`,
@@ -164,6 +175,7 @@ export const StudioTemplateUserSearchPayload = Schema.Struct({
 
 export const StudioGenerationPayload = Schema.Struct({
   sessionID: Schema.optional(Schema.String),
+  board: Schema.optional(Schema.Unknown),
   capability: Schema.Literals([
     "image.generate",
     "video.generate",
@@ -353,6 +365,21 @@ export const StudioApi = HttpApi.make("studio")
   .add(
     HttpApiGroup.make("studio")
       .add(
+        HttpApiEndpoint.get("getBoard", StudioPaths.board, {
+          params: { sessionID: Schema.String },
+          success: Schema.Unknown,
+          error: [ApiStudioGenerationError, ...boardErrors],
+        }).annotateMerge(OpenApi.annotations({ identifier: "studio.board.get", summary: "Read Studio board" })),
+        HttpApiEndpoint.put("saveBoard", StudioPaths.board, {
+          params: { sessionID: Schema.String },
+          payload: Schema.Struct({ revision: Schema.Int, document: Schema.Unknown }),
+          success: Schema.Unknown,
+          error: [ApiStudioGenerationError, ...boardErrors],
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "studio.board.save", summary: "Save Studio board with revision check" }),
+        ),
+      )
+      .add(
         HttpApiEndpoint.post("initializeRecommendation", "/studio/prompt-recommendations", {
           payload: InitializePayload, success: RecommendationResponse, error: recommendationErrors,
         }).annotateMerge(OpenApi.annotations({ identifier: "studio.prompt-recommendations.initialize", summary: "Initialize Studio prompt recommendation" })),
@@ -475,7 +502,12 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
           payload: StudioGenerationPayload,
           success: described(StudioGenerationResult, "Studio generation result"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
+          error: [
+            HttpApiError.BadRequest,
+            ApiStudioGenerationError,
+            ...boardErrors,
+            RecommendationErrorBody.annotate({ httpApiStatus: 409 }),
+          ],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.generations.create",
@@ -509,8 +541,9 @@ export const StudioApi = HttpApi.make("studio")
         ),
         HttpApiEndpoint.post("rebootGeneration", StudioPaths.generationReboot, {
           params: { generationID: Schema.String },
+          query: { operationID: Schema.optional(Schema.String) },
           success: described(StudioGenerationResult, "Rebooted Studio generation"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, ...boardErrors, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.generations.reboot",
@@ -596,12 +629,12 @@ export const StudioApi = HttpApi.make("studio")
         HttpApiEndpoint.post("refreshGeneration", StudioPaths.generationRefresh, {
           params: { generationID: Schema.String },
           success: described(StudioGenerationResult, "Refreshed Studio generation"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError, ...boardErrors, RecommendationErrorBody.annotate({ httpApiStatus: 409 })],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "studio.generations.refresh",
             summary: "Refresh Studio generation",
-            description: "Queries and restores an abnormal asynchronous Studio generation.",
+            description: "Queries an abnormal Studio generation or reconciles an unresolved board reboot.",
           }),
         ),
       )

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show, For, on } from "solid-js"
+import { createEffect, createMemo, createSignal, Show, For, on } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -36,6 +36,8 @@ export type GroupedSidebarProps = Omit<
    * unresolved until the caller's dir is ready.
    */
   directory?: string
+  /** Reveal the active session's group on navigation. Disabled by default. */
+  expandActiveGroup?: boolean
 }
 
 const groupExpandedByNamespace = new Map<string, boolean>()
@@ -153,6 +155,15 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
   createEffect(on(rawActiveSessionId, (sid) => {
     if (sid) setSelectedGroupId(null)
   }, { defer: true }))
+
+  const activeGroupID = createMemo(() =>
+    props.expandActiveGroup ? sessionGroupMapping[rawActiveSessionId() ?? ""]?.groupId : undefined,
+  )
+  createEffect(on(activeGroupID, (id) => {
+    if (!id) return
+    setRecentCollapsed(false)
+    setExpandedGroups((previous) => new Set([...previous, id]))
+  }))
 
   // Directory resolution: caller-provided override (studio: config sessions dir)
   // wins over the default URL/last-project resolution (make/insight).

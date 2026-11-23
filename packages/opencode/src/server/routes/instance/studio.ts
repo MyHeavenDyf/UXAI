@@ -1,3 +1,5 @@
+import { BoardSubmission } from "@opencode-ai/core/studio-board"
+import { BoardError, getBoard, saveBoard } from "@/studio/studio-board-service"
 import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
@@ -105,6 +107,7 @@ const StudioTemplateUserSearchInput = z.object({
 
 const StudioGenerationInput = z.object({
   sessionID: z.string().optional(),
+  board: BoardSubmission.optional(),
   capability: z.enum([
     "image.generate",
     "video.generate",
@@ -153,6 +156,7 @@ const StudioEditorEntryInput = z.object({
 async function studioResponse(work: () => Promise<unknown>, status = 200) {
   try { return Response.json(await work(), { status }) }
   catch (error) {
+    if (error instanceof BoardError) return Response.json({ name: "StudioBoardError", data: { message: error.message } }, { status: error.status })
     if (error instanceof RecommendationError) return Response.json(error.body(), { status: error.status })
     throw error
   }
@@ -190,6 +194,52 @@ const StudioHistoryListQuery = z.object({
 
 export const StudioRoutes = lazy(() =>
   new Hono()
+    .get(
+      "/sessions/:sessionID/board",
+      describeRoute({
+        operationId: "studio.board.get",
+        parameters: [{ in: "path", name: "sessionID", required: true, schema: { type: "string", pattern: "^ses.*" } }],
+        responses: {
+          200: { description: "Studio board", content: { "application/json": { schema: resolver(z.unknown()) } } },
+        },
+      }),
+      (c) => {
+        return Promise.resolve()
+          .then(() => c.json(getBoard(c.req.param("sessionID"))))
+          .catch((error: unknown) => {
+            if (error instanceof BoardError)
+              return c.json({ name: "StudioBoardError", data: { message: error.message } }, error.status)
+            throw error
+          })
+      },
+    )
+    .put(
+      "/sessions/:sessionID/board",
+      describeRoute({
+        operationId: "studio.board.save",
+        parameters: [{ in: "path", name: "sessionID", required: true, schema: { type: "string", pattern: "^ses.*" } }],
+        responses: {
+          200: {
+            description: "Saved Studio board",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+        },
+      }),
+      validator("json", z.object({ revision: z.number().int().nonnegative(), document: z.unknown() })),
+      (c) => {
+        return Promise.resolve()
+          .then(() =>
+            c.json(saveBoard(c.req.param("sessionID"), c.req.valid("json").revision, c.req.valid("json").document)),
+          )
+          .catch((error: unknown) => {
+            if (error instanceof BoardError)
+              return c.json({ name: "StudioBoardError", data: { message: error.message } }, error.status)
+            if (error instanceof z.ZodError)
+              return c.json({ name: "StudioBoardError", data: { message: "画板数据格式无效" } }, 400)
+            throw error
+          })
+      },
+    )
     .post("/prompt-recommendations", describeRoute({
       operationId: "studio.prompt-recommendations.initialize", summary: "Initialize Studio prompt recommendation",
       requestBody: recommendationBody(initializeSchema),
@@ -474,7 +524,7 @@ export const StudioRoutes = lazy(() =>
       },
     )
   .post("/generations/:generationID/cancel", async (c) => c.json(await cancelGeneration(c.req.param("generationID"))))
-  .post("/generations/:generationID/reboot", (c) => studioResponse(() => rebootGeneration(c.req.param("generationID"))))
+  .post("/generations/:generationID/reboot", (c) => studioResponse(() => rebootGeneration(c.req.param("generationID"), c.req.query("operationID"))))
   .post("/generations/:generationID/refresh", (c) => studioResponse(() => refreshGeneration(c.req.param("generationID"))))
   .get("/generations/:generationID", async (c) => c.json(await getGeneration(c.req.param("generationID"))))
   .get(

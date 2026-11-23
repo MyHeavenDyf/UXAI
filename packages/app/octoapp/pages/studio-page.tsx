@@ -537,8 +537,22 @@ function StudioPageContent() {
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
   const [canvasView, setCanvasView] = createSignal<StudioCanvasView>("file-manager")
-  const [boardEntry, setBoardEntry] = createStore({ tab: "conversation" as "conversation" | "board", open: false })
-  createEffect(on(() => [routeSlug(), params.id], () => setBoardEntry({ tab: "conversation", open: false }), { defer: true }))
+  const [boardEntry, setBoardEntry] = createStore({ tab: "conversation" as "conversation" | "board", open: false, editorID: 1 })
+  let pendingBoardSessionID: string | undefined
+  createEffect(
+    on(
+      () => [routeSlug(), params.id, server.current?.http.url, projectDir()],
+      (scope, previous) => {
+        if (params.id && params.id === pendingBoardSessionID && scope[0] === previous?.[0] && scope[2] === previous?.[2] && scope[3] === previous?.[3]) {
+          pendingBoardSessionID = undefined
+          return
+        }
+        setBoardEntry({ tab: "conversation", open: false })
+        setBoardEntry("editorID", (id) => id + 1)
+      },
+      { defer: true },
+    ),
+  )
   const [templateWorkspaces, setTemplateWorkspaces] = createSignal<StudioTemplateWorkspace[]>([])
   const [activeTemplateWorkspaceKey, setActiveTemplateWorkspaceKey] = createSignal<string>()
   const templateCreatorTabOpen = () => templateWorkspaces().length > 0
@@ -667,6 +681,15 @@ function StudioPageContent() {
     sessionID: () => params.id,
     globalSDK,
   })
+
+  createEffect(
+    on(
+      () => [boardEntry.editorID, params.id, dataStore.session.find((session) => session.id === params.id)?.studio_mode],
+      ([, , mode]) => {
+        if (mode === "board") setBoardEntry({ tab: "board", open: true })
+      },
+    ),
+  )
   let pendingRecommendationSessionID: string | undefined
   const recommendation = createPromptRecommendation({
     sessionID: () => params.id,
@@ -3147,13 +3170,19 @@ function StudioPageContent() {
     groupsCtx?.expandGroup(pendingGroupId)
   }
 
-  async function createStudioSession(title?: string) {
+  async function createStudioSession(
+    title?: string,
+    studioMode: "conversation" | "board" = "conversation",
+    creationID?: string,
+  ) {
     const dir = projectDir()
     if (!dir) return
     const result = await globalSDK.client.session.create({
       directory: dir,
       agent: "octo_studio",
       title: title ? buildStudioDisplayPrompt(title) : undefined,
+      studio_mode: studioMode,
+      studio_creation_id: creationID,
     })
     const session = result.data as Session | undefined
     if (!session) return
@@ -5269,6 +5298,7 @@ function StudioPageContent() {
       ([id, hinted]) => {
         if (id || !hinted) return
         resetStudioConversationState()
+        if (new URLSearchParams(location.search).get("entry") === "board") setBoardEntry("tab", "board")
       },
     ),
   )
@@ -5808,6 +5838,7 @@ function StudioPageContent() {
         <section ref={setStudioCanvasEl} class="studio-canvas">
           <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0 || templateCreatorTabOpen()}>
           <Show when={isEditingWorkspaceMode()} fallback={
+            <Show when={!boardEntry.open}>
             <StudioResultCanvas
               videoPlayerMount={() => studioPageRef}
               fullscreenMount={() => studioPageRef}
@@ -5959,6 +5990,7 @@ function StudioPageContent() {
                 </div>
               </Show>
             </StudioResultCanvas>
+            </Show>
           }>
             <Show when={!workspaceEditImage()}>
               <StudioWorkspaceUpload onUpload={uploadWorkspaceImage} />
@@ -6077,13 +6109,45 @@ function StudioPageContent() {
         </aside>
       </Show>
       </div>
-      <Show when={boardEntry.open}>
-        <Suspense fallback={<div style={{ position: "absolute", inset: "0", background: "#17181b", color: "#aaa", display: "grid", "place-items": "center" }}>正在准备画布…</div>}>
-          <StudioBoard onExit={() => {
-            setBoardEntry("open", false)
-            requestAnimationFrame(() => studioPageRef.querySelector<HTMLButtonElement>("#studio-board-tab")?.focus())
-          }} />
-        </Suspense>
+      <Show when={boardEntry.open ? boardEntry.editorID : undefined} keyed>
+        {(_editorID) => (
+          <Suspense
+            fallback={
+              <div
+                style={{
+                  position: "absolute",
+                  inset: "0",
+                  background: "#f7f8fb",
+                  color: "#85899c",
+                  display: "grid",
+                  "place-items": "center",
+                }}
+              >
+                正在准备画布…
+              </div>
+            }
+          >
+            <StudioBoard
+              directory={projectDir()}
+              http={server.current?.http ?? { url: "" }}
+              sessionID={params.id}
+              userIdx={uiplusUserAccount()}
+              demo={!params.id && import.meta.env.VITE_STUDIO_BOARD_DEMO === "true"}
+              createSession={(creationID) => createStudioSession("未命名画布", "board", creationID)}
+              onSessionCreated={(id) => {
+                pendingBoardSessionID = id
+                navigate(`/${routeSlug()}/studio/${id}`, { replace: true })
+              }}
+              onRetryPermission={retryPermission}
+              onBusy={(id, busy) => setStudioSessionGenerating(id, busy, "board")}
+              onExit={() => {
+                setBoardEntry({ tab: "board", open: false })
+                if (params.id) navigate(`/${routeSlug()}/studio?hint=${Date.now()}&entry=board`)
+                requestAnimationFrame(() => studioPageRef.querySelector<HTMLButtonElement>("#studio-board-tab")?.focus())
+              }}
+            />
+          </Suspense>
+        )}
       </Show>
     </div>
   )

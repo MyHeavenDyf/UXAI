@@ -53,7 +53,26 @@ export type BeforeSectionApi = {
   renderLeading?: (session: Session) => JSX.Element
 }
 
+export type RecentSectionApi = {
+  activeID: () => string | undefined
+  sessions: () => Session[]
+  append: (sessions: Session[]) => void
+  renderList: (sessions: Session[]) => JSX.Element
+  hasMore: () => boolean
+  loading: () => boolean
+  loadMore: () => void
+}
+
 export type AgentSidebarProps = {
+  renderRecent?: (api: RecentSectionApi) => JSX.Element
+  /** Pagination trigger. Defaults to scroll/viewport loading; manual callers use RecentSectionApi.loadMore. */
+  loadMoreMode?: "scroll" | "manual"
+  /** Optional move policy, checked before pinning, grouping or reordering. */
+  canMoveSession?: (source: Session, target: SessionDropTarget, destination?: Session) => boolean
+  /** Keep matching rows from a separate data source when the primary list refreshes. */
+  retainSessionOnRefresh?: (session: Session) => boolean
+  /** Called after successful local deletion or a matching server deletion event. May be called more than once. */
+  onSessionDeleted?: (session: Session) => void
   onNavigation?: (target: "project" | "skills" | "assets" | "design_system" | "best_practices" | "settings" | "update") => void
   // ── Data ──
   /** Current project directory. Caller is responsible for resolving this. */
@@ -191,7 +210,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         setFetchedDir(d)
         return [] as Session[]
       }
-      const cacheKey = `${props.agentFilter}\n${d}`
+      const cacheKey = `${globalSDK.url}\n${props.agentFilter}\n${d}`
       const cached = sidebarCache.get(cacheKey)
       if (cached && Date.now() - cached.at < SIDEBAR_STALE_MS) {
         setSessionCursor(cached.cursor)
@@ -239,7 +258,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   // explicit refetch so the fetcher always hits the network when data may have changed.
   const bustSidebarCache = () => {
     const d = resolvedDir()
-    if (d) sidebarCache.delete(`${props.agentFilter}\n${d}`)
+    if (d) sidebarCache.delete(`${globalSDK.url}\n${props.agentFilter}\n${d}`)
   }
   // Wrap refetch to bust cache first — without this, refetch() would serve stale
   // cache instead of re-requesting from the server.
@@ -326,16 +345,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
   // Watching collapsed as well as the list: skip fill checks while the recent
   // section is collapsed (the list is hidden, so scrollHeight is meaningless),
   // and re-check on expand so a viewport grown while collapsed still auto-fills.
-  createEffect(on([displayedRecentSessions, collapsed], () => {
-    if (collapsed()) return
-    requestAnimationFrame(() => {
-      if (!scrollContainer || !scrollContainer.clientHeight) return
-      if (hasMoreSessions() && scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
-        if (useServerPagination()) void loadMoreFromServer()
-        else setVisibleCount(prev => prev + VISIBLE_BATCH)
-      }
-    })
-  }))
+  createEffect(
+    on([displayedRecentSessions, collapsed], () => {
+      if (collapsed() || props.loadMoreMode === "manual") return
+      requestAnimationFrame(() => {
+        if (!scrollContainer || !scrollContainer.clientHeight) return
+        if (hasMoreSessions() && scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
+          if (useServerPagination()) void loadMoreFromServer()
+          else setVisibleCount((prev) => prev + VISIBLE_BATCH)
+        }
+      })
+    }),
+  )
 
   const { togglePin: togglePinSession } = useSessionPin()
 
@@ -483,6 +504,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (!sourceId) return
     const source = sessionList.find(s => s.id === sourceId)
     if (!source) return
+    if (
+      props.canMoveSession?.(
+        source,
+        target,
+        target.type === "session" ? sessionList.find((session) => session.id === target.sessionId) : undefined,
+      ) === false
+    ) return
 
     try {
       const mod = props.trackerModule ?? "session"
@@ -545,10 +573,25 @@ export function AgentSidebar(props: AgentSidebarProps) {
     }
   }
 
-  createEffect(on(sessions, (data) => {
-    if (!data) return
-    setSessionList(reconcile(data, { key: "id" }))
-  }, { defer: true }))
+  createEffect(
+    on(
+      sessions,
+      (data) => {
+        if (!data) return
+        const retained = props.retainSessionOnRefresh
+          ? sessionList.filter(
+              (session) =>
+                props.retainSessionOnRefresh?.(session) &&
+                !data.some((item) => item.id === session.id) &&
+                session.directory === resolvedDir() &&
+                session.agent === props.agentFilter,
+            )
+          : []
+        setSessionList(reconcile([...data, ...retained], { key: "id" }))
+      },
+      { defer: true },
+    ),
+  )
 
   // Notify callers (e.g. studio's thumbnail loader) whenever the session list
   // changes — initial load, SSE merges, pin/unpin mutations and reorders.
@@ -717,6 +760,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
       }
       clearTimeout(refetchTimer)
       const evtProps = e.details.properties as { sessionID?: string; info?: Session }
+      if (
+        t === "session.deleted" &&
+        evtProps.info &&
+        evtProps.info.directory === resolvedDir() &&
+        evtProps.info.agent === props.agentFilter
+      )
+        props.onSessionDeleted?.(evtProps.info)
       if (evtProps.sessionID && evtProps.info) {
         pendingSessionEvents.push({ type: t, sessionID: evtProps.sessionID, info: evtProps.info })
       }
@@ -748,7 +798,12 @@ export function AgentSidebar(props: AgentSidebarProps) {
     const onScroll = () => {
       if (programmaticScroll) armProgrammaticScrollReset()
       else userScrolled = true
-      if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && hasMoreSessions() && !collapsed()) {
+      if (
+        props.loadMoreMode !== "manual" &&
+        el.scrollHeight - el.scrollTop - el.clientHeight < 100 &&
+        hasMoreSessions() &&
+        !collapsed()
+      ) {
         if (useServerPagination()) void loadMoreFromServer(true)
         else {
           setVisibleCount(prev => prev + VISIBLE_BATCH)
@@ -760,7 +815,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
     onCleanup(() => el.removeEventListener("scroll", onScroll))
 
     const resizeObserver = new ResizeObserver(() => {
-      if (hasMoreSessions() && el.clientHeight > 0 && el.scrollHeight <= el.clientHeight && !collapsed()) {
+      if (
+        props.loadMoreMode !== "manual" &&
+        hasMoreSessions() &&
+        el.clientHeight > 0 &&
+        el.scrollHeight <= el.clientHeight &&
+        !collapsed()
+      ) {
         if (useServerPagination()) void loadMoreFromServer()
         else setVisibleCount(prev => prev + VISIBLE_BATCH)
       }
@@ -953,6 +1014,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (props.activeSessionId() === session.id) {
       navigate(nextSession ? props.buildSessionRoute(nextSession) : props.buildDeleteFallback(session))
     }
+    props.onSessionDeleted?.(session)
   }
 
   async function deleteSessions(sessions: Session[]) {
@@ -982,6 +1044,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       const nextSession = pickNextSession(remaining, activeId)
       navigate(nextSession ? props.buildSessionRoute(nextSession) : props.buildDeleteFallback(sessions[0]))
     }
+    sessions.filter((session) => deleted.has(session.id)).forEach((session) => props.onSessionDeleted?.(session))
   }
 
   function handleContextMenuDelete(session: Session) {
@@ -1032,134 +1095,219 @@ export function AgentSidebar(props: AgentSidebarProps) {
     navigate(props.buildNewRoute())
   }
 
+  const renderRecentList = (sessions: Session[]) => (
+    <SessionList
+      sessions={sessions}
+      activeSessionId={props.activeSessionId()}
+      stable={stable()}
+      isOnboarding={isOnboarding()}
+      hoverOnActive
+      leading={props.renderLeading}
+      onSessionClick={handleSessionClick}
+      onSessionContextMenu={handleSessionContextMenu}
+      onSessionActionClick={handleSessionContextMenu}
+      isContextTarget={(s) => contextMenu.show && contextMenu.session?.id === s.id}
+      renamingId={renamingId()}
+      renameDraft={renameDraft()}
+      onRenameInput={(v) => setRenameDraft(v)}
+      onRenameSave={handleRenameSave}
+      onRenameCancel={() => setRenamingId(null)}
+      itemsDraggable
+      draggingSessionId={draggingSessionId()}
+      dragOverSessionId={dragOverSessionId()}
+      sessionDropPosition={sessionDropPosition()}
+      onSessionDragStart={handleSessionDragStart}
+      onSessionDragEnd={handleSessionDragEnd}
+      onSessionDragOver={handleSessionDragOver}
+      onSessionDragLeave={handleSessionDragLeave}
+      onSessionDrop={(e, session) => {
+        e.preventDefault()
+        performSessionMove({
+          type: "session",
+          sessionId: session.id,
+          position: sessionDropPosition() ?? "before",
+          section: "recent",
+        })
+      }}
+      onEmptyDrop={() => performSessionMove({ type: "section", section: "recent" })}
+      plainEmptyDropZone
+    />
+  )
+
   return (
     <>
-    <SidebarShell
-      onNavigation={props.onNavigation}
-      showProjectInfo={props.showProjectInfo}
-      showBottomNav={props.showBottomNav}
-      newButtonText={props.newButtonText ?? "新建对话"}
-      onNewClick={newSession}
-      sectionTitle={props.sectionTitle}
-      sectionIcon={props.sectionIcon}
-      listScrollRef={(el) => { scrollContainer = el }}
-      newButtonSuffix={props.newButtonSuffix}
-      headerExtra={props.headerExtra}
-      beforeSection={() => (
-        <>
-          <Show when={pinnedSessions().length > 0}>
-            <div
-              onDragOver={(e) => { if (draggingSessionId()) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move" } }}
-              onDrop={(e) => { e.preventDefault(); performSessionMove({ type: "section", section: "pinned" }) }}
-              classList={{ "rounded-[8px] bg-[rgba(10,89,247,0.06)]": !!(draggingSessionId() && pinnedSessions().length === 0) }}
-            >
-              <SidebarSectionHeader title="置顶" collapsed={pinnedCollapsed()} onToggleCollapse={() => { tracker.interaction({ module: props.trackerModule ?? "session", name: "toggle-pinned-section" }); setPinnedCollapsed(v => !v) }} class="section-header-inline" />
-            <Show when={!pinnedCollapsed()}>
-              <SessionList
-                sessions={pinnedSessions()}
-                activeSessionId={props.activeSessionId()}
-                stable={stable()}
-                hoverOnActive
-                useIndex
-                leading={props.renderLeading}
-                onSessionClick={handleSessionClick}
-                onSessionContextMenu={handleSessionContextMenu}
-                onSessionActionClick={handleSessionContextMenu}
-                isContextTarget={(s) => contextMenu.show && contextMenu.session?.id === s.id}
-                renamingId={renamingId()}
-                renameDraft={renameDraft()}
-                onRenameInput={(v) => setRenameDraft(v)}
-                onRenameSave={handleRenameSave}
-                onRenameCancel={() => setRenamingId(null)}
-                itemsDraggable
-                draggingSessionId={draggingSessionId()}
-                dragOverSessionId={dragOverSessionId()}
-                sessionDropPosition={sessionDropPosition()}
-                onSessionDragStart={handleSessionDragStart}
-                onSessionDragEnd={handleSessionDragEnd}
-                onSessionDragOver={handleSessionDragOver}
-                onSessionDragLeave={handleSessionDragLeave}
-                onSessionDrop={(e, session) => { e.preventDefault(); performSessionMove({ type: "session", sessionId: session.id, position: sessionDropPosition() ?? "before", section: "pinned" }) }}
-                onEmptyDrop={() => performSessionMove({ type: "section", section: "pinned" })}
-                plainEmptyDropZone
-              />
+      <SidebarShell
+        onNavigation={props.onNavigation}
+        showProjectInfo={props.showProjectInfo}
+        showBottomNav={props.showBottomNav}
+        newButtonText={props.newButtonText ?? "新建对话"}
+        onNewClick={newSession}
+        sectionTitle={props.sectionTitle}
+        hideSectionHeader={!!props.renderRecent}
+        sectionIcon={props.sectionIcon}
+        listScrollRef={(el) => {
+          scrollContainer = el
+        }}
+        newButtonSuffix={props.newButtonSuffix}
+        headerExtra={props.headerExtra}
+        beforeSection={() => (
+          <>
+            <Show when={pinnedSessions().length > 0}>
+              <div
+                onDragOver={(e) => {
+                  if (draggingSessionId()) {
+                    e.preventDefault()
+                    if (e.dataTransfer) e.dataTransfer.dropEffect = "move"
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  performSessionMove({ type: "section", section: "pinned" })
+                }}
+                classList={{
+                  "rounded-[8px] bg-[rgba(10,89,247,0.06)]": !!(draggingSessionId() && pinnedSessions().length === 0),
+                }}
+              >
+                <SidebarSectionHeader
+                  title="置顶"
+                  collapsed={pinnedCollapsed()}
+                  onToggleCollapse={() => {
+                    tracker.interaction({ module: props.trackerModule ?? "session", name: "toggle-pinned-section" })
+                    setPinnedCollapsed((v) => !v)
+                  }}
+                  class="section-header-inline"
+                />
+                <Show when={!pinnedCollapsed()}>
+                  <SessionList
+                    sessions={pinnedSessions()}
+                    activeSessionId={props.activeSessionId()}
+                    stable={stable()}
+                    hoverOnActive
+                    useIndex
+                    leading={props.renderLeading}
+                    onSessionClick={handleSessionClick}
+                    onSessionContextMenu={handleSessionContextMenu}
+                    onSessionActionClick={handleSessionContextMenu}
+                    isContextTarget={(s) => contextMenu.show && contextMenu.session?.id === s.id}
+                    renamingId={renamingId()}
+                    renameDraft={renameDraft()}
+                    onRenameInput={(v) => setRenameDraft(v)}
+                    onRenameSave={handleRenameSave}
+                    onRenameCancel={() => setRenamingId(null)}
+                    itemsDraggable
+                    draggingSessionId={draggingSessionId()}
+                    dragOverSessionId={dragOverSessionId()}
+                    sessionDropPosition={sessionDropPosition()}
+                    onSessionDragStart={handleSessionDragStart}
+                    onSessionDragEnd={handleSessionDragEnd}
+                    onSessionDragOver={handleSessionDragOver}
+                    onSessionDragLeave={handleSessionDragLeave}
+                    onSessionDrop={(e, session) => {
+                      e.preventDefault()
+                      performSessionMove({
+                        type: "session",
+                        sessionId: session.id,
+                        position: sessionDropPosition() ?? "before",
+                        section: "pinned",
+                      })
+                    }}
+                    onEmptyDrop={() => performSessionMove({ type: "section", section: "pinned" })}
+                    plainEmptyDropZone
+                  />
+                </Show>
+              </div>
             </Show>
-            </div>
-          </Show>
-          {props.beforeSection?.({
-            sessions: sessionList,
-            onSessionClick: handleSessionClick,
-            onSessionContextMenu: handleSessionContextMenu,
-            activeSessionId: props.activeSessionId,
-            isContextTarget: (s) => contextMenu.show && contextMenu.session?.id === s.id,
-            isPinned: (s) => s.pinned,
-            renamingId,
-            renameDraft,
-            onRenameInput: (v) => setRenameDraft(v),
-            onRenameSave: handleRenameSave,
-            onRenameCancel: () => setRenamingId(null),
-            stable,
-            deleteSessions,
-            draggingSessionId,
-            dragOverSessionId,
-            sessionDropPosition,
-            onSessionDragStart: handleSessionDragStart,
-            onSessionDragEnd: handleSessionDragEnd,
-            onSessionDragOver: handleSessionDragOver,
-            onSessionDragLeave: handleSessionDragLeave,
-            handleSessionDrop: performSessionMove,
-            renderLeading: props.renderLeading,
-          })}
-        </>
-      )}
-      inlineBeforeSection={props.inlineBeforeSection}
-      collapsed={collapsed()}
-      onToggleCollapse={toggleRecentCollapse}
-      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : location.pathname === "/design-system" ? "design_system" : location.pathname === "/best-practices" ? "best_practice" : activeNav()}
-      onNavClick={(key) => {
-        if (key === "skill_market" || key === "knowledge_base" || key === "design_system" || key === "best_practice") {
-          if (key === "skill_market" && props.onSkillClick) {
-            props.onSkillClick()
-          } else {
-            if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
-            navigate(key === "skill_market" ? "/skills" : key === "knowledge_base" ? "/assets" : key === "design_system" ? "/design-system" : "/best-practices")
-          }
-          return
+            {props.beforeSection?.({
+              sessions: sessionList,
+              onSessionClick: handleSessionClick,
+              onSessionContextMenu: handleSessionContextMenu,
+              activeSessionId: props.activeSessionId,
+              isContextTarget: (s) => contextMenu.show && contextMenu.session?.id === s.id,
+              isPinned: (s) => s.pinned,
+              renamingId,
+              renameDraft,
+              onRenameInput: (v) => setRenameDraft(v),
+              onRenameSave: handleRenameSave,
+              onRenameCancel: () => setRenamingId(null),
+              stable,
+              deleteSessions,
+              draggingSessionId,
+              dragOverSessionId,
+              sessionDropPosition,
+              onSessionDragStart: handleSessionDragStart,
+              onSessionDragEnd: handleSessionDragEnd,
+              onSessionDragOver: handleSessionDragOver,
+              onSessionDragLeave: handleSessionDragLeave,
+              handleSessionDrop: performSessionMove,
+              renderLeading: props.renderLeading,
+            })}
+          </>
+        )}
+        inlineBeforeSection={props.inlineBeforeSection}
+        collapsed={props.renderRecent ? false : collapsed()}
+        onToggleCollapse={toggleRecentCollapse}
+        activeNav={
+          props.skillsActive || location.pathname === "/skills"
+            ? "skill_market"
+            : location.pathname === "/assets"
+              ? "knowledge_base"
+              : location.pathname === "/design-system"
+                ? "design_system"
+                : location.pathname === "/best-practices"
+                  ? "best_practice"
+                  : activeNav()
         }
-        setActiveNav(v => v === key ? null : v)
-      }}
-      onSettingsClick={props.showSettings ? props.onSettingsClick : undefined}
-    >
-      <SessionList
-        sessions={displayedRecentSessions()}
-        activeSessionId={props.activeSessionId()}
-        stable={stable()}
-        isOnboarding={isOnboarding()}
-        hoverOnActive
-        leading={props.renderLeading}
-        onSessionClick={handleSessionClick}
-        onSessionContextMenu={handleSessionContextMenu}
-        onSessionActionClick={handleSessionContextMenu}
-        isContextTarget={(s) => contextMenu.show && contextMenu.session?.id === s.id}
-        renamingId={renamingId()}
-        renameDraft={renameDraft()}
-        onRenameInput={(v) => setRenameDraft(v)}
-        onRenameSave={handleRenameSave}
-        onRenameCancel={() => setRenamingId(null)}
-        itemsDraggable
-        draggingSessionId={draggingSessionId()}
-        dragOverSessionId={dragOverSessionId()}
-        sessionDropPosition={sessionDropPosition()}
-        onSessionDragStart={handleSessionDragStart}
-        onSessionDragEnd={handleSessionDragEnd}
-        onSessionDragOver={handleSessionDragOver}
-        onSessionDragLeave={handleSessionDragLeave}
-        onSessionDrop={(e, session) => { e.preventDefault(); performSessionMove({ type: "session", sessionId: session.id, position: sessionDropPosition() ?? "before", section: "recent" }) }}
-        onEmptyDrop={() => performSessionMove({ type: "section", section: "recent" })}
-        plainEmptyDropZone
-      />
-    </SidebarShell>
-    <SessionContextMenu
+        onNavClick={(key) => {
+          if (
+            key === "skill_market" ||
+            key === "knowledge_base" ||
+            key === "design_system" ||
+            key === "best_practice"
+          ) {
+            if (key === "skill_market" && props.onSkillClick) {
+              props.onSkillClick()
+            } else {
+              if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
+              navigate(
+                key === "skill_market"
+                  ? "/skills"
+                  : key === "knowledge_base"
+                    ? "/assets"
+                    : key === "design_system"
+                      ? "/design-system"
+                      : "/best-practices",
+              )
+            }
+            return
+          }
+          setActiveNav((v) => (v === key ? null : v))
+        }}
+        onSettingsClick={props.showSettings ? props.onSettingsClick : undefined}
+      >
+        <Show when={props.renderRecent} fallback={renderRecentList(displayedRecentSessions())}>
+          {props.renderRecent?.({
+            activeID: props.activeSessionId,
+            sessions: recentSessions,
+            append: (sessions) =>
+              setSessionList(
+                produce((draft) => {
+                  sessions.forEach((session) => {
+                    const index = draft.findIndex((item) => item.id === session.id)
+                    if (index < 0) draft.push(session)
+                    else draft[index] = session
+                  })
+                }),
+              ),
+            renderList: renderRecentList,
+            hasMore: hasMoreSessions,
+            loading: loadingMoreSessions,
+            loadMore: () => {
+              void loadMoreFromServer()
+            },
+          })}
+        </Show>
+      </SidebarShell>
+      <SessionContextMenu
         show={contextMenu.show && !!contextMenu.session}
         x={contextMenu.x}
         y={contextMenu.y}

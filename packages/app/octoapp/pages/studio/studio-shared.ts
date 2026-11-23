@@ -1,5 +1,6 @@
 import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage, StudioInputImage, StudioMode } from "./types"
-import { isSeedreamStyleModel, styleModelId } from "./data"
+import { styleModelId } from "./data"
+import * as imageSize from "@opencode-ai/core/studio-image-size"
 
 export const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
@@ -489,44 +490,15 @@ export async function batchSaveStudioMedia(input: {
 }
 
 export function getModelResolutionKey(styleModel: string): string {
-  const id = styleModelId(styleModel) ?? styleModel
-  if (id === "hdesign") return "hdesign"
-  if (isSeedreamStyleModel(styleModel)) return "2k"
-  if (id.includes("2k")) return "2k"
-  if (id.includes("3k")) return "3k"
-  if (id.includes("4k")) return "4k"
-  return "default"
+  return imageSize.getModelResolutionKey(styleModelId(styleModel) ?? styleModel)
 }
 
 export function getStudioImageAreaLimits(styleModel: string) {
-  if (styleModelId(styleModel) === "seedream-5-pro") {
-    return {
-      min: 1280 * 720,
-      max: Math.floor(2048 * 2048 * 1.1025),
-      label: "1280×720, 2048×2048×1.1025",
-    }
-  }
-  const key = getModelResolutionKey(styleModel)
-  if (key === "default" || key === "hdesign" || styleModelId(styleModel) === "qwen") return
-  return {
-    min: 2560 * 1440,
-    max: Math.round(3072 * 3072 * 1.1025),
-    label: "2560×1440, 3072×3072×1.1025",
-  }
+  return imageSize.getStudioImageAreaLimits(styleModelId(styleModel) ?? styleModel)
 }
 
-export function isStudioCustomSizeValid(styleModel: string, width: number, height: number) {
-  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height)) return false
-  if (width <= 0 || height <= 0) return false
-  const limits = getStudioImageAreaLimits(styleModel)
-  if (limits) {
-    return width * height >= limits.min &&
-      width * height <= limits.max &&
-      width / height >= 1 / 16 &&
-      width / height <= 16
-  }
-  const max = styleModelId(styleModel) === "qwen" ? 1664 : 2500
-  return width >= 250 && width <= max && height >= 250 && height <= max
+export function isStudioCustomSizeValid(styleModel: string, width?: number, height?: number) {
+  return imageSize.isStudioCustomSizeValid(styleModelId(styleModel) ?? styleModel, width, height)
 }
 
 export function getStudioImageDimensionRange(styleModel: string, dim: number) {

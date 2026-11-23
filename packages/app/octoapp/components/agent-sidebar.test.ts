@@ -28,15 +28,15 @@ describe("侧栏「最近」收起时不触发加载更多", () => {
   })
 
   test("补页 effect 监听 collapsed:收起早退,展开后重查填满视口", () => {
-    expect(SRC).toMatch(/createEffect\(on\(\[displayedRecentSessions, collapsed\], \(\) => \{\s*if \(collapsed\(\)\) return\s*requestAnimationFrame/)
+    expect(SRC).toMatch(/createEffect\(\s*on\(\[displayedRecentSessions, collapsed\], \(\) => \{\s*if \(collapsed\(\) \|\| props\.loadMoreMode === "manual"\) return\s*requestAnimationFrame/)
   })
 
   test("onScroll 的加载分支以 !collapsed() 为前提", () => {
-    expect(SRC).toMatch(/el\.scrollHeight - el\.scrollTop - el\.clientHeight < 100 && hasMoreSessions\(\) && !collapsed\(\)/)
+    expect(SRC).toMatch(/el\.scrollHeight - el\.scrollTop - el\.clientHeight < 100 &&\s*hasMoreSessions\(\) &&\s*!collapsed\(\)/)
   })
 
   test("ResizeObserver 的补页分支以 !collapsed() 为前提", () => {
-    expect(SRC).toMatch(/el\.scrollHeight <= el\.clientHeight && !collapsed\(\)/)
+    expect(SRC).toMatch(/el\.scrollHeight <= el\.clientHeight &&\s*!collapsed\(\)/)
   })
 
   test("collapsed 声明在 loadMoreFromServer 之前(供 effect 以 on([..., collapsed]) 直接引用,避免 TDZ)", () => {

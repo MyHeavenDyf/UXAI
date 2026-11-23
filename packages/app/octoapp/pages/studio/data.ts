@@ -1,4 +1,5 @@
 import type { StudioAspectRatio, StudioCapability, StudioImageTool } from "./types"
+import { boardReferenceLimit } from "@opencode-ai/core/studio-board"
 
 export const STUDIO_CAPABILITIES: { id: StudioCapability; label: string; description: string; tone: string }[] = [
   { id: "image.generate", label: "图片生成", description: "创意无限，一图即成", tone: "#1267ff" },
@@ -56,9 +57,7 @@ export function isSeedreamStyleModel(value?: string) {
 }
 
 export function referenceImageLimit(styleModel: string) {
-  if (isSeedreamStyleModel(styleModel)) return 4
-  if (styleModelId(styleModel) === "qwen") return 3
-  return 1
+  return boardReferenceLimit(styleModelId(styleModel) ?? "")
 }
 
 export function imageToolLabel(id: StudioImageTool) {

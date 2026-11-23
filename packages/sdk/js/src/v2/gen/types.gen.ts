@@ -758,6 +758,7 @@ export type Session = {
   }
   title: string
   agent?: string
+  studio_mode?: "conversation" | "board"
   category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning" | "subagent"
   model?: {
     id: string
@@ -1428,6 +1429,7 @@ export type GlobalSession = {
   }
   title: string
   agent?: string
+  studio_mode?: "conversation" | "board"
   category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning" | "subagent"
   model?: {
     id: string
@@ -1831,6 +1833,13 @@ export type StudioGenerationError = {
   }
 }
 
+export type StudioBoardError = {
+  name: "StudioBoardError"
+  data: {
+    message: string
+  }
+}
+
 export type ChatMigrationError = {
   name: "ChatMigrationError"
   data: {
@@ -1866,6 +1875,7 @@ export type Session9 = {
   }
   title: string
   agent?: string
+  studio_mode?: "conversation" | "board"
   category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning" | "subagent"
   model?: {
     id: string
@@ -4618,6 +4628,7 @@ export type ExperimentalSessionListData = {
     grouped?: boolean | "true" | "false"
     archived?: boolean | "true" | "false"
     agent?: string
+    studio_mode?: "conversation" | "board"
     order?: "updated" | "sort_order"
   }
   url: "/experimental/session"
@@ -6040,6 +6051,8 @@ export type SessionCreateData = {
     parentID?: string
     title?: string
     agent?: string
+    studio_mode?: "conversation" | "board"
+    studio_creation_id?: string
     model?: {
       id: string
       providerID: string
@@ -8287,6 +8300,81 @@ export type ExperimentalWorkspaceWarpResponses = {
 export type ExperimentalWorkspaceWarpResponse =
   ExperimentalWorkspaceWarpResponses[keyof ExperimentalWorkspaceWarpResponses]
 
+export type StudioBoardGetData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/sessions/{sessionID}/board"
+}
+
+export type StudioBoardGetErrors = {
+  /**
+   * StudioGenerationError | StudioBoardError
+   */
+  400: StudioGenerationError | StudioBoardError
+  /**
+   * StudioBoardError
+   */
+  404: StudioBoardError
+  /**
+   * StudioBoardError
+   */
+  409: StudioBoardError
+}
+
+export type StudioBoardGetError = StudioBoardGetErrors[keyof StudioBoardGetErrors]
+
+export type StudioBoardGetResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type StudioBoardSaveData = {
+  body?: {
+    revision: number
+    document: unknown
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/sessions/{sessionID}/board"
+}
+
+export type StudioBoardSaveErrors = {
+  /**
+   * StudioGenerationError | StudioBoardError
+   */
+  400: StudioGenerationError | StudioBoardError
+  /**
+   * StudioBoardError
+   */
+  404: StudioBoardError
+  /**
+   * StudioBoardError
+   */
+  409: StudioBoardError
+}
+
+export type StudioBoardSaveError = StudioBoardSaveErrors[keyof StudioBoardSaveErrors]
+
+export type StudioBoardSaveResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
 export type StudioPromptRecommendationsInitializeData = {
   body?: {
     requestID: string
@@ -9248,6 +9336,7 @@ export type StudioTemplateUserSearchCreateResponses = {
 export type StudioGenerationsCreateData = {
   body?: {
     sessionID?: string
+    board?: unknown
     capability:
       | "image.generate"
       | "video.generate"
@@ -9288,21 +9377,27 @@ export type StudioGenerationsCreateData = {
 
 export type StudioGenerationsCreateErrors = {
   /**
-   * BadRequest | StudioGenerationError
+   * BadRequest | StudioGenerationError | StudioBoardError
    */
-  400: BadRequestError | StudioGenerationError
+  400: BadRequestError | StudioGenerationError | StudioBoardError
   /**
-   * Error
+   * StudioBoardError
    */
-  409: {
-    name: "StudioPromptRecommendationError"
-    data: {
-      code: string
-      message: string
-      guidePartID?: string
-      stateToken?: string
-    }
-  }
+  404: StudioBoardError
+  /**
+   * StudioBoardError
+   */
+  409:
+    | StudioBoardError
+    | {
+        name: "StudioPromptRecommendationError"
+        data: {
+          code: string
+          message: string
+          guidePartID?: string
+          stateToken?: string
+        }
+      }
 }
 
 export type StudioGenerationsCreateError = StudioGenerationsCreateErrors[keyof StudioGenerationsCreateErrors]
@@ -9501,27 +9596,34 @@ export type StudioGenerationsRebootData = {
   query?: {
     directory?: string
     workspace?: string
+    operationID?: string
   }
   url: "/studio/generations/{generationID}/reboot"
 }
 
 export type StudioGenerationsRebootErrors = {
   /**
-   * BadRequest | StudioGenerationError
+   * BadRequest | StudioGenerationError | StudioBoardError
    */
-  400: BadRequestError | StudioGenerationError
+  400: BadRequestError | StudioGenerationError | StudioBoardError
   /**
-   * Error
+   * StudioBoardError
    */
-  409: {
-    name: "StudioPromptRecommendationError"
-    data: {
-      code: string
-      message: string
-      guidePartID?: string
-      stateToken?: string
-    }
-  }
+  404: StudioBoardError
+  /**
+   * StudioBoardError
+   */
+  409:
+    | StudioBoardError
+    | {
+        name: "StudioPromptRecommendationError"
+        data: {
+          code: string
+          message: string
+          guidePartID?: string
+          stateToken?: string
+        }
+      }
 }
 
 export type StudioGenerationsRebootError = StudioGenerationsRebootErrors[keyof StudioGenerationsRebootErrors]
@@ -9677,21 +9779,27 @@ export type StudioGenerationsRefreshData = {
 
 export type StudioGenerationsRefreshErrors = {
   /**
-   * BadRequest | StudioGenerationError
+   * BadRequest | StudioGenerationError | StudioBoardError
    */
-  400: BadRequestError | StudioGenerationError
+  400: BadRequestError | StudioGenerationError | StudioBoardError
   /**
-   * Error
+   * StudioBoardError
    */
-  409: {
-    name: "StudioPromptRecommendationError"
-    data: {
-      code: string
-      message: string
-      guidePartID?: string
-      stateToken?: string
-    }
-  }
+  404: StudioBoardError
+  /**
+   * StudioBoardError
+   */
+  409:
+    | StudioBoardError
+    | {
+        name: "StudioPromptRecommendationError"
+        data: {
+          code: string
+          message: string
+          guidePartID?: string
+          stateToken?: string
+        }
+      }
 }
 
 export type StudioGenerationsRefreshError = StudioGenerationsRefreshErrors[keyof StudioGenerationsRefreshErrors]

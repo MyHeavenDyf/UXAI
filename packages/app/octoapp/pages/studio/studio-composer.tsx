@@ -1627,7 +1627,7 @@ export function StudioComposer(props: {
   )
 }
 
-function ToolButton(props: { label: string; active?: boolean; disabled?: boolean; onClick: () => void; onPointerDown?: () => void }): JSX.Element {
+export function ToolButton(props: { label: string; active?: boolean; disabled?: boolean; onClick: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
     <button type="button" onPointerDown={props.onPointerDown} onClick={props.onClick} disabled={props.disabled} class="studio-composer-tool-btn" data-active={props.active ? "" : undefined}>
       <span class="studio-composer-tool-label">{props.label}</span>
@@ -1832,7 +1832,7 @@ function StyleTemplatePresetEditor(props: {
   )
 }
 
-function IconTool(props: { label: string; title?: string; children?: JSX.Element; class?: string; disabled?: boolean; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
+export function IconTool(props: { label: string; title?: string; children?: JSX.Element; class?: string; disabled?: boolean; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
   const hasLabel = () => Boolean(props.children)
   const iconClass = () => {
     if (props.class) return props.class
@@ -1856,7 +1856,7 @@ function IconTool(props: { label: string; title?: string; children?: JSX.Element
   )
 }
 
-function StudioToolbarTooltip(props: { label: string; children: JSX.Element }): JSX.Element {
+export function StudioToolbarTooltip(props: { label: string; children: JSX.Element }): JSX.Element {
   return (
     <Tooltip
       placement="top"
@@ -2003,7 +2003,7 @@ function CapabilityMenu(props: {
   )
 }
 
-function StyleMenu(props: {
+export function StyleMenu(props: {
   value: string
   canUseSeedream: boolean
   permissionStatus: "loading" | "ready" | "error"
@@ -2054,7 +2054,7 @@ function StyleMenu(props: {
   )
 }
 
-function ImageSettings(props: {
+export function ImageSettings(props: {
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
   styleModel: string
@@ -2400,7 +2400,7 @@ function ImageSettings(props: {
   )
 }
 
-function VideoSettings(props: {
+export function VideoSettings(props: {
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
   duration: StudioVideoDuration

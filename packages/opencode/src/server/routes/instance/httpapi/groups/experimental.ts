@@ -65,6 +65,7 @@ export const SessionListQuery = Schema.Struct({
   grouped: Schema.optional(QueryBoolean),
   archived: Schema.optional(QueryBoolean),
   agent: Schema.optional(Schema.String),
+  studio_mode: Schema.optional(Schema.Literals(["conversation", "board"])),
   order: Schema.optional(Schema.Literals(["updated", "sort_order"])),
 })
 

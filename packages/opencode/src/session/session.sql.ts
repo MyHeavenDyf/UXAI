@@ -36,6 +36,7 @@ export const SessionTable = sqliteTable(
     revert: text({ mode: "json" }).$type<{ messageID: MessageID; partID?: PartID; snapshot?: string; diff?: string }>(),
     permission: text({ mode: "json" }).$type<Permission.Ruleset>(),
     agent: text(),
+    studio_mode: text().$type<"conversation" | "board">(),
     sort_order: integer().notNull().default(0),
     pinned: integer().notNull().default(0),
     model: text({ mode: "json" }).$type<{

@@ -1,3 +1,16 @@
+import { InternalRebootRejectedError } from "@/tool/internel_image_generate"
+import { StudioBoardOperationTable } from "./studio-board.sql"
+import { boardRebootBaseline, boardRebootFailedAgain } from "./studio-board-reboot"
+import { BoardSubmission } from "@opencode-ai/core/studio-board"
+import {
+  attachBoardGeneration,
+  previousBoardSubmission,
+  validateBoardSubmission,
+  boardRebootOperation,
+  boardPendingReboots,
+  finishBoardReboot,
+  BoardError,
+} from "./studio-board-service"
 import { executeJimengImageGenerate, summarizeJimengOutput } from "@/tool/jimeng_image_generate"
 import {
   cancelInternalGeneration,
@@ -96,6 +109,7 @@ type StudioGenerationPromptInput = StudioGenerationRequest & {
 
 export type StudioGenerationRequest = {
   sessionID?: string
+  board?: BoardSubmission
   capability: StudioCapability
   prompt: string
   displayPrompt?: string
@@ -343,6 +357,7 @@ function buildSubmittingAssistantText(input: StudioGenerationRequest) {
 }
 
 function submittingPromptRefine(input: StudioGenerationRequest): StudioPromptRefineResult {
+  if (input.board) return promptPassthroughRefine(input)
   const prompt = input.effectivePrompt?.trim() || input.refinedPrompt?.trim() || buildEffectivePrompt(input)
   return {
     assistantText: buildSubmittingAssistantText(input),
@@ -926,6 +941,7 @@ async function refineStudioPrompt(
   session: typeof SessionTable.$inferSelect,
   options?: { signal?: AbortSignal },
 ): Promise<StudioPromptRefineResult> {
+  if (session.studio_mode === "board") return promptPassthroughRefine(input)
   if (shouldPassthroughEditorPrompt(input)) return promptPassthroughRefine(input)
   if (shouldPassthroughReferenceImagePrompt(input)) return promptPassthroughRefine(input)
   const sessionID = SessionID.zod.parse(session.id)
@@ -2522,6 +2538,7 @@ async function processGeneration(record: StudioGenerationRecord) {
 async function createProviderTask(input: StudioGenerationPromptInput, provider: StudioProvider) {
   if (provider !== "internel") return
   return createInternalGeneration({
+    promptPolicy: input.board ? "direct" : undefined,
     capability: input.capability,
     prompt: generationPrompt(input),
     styleModel: isEditorGenerationCapability(input.capability) ? undefined : input.styleModel,
@@ -2711,7 +2728,7 @@ async function runGenerationCreatePipeline(id: string) {
         .run(),
     )
     startStudioGenerationWorker()
-    if (shouldGenerateStudioDetailTitle(persistedInput)) {
+    if (!persistedInput.board && shouldGenerateStudioDetailTitle(persistedInput)) {
       const runTitle = Instance.bind(() =>
         runStudioDetailTitleTask({
           id,
@@ -2814,12 +2831,50 @@ export function createGeneration(input: StudioGenerationRequest): Promise<Studio
   return withStudioSubmission(input.sessionID ?? "", () => createGenerationImpl(input))
 }
 
-async function createGenerationImpl(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
+async function createGenerationImpl(request: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
+  const snapshot = request.board?.snapshot
+  const input: StudioGenerationRequest = snapshot
+    ? {
+        ...request,
+        imageTool: "internel",
+        prompt: snapshot.prompt.trim(),
+        sourceImage: undefined,
+        refinedPrompt: undefined,
+        effectivePrompt: undefined,
+        styleModel: snapshot.settings.styleModel,
+        aspectRatio: snapshot.settings.aspectRatio,
+        count: snapshot.settings.count,
+        referenceImages: snapshot.references.filter((ref) => ref.role === "reference").map((ref) => ref.image),
+        extra: {
+          userIdx: request.extra?.userIdx,
+          skipPromptRefine: true,
+          width: snapshot.settings.isCustom ? snapshot.settings.width : undefined,
+          height: snapshot.settings.isCustom ? snapshot.settings.height : undefined,
+          ...(request.capability === "video.generate" ? {
+            videoMode: snapshot.settings.videoMode,
+            duration: snapshot.settings.duration,
+            mode: snapshot.settings.quality === "480" ? "std" : "pro",
+            resolution: snapshot.settings.quality === "4k" ? "4k" : `${snapshot.settings.quality}p`,
+            firstFrame: snapshot.references.find((ref) => ref.role === "firstFrame")?.image,
+            lastFrame: snapshot.references.find((ref) => ref.role === "lastFrame")?.image,
+          } : {}),
+        },
+      }
+    : request
   const sessionID = SessionID.zod.parse(input.sessionID)
   const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
   if (!session) throw new Error(`Studio session not found: ${sessionID}`)
   if (session.directory !== Instance.directory)
     throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
+  if (session.studio_mode === "board" && !input.board) throw new Error("画布任务必须携带卡片提交快照")
+  if (input.board) {
+    const prior = previousBoardSubmission(sessionID, input.board)
+    if (prior) return generationSnapshot(loadGenerationRecord(prior)!)
+    const submission = validateBoardSubmission(sessionID, input.board)
+    if (input.capability !== (submission.card.kind === "image" ? "image.generate" : "video.generate"))
+      throw new Error("卡片类型与生成能力不一致")
+    if (input.prompt.trim() !== submission.input.snapshot.prompt.trim()) throw new Error("提示词与提交快照不一致")
+  }
   const createdAt = Date.now()
   const id = Identifier.create("studio_gen", "ascending")
   assertCanGenerate(sessionID)
@@ -2833,35 +2888,38 @@ async function createGenerationImpl(input: StudioGenerationRequest): Promise<Stu
     effectivePrompt: promptRefine.effectivePrompt,
     promptRefineFallback: promptRefine.fallback,
   }
-  const turn = persistStudioSession({
-    generationID: id,
-    sessionID,
-    request: generationInput,
-    provider,
-    promptRefine,
-    createdAt,
+  Database.transaction(() => {
+    const turn = persistStudioSession({
+      generationID: id,
+      sessionID,
+      request: generationInput,
+      provider,
+      promptRefine,
+      createdAt,
+    })
+    if (!turn) throw new Error(`Unable to create Studio session turn: ${sessionID}`)
+    Database.use((db) =>
+      db
+        .insert(StudioGenerationTable)
+        .values({
+          id,
+          session_id: sessionID,
+          directory: session.directory,
+          assistant_message_id: turn.assistantInfo.id,
+          tool_part_id: turn.toolPart.id,
+          provider,
+          capability: input.capability,
+          status: "creating",
+          progress: 0,
+          request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
+          next_poll_at: Number.MAX_SAFE_INTEGER,
+          time_created: createdAt,
+          time_updated: createdAt,
+        })
+        .run(),
+    )
+    if (input.board) attachBoardGeneration(sessionID, input.board, id)
   })
-  if (!turn) throw new Error(`Unable to create Studio session turn: ${sessionID}`)
-  Database.use((db) =>
-    db
-      .insert(StudioGenerationTable)
-      .values({
-        id,
-        session_id: sessionID,
-        directory: session.directory,
-        assistant_message_id: turn.assistantInfo.id,
-        tool_part_id: turn.toolPart.id,
-        provider,
-        capability: input.capability,
-        status: "creating",
-        progress: 0,
-        request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
-        next_poll_at: Number.MAX_SAFE_INTEGER,
-        time_created: createdAt,
-        time_updated: createdAt,
-      })
-      .run(),
-  )
   const run = Instance.bind(() =>
     runGenerationCreatePipeline(id).catch((error) => failGenerationCreationByID(id, error)),
   )
@@ -2874,6 +2932,11 @@ async function createGenerationImpl(input: StudioGenerationRequest): Promise<Stu
 async function refreshGenerationOnce(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
   const record = loadGenerationRecord(id)
   if (!record) throw new Error(`Studio generation not found: ${id}`)
+  const pending = generationRequest(record).input.board && boardPendingReboots(record.session_id).find((operation) => operation.generation_id === id)
+  if (pending) {
+    assertCanGenerate(record.session_id)
+    return reconcileBoardReboot(record, pending.id)
+  }
   if (record.status !== "abnormal") return getGeneration(id)
   assertCanGenerate(record.session_id)
   const task = internalGenerationTask(record)
@@ -2911,18 +2974,53 @@ export function refreshGeneration(id: string): Promise<StudioGenerationResult & 
   return operation
 }
 
-export function rebootGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+export function rebootGeneration(
+  id: string,
+  operationID?: string,
+): Promise<StudioGenerationResult & { sessionID: string }> {
   const record = loadGenerationRecord(id)
-  return withStudioSubmission(record?.session_id ?? id, () => rebootGenerationImpl(id))
+  return withStudioSubmission(record?.session_id ?? id, () => rebootGenerationImpl(id, operationID))
 }
 
-async function rebootGenerationImpl(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+async function rebootGenerationImpl(
+  id: string,
+  operationID?: string,
+): Promise<StudioGenerationResult & { sessionID: string }> {
   if (rebootingGenerations.has(id)) throw new Error("该任务正在重新生成")
   rebootingGenerations.add(id)
   try {
     const record = loadGenerationRecord(id)
     if (!record) throw new Error(`Studio generation not found: ${id}`)
+    const data = generationRequest(record)
     assertCanGenerate(record.session_id)
+    if (data.input.board) {
+      if (!operationID || !z.string().uuid().safeParse(operationID).success)
+        throw new BoardError("画布重启需要有效的操作标识")
+      const previous = Database.use((db) =>
+        db.select().from(StudioBoardOperationTable).where(eq(StudioBoardOperationTable.id, operationID)).get(),
+      )
+      const canStart = record.status === "failed" && record.provider === "internel" && !!record.provider_task_id
+      // Snapshot before sending; a failed preflight has not submitted a reboot and must not leave a lock.
+      const baseline =
+        !previous && canStart
+          ? boardRebootBaseline(
+              await queryInternalGeneration(internalGenerationTask(record)).catch(() => {
+                throw new BoardError("重启前状态读取失败，请重试")
+              }),
+            )
+          : undefined
+      // Completed retries replay before the failed-only check, without another provider call.
+      const operation = boardRebootOperation(
+        record.session_id,
+        id,
+        record.provider_task_id ?? "",
+        operationID,
+        canStart,
+        baseline,
+      )
+      if (operation === "replay") return getGeneration(id)
+      if (operation === "pending") return reconcileBoardReboot(record, operationID)
+    }
     if (record.status === "create_failed")
       throw new Error(`Studio generation was not created and cannot be rebooted: ${id}`)
     if (record.status !== "failed") throw new Error(`Only failed Studio generations can be rebooted: ${id}`)
@@ -2931,10 +3029,18 @@ async function rebootGenerationImpl(id: string): Promise<StudioGenerationResult 
     if (!record.provider_task_id)
       throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
 
-    const data = generationRequest(record)
     const reboot = await rebootInternalGeneration({
       taskId: record.provider_task_id,
       userIdx: data.input.extra && typeof data.input.extra.userIdx === "string" ? data.input.extra.userIdx : undefined,
+    }).catch((error: unknown) => {
+      if (data.input.board && operationID) {
+        if (error instanceof InternalRebootRejectedError) {
+          finishBoardReboot(operationID, error.message)
+          throw new BoardError(error.message)
+        }
+        throw new BoardError("重启请求结果尚未确认，请刷新状态核对", 409)
+      }
+      throw error
     })
     const task: ImageGenerationTask = {
       provider: "internel",
@@ -2945,50 +3051,129 @@ async function rebootGenerationImpl(id: string): Promise<StudioGenerationResult 
       input: data.task?.input ?? data.input,
       request: data.task?.request ?? {},
     }
-    const updatedAt = Date.now()
-    const claimed = Database.transaction(
-      (db) => {
-        const current = db
-          .select({ status: StudioGenerationTable.status, provider_task_id: StudioGenerationTable.provider_task_id })
-          .from(StudioGenerationTable)
-          .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
-          .get()
-        if (!current) return "missing" as const
-        if (current.status !== "failed") return "terminal" as const
-        if (!current.provider_task_id) return "missing_task" as const
-        db.update(StudioGenerationTable)
-          .set({
-            provider_task_id: task.taskId,
-            status: "running",
-            progress: 0,
-            queue_order: null,
-            raw_status: null,
-            error: null,
-            last_poll_error: null,
-            result: null,
-            request: stripUndefined({ input: data.input, task }) as Record<string, unknown>,
-            poll_started_at: updatedAt,
-            poll_attempts: 0,
-            completed_at: null,
-            next_poll_at: updatedAt,
-            time_updated: updatedAt,
-          })
-          .where(eq(StudioGenerationTable.id, id))
-          .run()
-        return "claimed" as const
-      },
-      { behavior: "immediate" },
-    )
-    if (claimed === "missing") throw new Error(`Studio generation not found: ${id}`)
-    if (claimed === "missing_task")
-      throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
-    if (claimed === "terminal") return getGeneration(id)
-    restoreStudioSession({ record, task })
-    startStudioGenerationWorker()
-    return getGeneration(id)
+    return restoreRebootedGeneration(record, task, operationID)
   } finally {
     rebootingGenerations.delete(id)
   }
+}
+
+async function reconcileBoardReboot(record: StudioGenerationRecord, operationID: string) {
+  const task = internalGenerationTask(record)
+  const query = await queryInternalGeneration(task).catch(() => {
+    throw new BoardError("上游状态查询失败，请稍后刷新状态核对", 409)
+  })
+  if (query.status === "failed") {
+    const operation = boardPendingReboots(record.session_id).find((item) => item.id === operationID)
+    const baseline =
+      operation?.execution_baseline ??
+      (operation && record.completed_at ? { capturedAt: record.completed_at, executions: [] } : null)
+    // An unchanged failed task cannot prove that a reboot with a lost response was rejected.
+    if (!boardRebootFailedAgain(query, baseline)) throw new BoardError("上游尚未确认重启结果，请稍后刷新状态核对", 409)
+    const updatedAt = Date.now()
+    const error = Number(query.rawStatus) === 4 ? "用户取消生成" : (query.error ?? "生成任务失败")
+    const session = prepareErroredStudioSession({
+      record,
+      error,
+      status: "failed",
+      rawStatus: query.rawStatus,
+      taskId: task.taskId,
+      updatedAt,
+    })
+    Database.transaction(
+      (db) => {
+        const pending = db
+          .select()
+          .from(StudioBoardOperationTable)
+          .where(and(eq(StudioBoardOperationTable.id, operationID), eq(StudioBoardOperationTable.status, "pending")))
+          .get()
+        if (!pending) return
+        const claimed = db
+          .update(StudioGenerationTable)
+          .set({
+            status: "failed",
+            error,
+            raw_status: String(query.rawStatus),
+            progress: query.progress,
+            last_poll_error: null,
+            queue_order: null,
+            result: null,
+            completed_at: updatedAt,
+            next_poll_at: Number.MAX_SAFE_INTEGER,
+            time_updated: updatedAt,
+          })
+          .where(
+            and(
+              eq(StudioGenerationTable.id, record.id),
+              eq(StudioGenerationTable.directory, Instance.directory),
+              eq(StudioGenerationTable.status, "failed"),
+              eq(StudioGenerationTable.provider_task_id, task.taskId),
+            ),
+          )
+          .returning({ id: StudioGenerationTable.id })
+          .get()
+        if (!claimed) throw new BoardError("任务状态已更新，请刷新状态核对", 409)
+        applyStudioSessionUpdate(session)
+        finishBoardReboot(operationID)
+      },
+      { behavior: "immediate" },
+    )
+    return getGeneration(record.id)
+  }
+  return restoreRebootedGeneration(record, task, operationID, query)
+}
+
+async function restoreRebootedGeneration(
+  record: StudioGenerationRecord,
+  task: ImageGenerationTask,
+  operationID?: string,
+  query?: ImageGenerationQuery,
+) {
+  const id = record.id
+  const data = generationRequest(record)
+  const updatedAt = Date.now()
+  const claimed = Database.transaction(
+    (db) => {
+      const current = db
+        .select({ status: StudioGenerationTable.status, provider_task_id: StudioGenerationTable.provider_task_id })
+        .from(StudioGenerationTable)
+        .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
+        .get()
+      if (!current) return "missing" as const
+      if (current.status !== "failed") return "terminal" as const
+      if (!current.provider_task_id) return "missing_task" as const
+      if (current.provider_task_id !== record.provider_task_id) return "terminal" as const
+      db.update(StudioGenerationTable)
+        .set({
+          provider_task_id: task.taskId,
+          status: query?.status === "queued" ? "queued" : "running",
+          progress: query?.progress ?? 0,
+          queue_order: query?.order ?? null,
+          raw_status: query ? String(query.rawStatus) : null,
+          error: null,
+          last_poll_error: null,
+          result: null,
+          request: stripUndefined({ input: data.input, task }) as Record<string, unknown>,
+          poll_started_at: updatedAt,
+          poll_attempts: 0,
+          completed_at: null,
+          next_poll_at: updatedAt,
+          time_updated: updatedAt,
+        })
+        .where(eq(StudioGenerationTable.id, id))
+        .run()
+      if (data.input.board && operationID) finishBoardReboot(operationID)
+      return "claimed" as const
+    },
+    { behavior: "immediate" },
+  )
+  if (claimed === "missing") throw new Error(`Studio generation not found: ${id}`)
+  if (claimed === "missing_task")
+    throw new Error(`Studio generation has no provider task id and cannot be rebooted: ${id}`)
+  if (claimed === "terminal") return getGeneration(id)
+  restoreStudioSession({ record, task, query })
+  startStudioGenerationWorker()
+  if (query?.status === "succeeded") await completeGeneration(loadGenerationRecord(id)!, query)
+  return getGeneration(id)
 }
 
 export async function getGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {

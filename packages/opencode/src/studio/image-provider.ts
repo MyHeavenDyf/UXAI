@@ -30,6 +30,7 @@ export function resolveStudioVideoQualityMode(input: unknown, fallback?: unknown
 }
 
 export type ImageGenerateInput = {
+  promptPolicy?: "direct"
   capability: StudioCapability
   prompt: string
   aspectRatio?: string

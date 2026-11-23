@@ -32,22 +32,29 @@ export function StudioVideoPlayer(props: {
   let anchorRef!: HTMLDivElement
   let videoRef!: HTMLVideoElement
   let positionFrame = 0
+  let disposed = false
   let controlsTimer: ReturnType<typeof setTimeout> | undefined
   let playbackClickTimer: ReturnType<typeof setTimeout> | undefined
   const playing = () => playbackState() === "playing"
 
   function updatePosition() {
+    if (disposed) return
     cancelAnimationFrame(positionFrame)
     positionFrame = requestAnimationFrame(() => {
       // 双重 rAF：确保在 layout 完成后再测量，避免拿到 stale 尺寸
-      requestAnimationFrame(() => {
-        if (!anchorRef) return
+      positionFrame = requestAnimationFrame(() => {
+        if (disposed || !anchorRef) return
         const parent = anchorRef.parentElement
         if (!parent) return
         const style = getComputedStyle(parent)
         const availableWidth = Math.max(0, parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
         const availableHeight = Math.max(0, parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
-        if (availableWidth <= 0 || availableHeight <= 0) return
+        if (availableWidth <= 0 || availableHeight <= 0) {
+          setPosition((position) => position.visible ? { ...position, visible: false } : position)
+          clearPlaybackClickTimer()
+          if (!videoRef.paused) videoRef.pause()
+          return
+        }
         // 容器比视频宽 → 高度撑满；容器比视频高 → 宽度撑满
         const width = availableWidth / availableHeight > mediaRatio()
           ? availableHeight * mediaRatio()
@@ -172,6 +179,7 @@ export function StudioVideoPlayer(props: {
     document.addEventListener("scroll", updatePosition, true)
     updatePosition()
     onCleanup(() => {
+      disposed = true
       observer.disconnect()
       mutationObserver.disconnect()
       window.removeEventListener("resize", updatePosition)
@@ -179,6 +187,7 @@ export function StudioVideoPlayer(props: {
       cancelAnimationFrame(positionFrame)
       clearControlsTimer()
       clearPlaybackClickTimer()
+      videoRef.pause()
     })
   })
 

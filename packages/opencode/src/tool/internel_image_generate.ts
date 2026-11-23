@@ -964,6 +964,8 @@ export async function cancelInternalGeneration(taskId: string): Promise<CancelTa
   return json
 }
 
+export class InternalRebootRejectedError extends Error {}
+
 export async function rebootInternalGeneration(input: {
   taskId: string
   userIdx?: string
@@ -996,7 +998,8 @@ export async function rebootInternalGeneration(input: {
   }).finally(() => clearTimeout(timeout))
   const text = await response.text()
   if (!response.ok) {
-    throw new Error(
+    const Failure = response.status >= 400 && response.status < 500 ? InternalRebootRejectedError : Error
+    throw new Failure(
       [
         "reboot_task failed.",
         `taskId=${input.taskId}`,
@@ -1008,7 +1011,7 @@ export async function rebootInternalGeneration(input: {
   }
   const json = parseJson(text) as RebootTaskResponse
   if (json.resp_code !== undefined && json.resp_code !== 200) {
-    throw new Error(
+    throw new InternalRebootRejectedError(
       [
         rebootTaskFailureMessage(json),
         `taskId=${input.taskId}`,
@@ -1309,6 +1312,7 @@ export function getInternalTargetSize(styleModel?: string, aspectRatio?: StudioA
 }
 
 function buildPrompt(input: ImageGenerateInput) {
+  if (input.promptPolicy === "direct") return input.prompt
   if (buildTemplateArgs(input)) return input.prompt
   const conversationContext =
     input.extra && typeof input.extra.conversationContext === "string" && input.extra.conversationContext.trim().length > 0
@@ -1415,7 +1419,11 @@ async function getSourceImageDataUrl(input: ImageGenerateInput) {
 async function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
   const template = buildTemplateArgs(input)
   const refImgList = (await Promise.all(
-    (input.referenceImages ?? []).map((item) => resolveImageInputDataUrl(item).catch(() => undefined)),
+    (input.referenceImages ?? []).map((item) =>
+      input.promptPolicy === "direct"
+        ? resolveImageInputDataUrl(item)
+        : resolveImageInputDataUrl(item).catch(() => undefined),
+    ),
   ))
     .filter((item): item is string => Boolean(item))
     .map((item) => ({

@@ -364,20 +364,20 @@ export const ExperimentalRoutes = lazy(() =>
           cursor: z
             .string()
             .optional()
-            .meta({ description: "Opaque cursor returned by the previous page (composite of timestamp and session id)" }),
+            .meta({
+              description: "Opaque cursor returned by the previous page (composite of timestamp and session id)",
+            }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
           archived: QueryBoolean.optional().meta({ description: "Include archived sessions (default false)" }),
           agent: z.string().optional().meta({ description: "Filter sessions by agent name" }),
+          studio_mode: z.enum(["conversation", "board"]).optional(),
           pinned: QueryBoolean.optional().meta({ description: "Only return pinned sessions" }),
           grouped: QueryBoolean.optional().meta({ description: "Only return sessions that belong to a group" }),
-          order: z
-            .enum(["updated", "sort_order"])
-            .optional()
-            .meta({
-              description:
-                "Page ordering. Default (updated): most recently updated first. sort_order: the sidebar's recent-list display order (manual sort_order first, then most recently updated) — required for clients that display sort_order-first, so later pages never rank above already-shown sessions.",
-            }),
+          order: z.enum(["updated", "sort_order"]).optional().meta({
+            description:
+              "Page ordering. Default (updated): most recently updated first. sort_order: the sidebar's recent-list display order (manual sort_order first, then most recently updated) — required for clients that display sort_order-first, so later pages never rank above already-shown sessions.",
+          }),
         }),
       ),
       async (c) => {
@@ -394,6 +394,7 @@ export const ExperimentalRoutes = lazy(() =>
           limit: limit + 1,
           archived: queryBoolean(query.archived),
           agent: query.agent,
+          studio_mode: query.studio_mode,
           pinned: queryBoolean(query.pinned) ?? undefined,
           grouped: queryBoolean(query.grouped) ?? undefined,
         })) {
