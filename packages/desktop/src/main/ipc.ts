@@ -40,6 +40,7 @@ import type {
   WslConfig,
 } from "../preload/types"
 import * as FastuiDevServer from "./fastui-devserver"
+import * as SkillRefresh from "./skill-refresh"
 import * as FastuiExport from "./fastui-export"
 import * as FastuiPrepare from "./fastui-prepare"
 import { effectiveXdgConfigHome } from "./storage"
@@ -1260,6 +1261,8 @@ export function registerIpcHandlers(deps: Deps) {
       // 写入 skill_config.json（新格式）
       mkdirSync(dirname(skillConfigPath), { recursive: true })
       writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      // skill_config 是全局配置,写完即通知 sidecar 失效缓存,避免 server 继续读旧清单
+      void SkillRefresh.refreshSidecarSkills()
     } catch (err) {
       console.error("set-skills-config failed", err)
       throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1274,7 +1277,6 @@ export function registerIpcHandlers(deps: Deps) {
       return {}
     }
   })
-
 
   ipcMain.handle("get-assets-config", () => {
     try {
@@ -1296,10 +1298,51 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  ipcMain.handle("get-skills-by-usage", (_event: IpcMainInvokeEvent, usage: string) => {
+    try {
+      if (!existsSync(skillConfigPath)) return []
+      const config = JSON.parse(readFileSync(skillConfigPath, "utf-8")) as { skill?: Record<string, Record<string, unknown>> }
+      const result: Array<Record<string, unknown>> = []
+      for (const entry of Object.values(config.skill ?? {})) {
+        if (entry && typeof entry === "object" && entry.usage === usage) {
+          result.push(entry)
+        }
+      }
+      return result
+    } catch (err) {
+      console.error("get-skills-by-usage failed", err)
+      return []
+    }
+  })
+
+  ipcMain.handle("get-skill-key-by-name", (_event: IpcMainInvokeEvent, skillName: string) => {
+    try {
+      if (!existsSync(skillConfigPath)) return undefined
+      const config = JSON.parse(readFileSync(skillConfigPath, "utf-8")) as { skill?: Record<string, Record<string, unknown>> }
+      const entries = Object.entries(config.skill ?? {})
+      for (const [key, entry] of entries) {
+        if (entry && typeof entry === "object" && entry.skillName === skillName) {
+          return key
+        }
+      }
+      for (const [key, entry] of entries) {
+        if (entry && typeof entry === "object" && entry.name === skillName) {
+          return key
+        }
+      }
+      return undefined
+    } catch (err) {
+      console.error("get-skill-key-by-name failed", err)
+      return undefined
+    }
+  })
+  
   ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
       mkdirSync(dirname(skillConfigPath), { recursive: true })
       writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      // skill_config 是全局配置,写完即通知 sidecar 失效缓存,避免 server 继续读旧清单
+      void SkillRefresh.refreshSidecarSkills()
     } catch (err) {
       console.error("set-skill-config failed", err)
       throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1361,6 +1404,7 @@ export function registerIpcHandlers(deps: Deps) {
 
       // 重新生成 skill_config.json（从 ~/.config/octo/skill 目录扫描）
       regenerateSkillConfig()
+      void SkillRefresh.refreshSidecarSkills()
 
       return { success: true, skillName }
     } catch (err) {

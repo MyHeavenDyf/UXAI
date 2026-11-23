@@ -6,6 +6,7 @@ import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import { ApiNotFoundError } from "../errors"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
@@ -45,6 +46,7 @@ export const InstancePaths = {
   command: "/command",
   agent: "/agent",
   skill: "/skill",
+  skillAvailable: "/skill/available",
   lsp: "/lsp",
   formatter: "/formatter",
 } as const
@@ -158,6 +160,17 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "app.skills.refresh",
             summary: "Refresh skills",
             description: "Invalidate skill cache and re-discover skills from disk.",
+          }),
+        ),
+        HttpApiEndpoint.get("skillAvailable", InstancePaths.skillAvailable, {
+          query: Schema.Struct({ agent: Schema.String }),
+          success: described(Schema.Array(Skill.Info), "Skills available to the agent"),
+          error: [ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "app.skills.available",
+            summary: "List skills available to an agent",
+            description: "Return the skills available to the given agent — the same filter used for <available_skills> in the prompt. Reflects the latest state after POST /skill/refresh.",
           }),
         ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {
