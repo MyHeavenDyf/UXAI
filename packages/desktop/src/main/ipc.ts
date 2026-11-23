@@ -40,6 +40,7 @@ import type {
   WslConfig,
 } from "../preload/types"
 import * as FastuiDevServer from "./fastui-devserver"
+import * as SkillRefresh from "./skill-refresh"
 import * as FastuiExport from "./fastui-export"
 import * as FastuiPrepare from "./fastui-prepare"
 import { effectiveXdgConfigHome } from "./storage"
@@ -1259,6 +1260,8 @@ export function registerIpcHandlers(deps: Deps) {
       // 写入 skill_config.json（新格式）
       mkdirSync(dirname(skillConfigPath), { recursive: true })
       writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      // skill_config 是全局配置,写完即通知 sidecar 失效缓存,避免 server 继续读旧清单
+      void SkillRefresh.refreshSidecarSkills()
     } catch (err) {
       console.error("set-skills-config failed", err)
       throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1271,16 +1274,6 @@ export function registerIpcHandlers(deps: Deps) {
       return JSON.parse(readFileSync(skillConfigPath, "utf-8"))
     } catch {
       return {}
-    }
-  })
-
-  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
-    try {
-      mkdirSync(dirname(skillConfigPath), { recursive: true })
-      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
-    } catch (err) {
-      console.error("set-skill-config failed", err)
-      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
@@ -1304,6 +1297,18 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      // skill_config 是全局配置,写完即通知 sidecar 失效缓存,避免 server 继续读旧清单
+      void SkillRefresh.refreshSidecarSkills()
+    } catch (err) {
+      console.error("set-skill-config failed", err)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
   ipcMain.handle("set-Design-System-Skill-Config", async (_event: IpcMainInvokeEvent, skillName: string) => {
   })
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
@@ -1359,6 +1364,7 @@ export function registerIpcHandlers(deps: Deps) {
 
       // 重新生成 skill_config.json（从 ~/.config/octo/skill 目录扫描）
       regenerateSkillConfig()
+      void SkillRefresh.refreshSidecarSkills()
 
       return { success: true, skillName }
     } catch (err) {

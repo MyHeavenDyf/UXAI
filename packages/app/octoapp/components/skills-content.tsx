@@ -1,6 +1,6 @@
 import { createSignal, createMemo, For, onMount, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
-import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { showToast } from "@opencode-ai/ui/toast"
 // jk-j60099994-replace-with-60062650-components-skills-content-1-start
 // jk-j60099994-replace-with-60062650-components-skills-content-1-end
@@ -79,7 +79,7 @@ function ChevronIcon(props: { collapsed: boolean }): JSX.Element {
 }
 
 export function SkillsContent(): JSX.Element {
-  const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const [config, setConfig] = createSignal<SkillsConfig>({})
   const [collapsed, setCollapsed] = createSignal<Record<string, boolean>>({})
   const [loaded, setLoaded] = createSignal(false)
@@ -161,8 +161,7 @@ export function SkillsContent(): JSX.Element {
     setConfig(updated)
     const api = (window as unknown as { api?: { setSkillsConfig?: (c: SkillsConfig) => Promise<void> } }).api
     api?.setSkillsConfig?.(updated)?.then?.(() => {
-      const url = globalSDK.url
-      if (url) fetch(`${url}/skill/refresh`, { method: "POST" }).catch(() => {})
+      globalSync.refreshSkills().catch(() => {})
     })?.catch?.((err: unknown) => {
       console.error("[SkillsContent] setSkillsConfig failed", err)
       setConfig(config())
@@ -200,8 +199,7 @@ export function SkillsContent(): JSX.Element {
     // jk-j60099994-replace-with-60062650-components-skills-content-8-end
     // jk-j60099994-replace-with-60062650-components-skills-content-9-start
     await loadConfig()
-    const url = globalSDK.url
-    if (url) await fetch(`${url}/skill/refresh`, { method: "POST" }).catch(() => {})
+    await globalSync.refreshSkills().catch(() => {})
     // jk-j60099994-replace-with-60062650-components-skills-content-9-end
   }
 

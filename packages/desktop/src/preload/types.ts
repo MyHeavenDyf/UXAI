@@ -237,6 +237,7 @@ export type ElectronAPI = {
   /** 设置-MCP 页:写全局配置文件的 mcp 段(jsonc 保留注释,内置名单拒改);生效需随后 global.dispose */
   mcpConfigWrite: (input: McpConfigWriteInput) => Promise<void>
   getSkillConfig: () => Promise<SkillConfig>
+  setSkillConfig: (config: SkillConfig) => Promise<void>
   getSkillContent: (skillName: string) => Promise<SkillContentResponse>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   ensureSkillConfig: () => Promise<void>

@@ -1,3 +1,4 @@
+import log from "electron-log/main.js"
 import windowState from "electron-window-state"
 import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
@@ -109,11 +110,26 @@ export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
   updateTitlebar(win)
 }
 
-export function setDockIcon() {
+let dockIconTimer: ReturnType<typeof setTimeout> | undefined
+
+export function setDockIcon(delay = 0) {
   if (process.platform !== "darwin") return
-  const variant = nativeImage.createFromPath(join(iconsDir(), `dock-${nativeTheme.shouldUseDarkColors ? "dark" : "light"}.png`))
-  const icon = variant.isEmpty() ? nativeImage.createFromPath(join(iconsDir(), "dock.png")) : variant
-  if (!icon.isEmpty()) app.dock?.setIcon(icon)
+  clearTimeout(dockIconTimer)
+  const apply = () => {
+    const dark = nativeTheme.shouldUseDarkColors
+    const variantPath = join(iconsDir(), `dock-${dark ? "dark" : "light"}.png`)
+    const variant = nativeImage.createFromPath(variantPath)
+    const icon = variant.isEmpty() ? nativeImage.createFromPath(join(iconsDir(), "dock.png")) : variant
+    const info = { dark, variantPath, empty: icon.isEmpty(), hasDock: !!app.dock, iconsDir: iconsDir(), packaged: app.isPackaged }
+    console.log("[dock] setDockIcon", JSON.stringify(info))
+    log.info("[dock] setDockIcon", info)
+    if (!icon.isEmpty()) app.dock?.setIcon(icon)
+  }
+  if (delay <= 0) return apply()
+  dockIconTimer = setTimeout(() => {
+    dockIconTimer = undefined
+    apply()
+  }, delay)
 }
 
 export function createMainWindow() {
