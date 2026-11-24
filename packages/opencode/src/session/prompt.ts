@@ -28,6 +28,7 @@ import PROMPT_PLAN from "../session/prompt/plan.txt"
 import BUILD_SWITCH from "../session/prompt/build-switch.txt"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
 import { ToolRegistry } from "@/tool/registry"
+import * as ToolSearch from "@/tool/tool-search"
 import { MCP } from "../mcp"
 import { LSP } from "@/lsp/lsp"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -478,6 +479,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const run = yield* runner()
       const promptOps = yield* ops()
 
+      // 渐进式披露(Flag.OPENCODE_TOOL_SEARCH):agent.defer 列出的内置工具与全部 MCP 工具
+      // 不进 API tools 数组,改由 search_tools/execute_tool 元工具按需发现与执行,长描述
+      // 从每轮固定成本变为用则支付。被 Permission deny 或用户按消息关闭的工具在进桶前
+      // 剔除,元工具无法触达,不存在绕过权限的路径。
+      const toolSearch = Flag.OPENCODE_TOOL_SEARCH
+      const deferred: Record<string, ToolSearch.DeferredTool> = {}
+
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
         abort: options.abortSignal!,
@@ -521,20 +529,27 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         try: () => ArtifactStore.enabled(input.processor.message.id),
         catch: (error) => error,
       }).pipe(Effect.catch(() => Effect.succeed(false)))
-      for (const item of yield* registry.tools({
+      const items = yield* registry.tools({
         modelID: ModelID.make(input.model.api.id),
         providerID: input.model.providerID,
         agent: input.agent,
-      })) {
+      })
+      const deferBuiltin = toolSearch
+        ? new Set((input.agent.defer ?? []).filter((id) => id !== "invalid"))
+        : undefined
+      const builtinDisabled = deferBuiltin
+        ? Permission.disabled(
+            items.map((item) => item.id),
+            Permission.merge(input.agent.permission, input.session.permission ?? []),
+          )
+        : undefined
+      for (const item of items) {
         descriptors[item.id] = { kind: item.origin }
         const schema = ProviderTransform.schema(input.model, EffectZod.toJsonSchema(item.parameters))
         if (artifactTracking && item.id === ShellID.ToolID) {
           schema.required = [...new Set([...(schema.required ?? []), "artifactFiles"])]
         }
-        tools[item.id] = tool({
-          description: item.description,
-          inputSchema: jsonSchema(schema),
-          execute(requestedArgs, options) {
+        const execute = (requestedArgs: any, options: ToolExecutionOptions) => {
             // Session parts may freeze SDK input while before-hooks await I/O.
             // Keep the tracked request snapshot separate from mutable execution arguments.
             const args = artifactTracking ? structuredClone(requestedArgs) : requestedArgs
@@ -578,7 +593,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 return output
               }), options.abortSignal),
             )
-          },
+        }
+        if (deferBuiltin?.has(item.id) && !builtinDisabled?.has(item.id) && input.tools?.[item.id] !== false) {
+          deferred[item.id] = { name: item.id, description: item.description, schema, execute }
+          continue
+        }
+        tools[item.id] = tool({
+          description: item.description,
+          inputSchema: jsonSchema(schema),
+          execute,
         })
       }
 
@@ -586,6 +609,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const cfg = yield* config.get()
       const userMcpKeys = Object.keys(cfg.mcp ?? {}).filter((k) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(k))
       const mcpTools = yield* mcp.toolsForAgent(input.agent.mcp, userMcpKeys)
+      const mcpDisabled = toolSearch
+        ? Permission.disabled(
+            Object.keys(mcpTools),
+            Permission.merge(input.agent.permission, input.session.permission ?? []),
+          )
+        : undefined
       yield* elog.info("mcp tools assembled", {
         agent: input.agent.name,
         agentMcp: input.agent.mcp,
@@ -607,8 +636,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
         const schema = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
         const transformed = ProviderTransform.schema(input.model, schema)
-        item.inputSchema = jsonSchema(transformed)
-        item.execute = (requestedArgs, opts) => {
+        const wrapped = (requestedArgs: any, opts: ToolExecutionOptions) => {
           const args = artifactTracking ? structuredClone(requestedArgs) : requestedArgs
           return run.promise(
             ToolCalls.observe({ messageID: input.processor.message.id, sessionID: input.session.id,
@@ -703,11 +731,74 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }), opts.abortSignal),
           )
         }
+        if (toolSearch && !mcpDisabled?.has(key) && input.tools?.[key] !== false) {
+          deferred[key] = { name: key, description: item.description ?? key, schema: transformed, execute: wrapped }
+          continue
+        }
+        item.inputSchema = jsonSchema(transformed)
+        item.execute = wrapped
         tools[key] = item
       }
 
+      if (toolSearch && Object.keys(deferred).length > 0) {
+        const deferredNames = () => Object.keys(deferred).toSorted().join(", ")
+        tools["search_tools"] = tool({
+          description: ToolSearch.SEARCH_TOOLS_DESCRIPTION,
+          inputSchema: jsonSchema({
+            type: "object",
+            properties: {
+              query: { type: "string", description: 'Tool name ("select:Name") or keywords to search for' },
+              max_results: { type: "number", description: "Maximum number of keyword-search results (default 5)" },
+            },
+            required: ["query"],
+          }),
+          execute: async (args: any) => ({
+            title: "search_tools",
+            metadata: {},
+            output: ToolSearch.searchDeferredTools(
+              deferred,
+              String(args?.query ?? ""),
+              Number(args?.max_results) || 5,
+            ),
+          }),
+        })
+        tools["execute_tool"] = tool({
+          description: ToolSearch.EXECUTE_TOOL_DESCRIPTION,
+          inputSchema: jsonSchema({
+            type: "object",
+            properties: {
+              tool_name: { type: "string", description: "Exact name of the deferred tool to execute" },
+              params: {
+                type: "object",
+                description: "Parameters for the target tool, matching the schema returned by search_tools",
+              },
+            },
+            required: ["tool_name", "params"],
+          }),
+          execute: (args: any, options: ToolExecutionOptions) => {
+            const name = String(args?.tool_name ?? "")
+            const entry = deferred[name]
+            if (!entry) {
+              return Promise.resolve({
+                title: "execute_tool",
+                metadata: {},
+                output: `Unknown deferred tool "${name}". Available deferred tools: ${deferredNames()}. Use search_tools with "select:<name>" to read its schema first.`,
+              })
+            }
+            // 委托桶内已包装的 execute:权限询问(ctx.ask)、工具追踪(observe)、
+            // 输出截断、插件触发等链路与直呼完全一致,元工具只做透传。
+            return entry.execute(args?.params, options)
+          },
+        })
+        yield* elog.info("tool search enabled", {
+          agent: input.agent.name,
+          deferredTools: Object.keys(deferred).join(","),
+          directTools: Object.keys(tools).join(","),
+        })
+      }
+
       yield* ToolCalls.safely(() => ToolCalls.configure(input.processor.message.id, descriptors))
-      return tools
+      return { tools, deferred }
     })
 
     const prepareRequest = Effect.fn("SessionPrompt.prepareRequest")(function* (input: {
@@ -720,7 +811,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       onStructuredOutput: (output: unknown) => void
     }) {
       const lastUserMsg = input.messages.findLast((message) => message.info.role === "user")
-      const tools = yield* resolveTools({
+      const { tools, deferred } = yield* resolveTools({
         agent: input.agent,
         session: input.session,
         model: input.model,
@@ -773,6 +864,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             "</available_user_mcp_tools>",
           ].join("\n"),
         )
+      }
+      const deferredNames = Object.keys(deferred)
+      if (deferredNames.length && !studioImageGeneration) {
+        system.push(ToolSearch.formatAnnouncement(deferredNames))
       }
       if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
       return { activeTools, format, modelMsgs, studioImageGeneration, system }
