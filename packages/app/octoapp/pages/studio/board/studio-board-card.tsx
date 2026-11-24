@@ -1,14 +1,17 @@
-import { createMemo, Show } from "solid-js"
+import { createEffect, createMemo, on, Show } from "solid-js"
+import { createStore } from "solid-js/store"
 import {
   boardCover,
   boardFailed,
   boardMedia,
   boardRebootable,
+  boardCardSize,
   type BoardCard,
   type BoardResults,
 } from "./studio-board-state"
 import type { BoardOperation } from "./studio-board-operations"
-import { studioGenerationModelUnavailableMessage } from "../studio-shared"
+import { studioGenerationFailureMessage, studioGenerationProgress, studioGenerationQueueLabel } from "../studio-shared"
+import { StudioVideoPlayer } from "../studio-video-player"
 
 export function StudioBoardCardView(props: {
   card: BoardCard
@@ -26,14 +29,32 @@ export function StudioBoardCardView(props: {
   onRemove: () => void
   onResults: () => void
   onPlay: (video: HTMLVideoElement) => void
+  onSize?: (size: { width: number; height: number }) => void
+  playerMount?: () => HTMLElement
 }) {
   const current = () => props.results[props.card.currentGenerationID ?? ""]
-  const unavailableModelMessage = () => {
-    const result = current()
-    return result && studioGenerationModelUnavailableMessage(result)
-  }
   const hasFailure = () => !props.operation && !props.failureSuppressed && boardFailed(current())
   const showFailure = () => !props.historyPreview && hasFailure()
+  const needsRefresh = () => props.operation === "unknown" || (!props.operation && current()?.status === "abnormal")
+  const cancellable = () => !props.operation && ["creating", "queued", "running"].includes(current()?.status ?? "")
+  const operationLabel = () =>
+    props.operation &&
+    {
+      creating: "提交中",
+      uploading: "上传中",
+      cancelling: "取消中",
+      rebooting: "重新生成中",
+      unknown: "核对中",
+    }[props.operation]
+  const statusLabel = () => {
+    if (props.operation === "cancelling") return
+    if (props.operation) return operationLabel()
+    if (current()?.status === "queued") return studioGenerationQueueLabel(current()?.order)
+    if (current()?.status === "running" && Number.isFinite(current()?.progress))
+      return `${studioGenerationProgress(current()?.progress)}%`
+    if (current()?.status === "creating") return "创建中"
+    if (needsRefresh()) return "状态异常"
+  }
   const shownMedia = createMemo(() => {
     const items = boardMedia(props.card, props.results)
     return (
@@ -42,10 +63,46 @@ export function StudioBoardCardView(props: {
       )?.media ?? boardCover(props.card, props.results)
     )
   })
+  const source = () => props.mediaURL(shownMedia()?.url)
+  const dimensions = new Map<string, { width: number; height: number }>()
+  const [media, setMedia] = createStore({ width: 300, height: 300 })
+  const size = createMemo(() => boardCardSize(media.width, media.height))
+  let element!: HTMLElement
+  function measure(width: number, height: number) {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
+    const src = source()
+    if (!src) return
+    dimensions.set(src, { width, height })
+    setMedia({ width, height })
+  }
+  createEffect(
+    on(
+      () => [source(), shownMedia()?.width, shownMedia()?.height] as const,
+      ([src, width, height]) => {
+        const cached = src && dimensions.get(src)
+        if (cached) {
+          setMedia(cached)
+          return
+        }
+        if (width && height && Number.isFinite(width) && Number.isFinite(height)) setMedia({ width, height })
+      },
+    ),
+  )
+  createEffect(() => props.onSize?.(size()))
   return (
     <article
+      ref={element!}
       class="studio-board-card"
-      classList={{ selected: props.selected }}
+      style={{
+        width: `${size().width}px`,
+        height: `${size().height}px`,
+        "--studio-board-media-height": `${size().height - 30}px`,
+      }}
+      classList={{
+        selected: props.selected,
+        "studio-board-card-image": props.card.kind === "image",
+        "studio-board-card-video": props.card.kind === "video",
+      }}
       aria-label={props.card.title}
       on:pointerdown={(event) => {
         if (event.target instanceof Element && event.target.closest("button, video, input")) event.stopPropagation()
@@ -56,65 +113,12 @@ export function StudioBoardCardView(props: {
     >
       <header>
         <span class="studio-board-card-title">
-          {props.card.kind === "image" ? "▧" : "▷"} {props.card.title}
+          <span class="studio-board-card-icon" aria-hidden="true" />
+          {props.card.title}
         </span>
-        <Show
-          when={props.locked}
-          fallback={
-            <Show when={hasFailure() && boardRebootable(current())}>
-              <button
-                type="button"
-                disabled={props.rebootBlocked}
-                on:click={(event) => {
-                  event.stopPropagation()
-                  void props.onOperate("reboot")
-                }}
-              >
-                重新生成
-              </button>
-            </Show>
-          }
-        >
-          <span class="studio-board-card-status">
-            {props.operation
-              ? ({
-                  creating: "提交中",
-                  uploading: "上传中",
-                  cancelling: "取消中",
-                  rebooting: "重新生成中",
-                  unknown: "核对中",
-                }[props.operation] ?? "处理中")
-              : current()?.status === "abnormal"
-                ? "状态异常"
-                : current()?.status === "creating"
-                  ? "创建中"
-                  : `${current()?.progress ?? 0}%`}
-          </span>
-          <Show when={!props.operation && current()?.status !== "abnormal"}>
-            <button
-              type="button"
-              on:click={(event) => {
-                event.stopPropagation()
-                void props.onOperate("cancel")
-              }}
-            >
-              取消生成
-            </button>
-          </Show>
-          <Show when={props.operation === "unknown" || current()?.status === "abnormal"}>
-            <button
-              type="button"
-              on:click={(event) => {
-                event.stopPropagation()
-                void props.onRefresh()
-              }}
-            >
-              刷新状态
-            </button>
-          </Show>
-        </Show>
         <button
           type="button"
+          class="studio-board-card-remove"
           aria-label={`移除${props.card.title}`}
           disabled={props.editingBlocked}
           on:click={(event) => {
@@ -125,33 +129,87 @@ export function StudioBoardCardView(props: {
           ×
         </button>
       </header>
-      <div class="studio-board-card-media">
+      <div class="studio-board-card-media" classList={{ "has-status": props.locked || showFailure() }}>
+        <Show when={props.locked || (hasFailure() && boardRebootable(current()))}>
+          <div class="studio-board-card-task-actions">
+            <Show when={statusLabel()}>
+              <span class="studio-board-card-status" role="status">
+                {statusLabel()}
+              </span>
+            </Show>
+            <Show when={cancellable() || props.operation === "cancelling"}>
+              <button
+                type="button"
+                aria-label="取消生成"
+                disabled={props.operation === "cancelling"}
+                on:click={(event) => {
+                  event.stopPropagation()
+                  props.onOperate("cancel")
+                }}
+              >
+                {props.operation === "cancelling" ? "取消中…" : "取消任务"}
+              </button>
+            </Show>
+            <Show when={needsRefresh()}>
+              <button
+                type="button"
+                on:click={(event) => {
+                  event.stopPropagation()
+                  props.onRefresh()
+                }}
+              >
+                刷新状态
+              </button>
+            </Show>
+            <Show when={hasFailure() && boardRebootable(current())}>
+              <button
+                type="button"
+                disabled={props.rebootBlocked}
+                on:click={(event) => {
+                  event.stopPropagation()
+                  props.onOperate("reboot")
+                }}
+              >
+                重新生成
+              </button>
+            </Show>
+          </div>
+        </Show>
         <Show
           when={!props.locked && !showFailure()}
           fallback={
-            <div class="studio-board-card-placeholder" classList={{ failure: showFailure() }}>
+            <div
+              class="studio-board-card-placeholder studio-board-card-task"
+              classList={{ failure: showFailure(), abnormal: needsRefresh() }}
+            >
               <Show
                 when={showFailure()}
                 fallback={
                   <>
-                    <span class="studio-board-spinner" />
-                    <span>
-                      {props.operation === "unknown"
-                        ? "请求结果待核对"
-                        : current()?.status === "abnormal"
-                          ? "任务状态异常，请刷新核对"
-                          : "正在生成"}
+                    <span
+                      class="studio-board-card-icon studio-board-card-empty-icon"
+                      classList={{ "studio-board-card-error-icon": needsRefresh() }}
+                      aria-hidden="true"
+                    />
+                    <span class="studio-board-card-task-title" role="status">
+                      {needsRefresh() ? "请求结果待核对" : props.operation ? `${operationLabel()}…` : "正在创作中…"}
                     </span>
+                    <Show when={needsRefresh()}>
+                      <span class="studio-board-card-task-reason">任务状态待确认，请刷新状态</span>
+                    </Show>
                   </>
                 }
               >
-                <strong>生成失败</strong>
-                <span>
-                  {unavailableModelMessage() || (String(current()?.rawStatus) === "4" ? "用户取消生成" : current()?.error || "生成失败，请稍后重试")}
+                <span class="studio-board-card-error-icon" aria-hidden="true" />
+                <strong class="studio-board-card-task-title">生成失败</strong>
+                <span
+                  class="studio-board-card-task-reason"
+                  onWheel={(event) => event.stopPropagation()}
+                  on:pointerdown={(event) => event.stopPropagation()}
+                  on:mousedown={(event) => event.stopPropagation()}
+                >
+                  {studioGenerationFailureMessage(current())}
                 </span>
-                <Show when={!boardRebootable(current())}>
-                  <small>请在输入区发送新任务</small>
-                </Show>
               </Show>
             </div>
           }
@@ -160,9 +218,7 @@ export function StudioBoardCardView(props: {
             when={shownMedia()}
             fallback={
               <div class="studio-board-card-placeholder">
-                <span class="studio-board-empty-symbol">{props.card.kind === "image" ? "▧" : "▷"}</span>
-                <span>让想法成为画面</span>
-                <small>选中卡片，输入你的创意</small>
+                <span class="studio-board-card-icon studio-board-card-empty-icon" aria-hidden="true" />
               </div>
             }
           >
@@ -171,25 +227,34 @@ export function StudioBoardCardView(props: {
                 when={props.card.kind === "video"}
                 fallback={
                   <img
-                    src={props.mediaURL(image().thumbnailUrl ?? image().url)}
+                    src={source()}
                     alt={props.card.title}
                     draggable={false}
+                    onLoad={(event) => {
+                      if (
+                        event.currentTarget.currentSrc &&
+                        event.currentTarget.currentSrc !== event.currentTarget.src
+                      )
+                        return
+                      measure(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)
+                    }}
                   />
                 }
               >
-                <video
-                  src={props.mediaURL(image().url)}
+                <StudioVideoPlayer
+                  src={source() ?? ""}
                   poster={props.mediaURL(image().thumbnailUrl)}
-                  controls
-                  preload="none"
-                  onPlay={(event) => props.onPlay(event.currentTarget)}
+                  inline
+                  mount={props.playerMount ?? (() => element.ownerDocument.body)}
+                  onMetadata={(value) => measure(value.width, value.height)}
+                  onPlay={props.onPlay}
                 />
               </Show>
             )}
           </Show>
         </Show>
       </div>
-      <footer>
+      <footer classList={{ empty: (props.locked || showFailure()) && !boardMedia(props.card, props.results).length }}>
         <span>{props.card.kind === "image" ? "图片卡片" : "视频卡片"}</span>
         <button
           type="button"

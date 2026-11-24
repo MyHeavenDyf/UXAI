@@ -2,6 +2,7 @@ import {
   BoardDocument,
   boardEdgeError,
   boardDraftReferences,
+  boardReferenceActive,
   type BoardCard,
   type BoardReference,
   type BoardSettings,
@@ -19,6 +20,20 @@ export type {
   BoardSnapshot,
 } from "@opencode-ai/core/studio-board"
 export type BoardResults = Record<string, StudioGenerationResult>
+
+export function boardCardSize(width?: number, height?: number) {
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  )
+    return { width: 304, height: 330 }
+  const scale = 300 / Math.max(width, height)
+  return { width: width * scale + 4, height: height * scale + 30 }
+}
 
 export function boardDocumentSnapshot(document: unknown) {
   return BoardDocument.parse(document)
@@ -98,6 +113,7 @@ export function boardConnectionError(
   if (error) return error
   const source = document.cards.find((card) => card.id === sourceID)!
   const target = document.cards.find((card) => card.id === targetID)!
+  if (!boardReferenceActive(target.kind, target.draft.settings, role)) return "引用类型与当前视频输入模式不匹配"
   if (!boardCover(source, results)) return "上游封面不可用"
   if (boardBusy(results[target.currentGenerationID ?? ""])) return "请等待目标任务结束后修改引用"
 }

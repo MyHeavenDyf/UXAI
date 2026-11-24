@@ -4,13 +4,17 @@ import { defaultStudioStyleModel, studioModelUnavailableMessage } from "./studio
 
 const point = z.object({ x: z.number().finite(), y: z.number().finite() })
 export const BoardSettings = z.object({
-  styleModel: z.string().min(1).default(() => defaultStudioStyleModel()),
+  styleModel: z
+    .string()
+    .min(1)
+    .default(() => defaultStudioStyleModel()),
   aspectRatio: z.enum(["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9", "21:9"]).default("1:1"),
   count: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).default(1),
   isCustom: z.boolean().default(false),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   videoMode: z.enum(["text", "first_last_frame"]).default("text"),
+  videoInputMode: z.enum(["first-last-frame", "multi-reference"]).optional(),
   duration: z
     .string()
     .regex(/^(?:[4-9]|1[0-5])$/)
@@ -129,12 +133,26 @@ export function newBoardCard(id: string, kind: BoardCard["kind"], position = { x
 
 export function uniqueBoardReferences(references: BoardReference[]) {
   return references.filter(
-    (ref, index) => references.findIndex((item) => item.image === ref.image && item.role === ref.role) === index,
+    (ref, index) =>
+      references.findIndex(
+        (item) =>
+          item.sourceID === ref.sourceID &&
+          item.generationID === ref.generationID &&
+          item.mediaID === ref.mediaID &&
+          item.role === ref.role,
+      ) === index,
   )
 }
 
 export function boardReferenceLimit(styleModel: string) {
   return styleModel.startsWith("seedream-") ? 4 : styleModel === "qwen" ? 3 : 1
+}
+
+export const BOARD_VIDEO_REFERENCE_LIMIT = 4
+
+export function boardReferenceActive(kind: BoardCard["kind"], settings: BoardSettings, role: string) {
+  if (kind !== "video" || !settings.videoInputMode) return true
+  return settings.videoInputMode === "multi-reference" ? role === "reference" : role !== "reference"
 }
 
 export function boardGenerationError(kind: BoardCard["kind"], snapshot: BoardSnapshot) {
@@ -147,7 +165,18 @@ export function boardGenerationError(kind: BoardCard["kind"], snapshot: BoardSna
     !isStudioCustomSizeValid(settings.styleModel, settings.width, settings.height)
   )
     return "自定义尺寸不完整或不符合模型要求"
-  if (snapshot.references.length > boardReferenceLimit(settings.styleModel)) return "参考图数量超过模型上限"
+  if (
+    snapshot.references.length >
+    (kind === "video" ? BOARD_VIDEO_REFERENCE_LIMIT : boardReferenceLimit(settings.styleModel))
+  )
+    return "参考图数量超过模型上限"
+  if (snapshot.references.some((ref) => !boardReferenceActive(kind, settings, ref.role)))
+    return "参考图与当前视频输入模式不匹配"
+  if (
+    kind === "video" &&
+    ["firstFrame", "lastFrame"].some((role) => snapshot.references.filter((ref) => ref.role === role).length > 1)
+  )
+    return "每个首尾帧槽位仅支持一张图片"
   if (
     kind === "video" &&
     snapshot.references.some((ref) => ref.role === "lastFrame") &&
@@ -163,9 +192,13 @@ export function boardDraftReferences(
   targetID: string,
   coverURL: (source: BoardCard | undefined) => string | undefined,
 ): BoardReference[] {
+  const target = document.cards.find((card) => card.id === targetID)
+  if (!target) return []
   return uniqueBoardReferences([
     ...document.draftEdges
-      .filter((edge) => edge.targetID === targetID)
+      .filter(
+        (edge) => edge.targetID === targetID && boardReferenceActive(target.kind, target.draft.settings, edge.role),
+      )
       .flatMap((edge) => {
         const source = document.cards.find((card) => card.id === edge.sourceID)
         const image = coverURL(source)
@@ -182,14 +215,16 @@ export function boardDraftReferences(
             ]
           : []
       }),
-    ...(document.cards.find((card) => card.id === targetID)?.draft.assets ?? []).map((asset) => ({
-      sourceID: `upload:${asset.id}`,
-      generationID: "",
-      mediaID: asset.id,
-      title: asset.name,
-      image: asset.url,
-      role: asset.role,
-    })),
+    ...target.draft.assets
+      .filter((asset) => boardReferenceActive(target.kind, target.draft.settings, asset.role))
+      .map((asset) => ({
+        sourceID: `upload:${asset.id}`,
+        generationID: "",
+        mediaID: asset.id,
+        title: asset.name,
+        image: asset.url,
+        role: asset.role,
+      })),
   ])
 }
 

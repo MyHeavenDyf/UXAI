@@ -83,6 +83,19 @@ export function extractFirstImageFromMessages(items: Array<{ info: Message; part
   return extractFirstMediaFromMessages(items)?.url
 }
 
+export function extractBoardThumbnailFromMessages(items: Array<{ info: Message; parts: Part[] }>) {
+  return items
+    .filter((item) => item.info.role === "assistant")
+    .flatMap((item) =>
+      item.parts.filter(isToolPart).flatMap((part) => {
+        const media = extractStudioThumbnailMedia(part)
+        if (!media || part.state.status !== "completed") return []
+        return [{ ...media, generationAt: part.state.time.end ?? part.state.time.start }]
+      }),
+    )
+    .sort((a, b) => b.generationAt - a.generationAt)[0]
+}
+
 /**
  * Creates a reactive, localStorage-persisted store for session thumbnails.
  *
@@ -153,7 +166,7 @@ export function createSessionThumbnailStore(input: {
     const commit = () => {
       if (!shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], generationAt)) return
       probedMisses.delete(sessionID)
-      if (persistedThumbnails[sessionID]?.url === url) return
+      if (persistedThumbnails[sessionID]?.url === url && persistedThumbnails[sessionID]?.generationAt === generationAt) return
       setPersistedThumbnails(sessionID, {
         url,
         updatedAt: Date.now(),
@@ -240,7 +253,7 @@ export function createSessionThumbnailStore(input: {
               sessionID: session.id,
             })
             const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
-            const media = extractFirstMediaFromMessages(items)
+            const media = session.studio_mode === "board" ? extractBoardThumbnailFromMessages(items) : extractFirstMediaFromMessages(items)
             const fallback = Boolean(media && !isStudioThumbnailUrl(media.url))
             const url = normalizeThumbnail(media?.url, fallback)
             if (media && url && shouldReplaceSessionThumbnail(persistedThumbnails[session.id], media.generationAt)) {
@@ -258,7 +271,8 @@ export function createSessionThumbnailStore(input: {
         for (const result of results) {
           if (result.status !== "fulfilled" || !result.value) continue
           const { sessionID, url, updatedAt, generationAt, kind, fallback } = result.value
-          if (persistedThumbnails[sessionID]?.url === url) continue
+          if (!shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], generationAt)) continue
+          if (persistedThumbnails[sessionID]?.url === url && persistedThumbnails[sessionID]?.generationAt === result.value.generationAt) continue
           setPersistedThumbnails(sessionID, { url, updatedAt, generationAt, kind, fallback })
         }
       })
@@ -275,7 +289,9 @@ export function createSessionThumbnailStore(input: {
             try {
               const result = await client.session.messages({ sessionID })
               const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
-              const media = extractFirstMediaFromMessages(items)
+              const media = sessions.find((session) => session.id === sessionID)?.studio_mode === "board"
+                ? extractBoardThumbnailFromMessages(items)
+                : extractFirstMediaFromMessages(items)
               const fallback = Boolean(media && !isStudioThumbnailUrl(media.url))
               const url = normalizeThumbnail(media?.url, fallback)
               if (media && url && shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], media.generationAt)) {
@@ -291,7 +307,8 @@ export function createSessionThumbnailStore(input: {
             if (result.status !== "fulfilled" || !result.value) continue
             const { sessionID, url } = result.value
             probedMisses.delete(sessionID)
-            if (persistedThumbnails[sessionID]?.url === url) continue
+            if (!shouldReplaceSessionThumbnail(persistedThumbnails[sessionID], result.value.generationAt)) continue
+            if (persistedThumbnails[sessionID]?.url === url && persistedThumbnails[sessionID]?.generationAt === result.value.generationAt) continue
             setPersistedThumbnails(sessionID, {
               url,
               updatedAt: Date.now(),

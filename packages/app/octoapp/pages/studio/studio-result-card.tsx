@@ -1,7 +1,12 @@
 import { For, Show } from "solid-js"
 import { tracker } from "@/utils/tracker"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
-import { studioResultCardStatus } from "./studio-shared"
+import {
+  studioResultCardStatus,
+  studioGenerationProgress,
+  studioGenerationQueueLabel,
+  studioGenerationFailureMessage,
+} from "./studio-shared"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioGenerationStatus } from "./types"
 import type { StudioTurnData } from "./turns"
 import { StudioMediaThumbnail } from "./studio-media-thumbnail"
@@ -54,7 +59,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     Boolean(props.turn.result?.id.startsWith("studio_gen"))
   const progress = () => {
     if (status() === "succeeded") return 100
-    return Math.round(Math.min(100, Math.max(0, props.turn.result?.progress ?? 0)))
+    return studioGenerationProgress(props.turn.result?.progress)
   }
   const mediaLabel = () => capabilityLabel(capability())
   const createdAt = () => {
@@ -111,7 +116,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
           </div>
           <span class="studio-result-progress-status" classList={{ invisible: !statusLabel() }}>{statusLabel()}</span>
           <Show when={status() === "queued"}>
-            <span class="studio-result-queue-count">当前排队{props.turn.result?.order || 1}人</span>
+            <span class="studio-result-queue-count">{studioGenerationQueueLabel(props.turn.result?.order)}</span>
           </Show>
           <Show when={status() === "running"}>
             <>
@@ -192,9 +197,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
             <div class="studio-result-error">
               {status() === "abnormal"
                 ? "生成耗时较长，状态异常，请刷新状态"
-                : props.turn.toolError ??
-                  props.turn.result?.error ??
-                  (status() === "create_failed" ? "任务创建失败，请检查网络或稍后再试" : "生成失败")}
+                : studioGenerationFailureMessage(props.turn.result, props.turn.toolError)}
             </div>
           </div>
         </Show>

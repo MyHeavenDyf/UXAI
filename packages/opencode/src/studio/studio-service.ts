@@ -2867,6 +2867,7 @@ async function createGenerationImpl(request: StudioGenerationRequest): Promise<S
           height: snapshot.settings.isCustom ? snapshot.settings.height : undefined,
           ...(request.capability === "video.generate" ? {
             videoMode: snapshot.settings.videoMode,
+            videoInputMode: snapshot.settings.videoInputMode,
             duration: snapshot.settings.duration,
             mode: snapshot.settings.quality === "480" ? "std" : "pro",
             resolution: snapshot.settings.quality === "4k" ? "4k" : `${snapshot.settings.quality}p`,

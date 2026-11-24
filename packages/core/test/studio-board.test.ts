@@ -4,6 +4,7 @@ import {
   BoardSnapshot,
   boardDraftReferences,
   boardGenerationError,
+  uniqueBoardReferences,
   emptyBoard,
   newBoardCard,
 } from "../src/studio-board"
@@ -38,8 +39,13 @@ test("new cards follow the active configuration while retired drafts remain read
   try {
     expect(newBoardCard("new", "image").draft.settings.styleModel).toBe(defaultStudioStyleModel())
     expect(newBoardCard("new", "image").draft.settings.styleModel).not.toBe(model.id)
-    expect(STUDIO_STYLE_MODEL_CONFIG.find((model) => model.id === defaultStudioStyleModel(false))?.requiresSeedreamPermission).not.toBe(true)
-    expect(boardGenerationError("image", { ...retired, settings: { ...retired.settings, styleModel: model.id } })).toContain("模型已下架或不可用")
+    expect(
+      STUDIO_STYLE_MODEL_CONFIG.find((model) => model.id === defaultStudioStyleModel(false))
+        ?.requiresSeedreamPermission,
+    ).not.toBe(true)
+    expect(
+      boardGenerationError("image", { ...retired, settings: { ...retired.settings, styleModel: model.id } }),
+    ).toContain("模型已下架或不可用")
   } finally {
     STUDIO_STYLE_MODEL_CONFIG.unshift(model)
   }
@@ -72,7 +78,7 @@ test("video frame and 4K rules allow valid snapshots and keep image rules indepe
   expect(boardGenerationError("video", { ...snapshot, prompt: "  " })).toBe("请输入提示词")
 })
 
-test("draft references preserve ordering and role deduplication, and leave unavailable media handling to the caller", () => {
+test("draft references preserve distinct sources sharing a URL and leave unavailable media handling to the caller", () => {
   const source = newBoardCard("source", "image")
   source.cover = { generationID: "task", mediaID: "image" }
   const target = newBoardCard("target", "video")
@@ -96,6 +102,14 @@ test("draft references preserve ordering and role deduplication, and leave unava
       role: "reference",
     },
     {
+      sourceID: "upload:same",
+      generationID: "",
+      mediaID: "same",
+      title: "same.png",
+      image: "https://example.test/source.png",
+      role: "reference",
+    },
+    {
       sourceID: "upload:frame",
       generationID: "",
       mediaID: "frame",
@@ -115,4 +129,78 @@ test("draft references preserve ordering and role deduplication, and leave unava
   ).toThrow("引用媒体不可用")
   source.cover.mediaID = "new-image"
   expect(references[0].mediaID).toBe("image")
+})
+
+test("reference identity includes source, generation, media and role rather than image URL", () => {
+  const reference = {
+    sourceID: "a",
+    generationID: "task",
+    mediaID: "image",
+    title: "图片",
+    image: "/same.png",
+    role: "reference" as const,
+  }
+  const references = [
+    reference,
+    { ...reference, sourceID: "b" },
+    { ...reference, generationID: "other-task" },
+    { ...reference, mediaID: "other-image" },
+    { ...reference, role: "firstFrame" as const },
+  ]
+  expect(uniqueBoardReferences([...references, { ...reference, image: "/refreshed-url.png" }])).toEqual(references)
+})
+
+test("video input modes keep inactive material but freeze only active references", () => {
+  const card = newBoardCard("video", "video")
+  card.draft.settings.videoInputMode = "multi-reference"
+  card.draft.assets = [
+    { id: "multi", name: "multi.png", url: "/multi.png", role: "reference" },
+    { id: "frame", name: "frame.png", url: "/frame.png", role: "firstFrame" },
+  ]
+  const document = {
+    ...emptyBoard(),
+    cards: [card],
+    draftEdges: [{ id: "inactive", sourceID: "missing", targetID: card.id, role: "lastFrame" as const }],
+  }
+  expect(
+    boardDraftReferences(document, card.id, () => {
+      throw new Error("inactive source read")
+    }),
+  ).toMatchObject([{ role: "reference", image: "/multi.png" }])
+  card.draft.settings.videoInputMode = "first-last-frame"
+  document.draftEdges = []
+  expect(boardDraftReferences(document, card.id, () => undefined)).toMatchObject([
+    { role: "firstFrame", image: "/frame.png" },
+  ])
+  expect(card.draft.assets).toHaveLength(2)
+  delete card.draft.settings.videoInputMode
+  expect(boardDraftReferences(document, card.id, () => undefined)).toHaveLength(2)
+})
+
+test("video references use their own limit and reject material from the wrong mode", () => {
+  const snapshot = BoardSnapshot.parse({
+    prompt: "视频",
+    settings: { styleModel: "portrait", videoInputMode: "multi-reference" },
+    references: Array.from({ length: 4 }, (_, index) => ({
+      sourceID: `s${index}`,
+      generationID: "",
+      mediaID: `${index}`,
+      title: "参考",
+      image: `/image-${index}.png`,
+      role: "reference",
+    })),
+  })
+  expect(boardGenerationError("video", snapshot)).toBeUndefined()
+  expect(
+    boardGenerationError("video", {
+      ...snapshot,
+      references: [...snapshot.references, { ...snapshot.references[0], image: "/extra.png" }],
+    }),
+  ).toBe("参考图数量超过模型上限")
+  snapshot.settings.videoInputMode = "first-last-frame"
+  expect(boardGenerationError("video", snapshot)).toBe("参考图与当前视频输入模式不匹配")
+  const frame = { ...snapshot.references[0], role: "firstFrame" as const }
+  expect(boardGenerationError("video", { ...snapshot, references: [frame, { ...frame, image: "/second.png" }] })).toBe(
+    "每个首尾帧槽位仅支持一张图片",
+  )
 })

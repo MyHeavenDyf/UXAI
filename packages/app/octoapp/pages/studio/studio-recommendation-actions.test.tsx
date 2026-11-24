@@ -5,7 +5,7 @@ import { createComponent, createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
 import { createRecommendationMode } from "./studio-recommendation-mode"
-import type { StudioCapability } from "./types"
+import type { StudioAsset, StudioCapability } from "./types"
 import type { StudioComposerMenu } from "./studio-composer"
 
 const transform = solid({ hot: false }).transform
@@ -32,6 +32,7 @@ function setup(model = "seedream-5-lite") {
       entries: {} as Record<string, StudioCapability>,
       menu: null as StudioComposerMenu, model, submitted: 0,
       seedream: true, customWidth: 0, customHeight: 0, isCustom: false,
+      assets: [] as StudioAsset[],
     })
     const mode = createRecommendationMode({
       key: () => "session", enabled: () => state.enabled, ready: () => true, busy: () => false,
@@ -56,7 +57,7 @@ function setup(model = "seedream-5-lite") {
           get customWidth() { return state.customWidth },
           get customHeight() { return state.customHeight },
           get isCustom() { return state.isCustom },
-          assets: [], videoFrames: {}, videoDuration: "5", videoQualityMode: "480", videoMode: "all-reference", videoInputMode: "first-last-frame",
+          get assets() { return state.assets }, videoFrames: {}, videoDuration: "5", videoQualityMode: "480", videoMode: "all-reference", videoInputMode: "first-last-frame",
           status: "idle", busy: false, canSubmit: true, actionsBlocked: false,
           styleTemplateEditorOpen: false, recipeMainPrompt: "", recipeExtraPrompt: "",
           onPrompt: noop, onCapability: mode.select, onStyleModel: (value) => setState("model", value),
@@ -126,6 +127,31 @@ test.each(["seedream-5-lite", "seedream-5-pro"])("recommendation leaves %s selec
     expect(button(value.container, "风格模板").disabled).toBe(false)
     expect(value.container.querySelector(".studio-composer-icon-at")).not.toBeNull()
   } finally { value.dispose() }
+})
+
+test("the ordinary composer keeps the shared mention popup and rich reference insertion", () => {
+  const value = setup("seedream-5-pro")
+  try {
+    value.setState("enabled", false)
+    value.container.querySelector<HTMLButtonElement>(".studio-composer-icon-at")!.click()
+    expect(value.container.querySelector(".studio-at-menu-empty-text")?.textContent).toBe("你还没有添加图片")
+    expect(value.container.querySelector<HTMLElement>(".studio-at-menu")?.style.height).toBe("150px")
+    value.setState("assets", [
+      { id: "portrait", name: "portrait.final.png", mime: "image/png", dataUrl: "https://example.test/portrait.png" },
+    ])
+    expect(value.container.querySelector<HTMLElement>(".studio-at-menu")?.style.height).toBe("120px")
+    expect(value.container.querySelector(".studio-at-menu-name")?.textContent).toBe("portrait.final")
+    value.container
+      .querySelector<HTMLElement>(".studio-at-menu-item")!
+      .dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+    expect(value.container.querySelector(".studio-at-menu")).toBeNull()
+    const chip = value.container.querySelector<HTMLElement>(".studio-composer-at-chip")!
+    expect(chip.getAttribute("data-mention")).toBe("portrait.final")
+    expect(chip.querySelector("img")?.getAttribute("src")).toBe("https://example.test/portrait.png")
+    expect(chip.closest('[contenteditable="true"]')).toBe(document.activeElement)
+  } finally {
+    value.dispose()
+  }
 })
 
 test("the model menu hides retired Lite and filters Pro by permission", () => {

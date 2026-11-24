@@ -1,6 +1,5 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
-import emptyPng from "../insight/icons/empty.png"
 import { usePlatform } from "@/context/platform"
 import { tracker } from "@/utils/tracker"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, isSeedreamStyleModel, styleModelLabel } from "./data"
@@ -19,6 +18,7 @@ import { showFloatingNotice } from "@/components/floating-notice"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { composerText, composerHTML, createRecommendationInput, stripComposerMentions } from "./studio-recommendation-input"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
+import { StudioReferenceImages, StudioImageSettingsLabel, StudioMentionMenu } from "./studio-composer-parts"
 
 const STUDIO_VIDEO_GUIDE_URL = "https://www.volcengine.com/docs/82379/2222480?lang=zh"
 const STUDIO_IMAGE_DRAG_TYPE = "application/x-octo-studio-image"
@@ -131,18 +131,14 @@ export function StudioComposer(props: {
   let recipeMainRef!: HTMLSpanElement
   let recipeExtraRef!: HTMLSpanElement
   let pointerDownOpenMenu: typeof props.openMenu = null
-  let referenceHoverFrame: number | undefined
   let dragDepth = 0
   let atTriggeredByTyping = false
   let pointerDownAtMenuOpen = false
   let activeMentionField: StudioComposerInputField = "prompt"
   const [composing, setComposing] = createSignal(false)
   const [dragActive, setDragActive] = createSignal(false)
-  const [referenceExpanded, setReferenceExpanded] = createSignal(false)
-  const [referenceHoverReady, setReferenceHoverReady] = createSignal(false)
   const [refPreview, setRefPreview] = createSignal<{ src: string; name: string; left: number; top: number } | null>(null)
   const referenceAssets = createMemo(() => props.assets.slice(0, props.maxReferenceImages))
-  const referenceAsset = createMemo(() => referenceAssets()[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isVideoFirstLastFrame = createMemo(() => isVideoGeneration() && props.videoInputMode === "first-last-frame")
@@ -174,25 +170,8 @@ export function StudioComposer(props: {
     props.onStyleTemplateEditorOpen(!props.styleTemplateEditorOpen)
   }
   onCleanup(() => {
-    if (referenceHoverFrame !== undefined) cancelAnimationFrame(referenceHoverFrame)
     recommendationInput?.dispose()
   })
-  createEffect((previousReferenceCount = 0) => {
-    const referenceCount = referenceAssets().length
-    if (!referenceCount) {
-      setReferenceExpanded(false)
-      setReferenceHoverReady(false)
-      return referenceCount
-    }
-    if (previousReferenceCount) return referenceCount
-    setReferenceExpanded(false)
-    setReferenceHoverReady(false)
-    referenceHoverFrame = requestAnimationFrame(() => {
-      referenceHoverFrame = undefined
-      setReferenceHoverReady(true)
-    })
-    return referenceCount
-  }, 0)
   const resizeInput = () => {
     if (!inputRef) return
     inputRef.style.height = "auto"
@@ -377,67 +356,6 @@ export function StudioComposer(props: {
     if (event.key === "@" && !isImeComposing(event) && canInsertMention()) openMentionMenu(true)
     props.onKeyDown(event)
   }
-  const [lastValidCustomLabel, setLastValidCustomLabel] = createSignal("")
-  createEffect(on(() => props.styleModel, () => setLastValidCustomLabel("")))
-  // 弹框打开时锁定 toolbar 自定义尺寸显示值，比例和张数实时同步
-  const [committedCustomW, setCommittedCustomW] = createSignal(props.customWidth)
-  const [committedCustomH, setCommittedCustomH] = createSignal(props.customHeight)
-  const [committedIsCustom, setCommittedIsCustom] = createSignal(props.isCustom)
-  const settingsOpen = createMemo(() => props.openMenu === "settings")
-  createEffect(() => {
-    if (!settingsOpen()) {
-      // 弹框关闭，同步最新自定义尺寸到 toolbar
-      setCommittedCustomW(props.customWidth)
-      setCommittedCustomH(props.customHeight)
-      setCommittedIsCustom(props.isCustom)
-    }
-  })
-  const imageSettingsLabel = createMemo(() => {
-    // 比例和张数实时同步（点击即生效），自定义尺寸在弹框打开时锁定避免打字过程中闪烁
-    const aspectRatio = props.aspectRatio
-    const customW = settingsOpen() ? committedCustomW() : props.customWidth
-    const customH = settingsOpen() ? committedCustomH() : props.customHeight
-    const isCustomState = settingsOpen() ? committedIsCustom() : props.isCustom
-    const isCustom = isCustomState && customW > 0 && customH > 0
-    let ratio: string
-    if (isCustom) {
-      const label = `${customW}×${customH}`
-      const valid = isStudioCustomSizeValid(props.styleModel, customW, customH)
-      if (valid) setLastValidCustomLabel(label)
-      ratio = valid ? label : (lastValidCustomLabel() || aspectRatio)
-    } else {
-      ratio = aspectRatio
-    }
-    const isCustomValid = isCustom && ratio !== aspectRatio
-    const iconStyle = () => {
-      if (isCustomValid) return { "--icon-w": "12px", "--icon-h": "12px" }
-      const item = aspectRatio
-      switch (item) {
-        case "1:1": return { "--icon-w": "10.5px", "--icon-h": "10.5px" }
-        case "2:3": return { "--icon-w": "9.32px", "--icon-h": "12.82px" }
-        case "3:2": return { "--icon-w": "12.82px", "--icon-h": "9.32px" }
-        case "3:4": return { "--icon-w": "10.5px", "--icon-h": "11.68px" }
-        case "4:3": return { "--icon-w": "11.68px", "--icon-h": "10.5px" }
-        case "9:16": return { "--icon-w": "9.04px", "--icon-h": "14px" }
-        case "16:9": return { "--icon-w": "14px", "--icon-h": "9.04px" }
-        default: return { "--icon-w": "12px", "--icon-h": "12px" }
-      }
-    }
-    return (
-      <>
-        <Show when={!isCustomValid}>
-          <span
-            class="studio-composer-icon-tool-ratio-icon"
-            style={iconStyle()}
-          />
-        </Show>
-        <span class="studio-composer-icon-tool-text">{ratio}</span>
-        <span class="studio-composer-icon-tool-sep" />
-        <span class="studio-composer-icon-tool-text">{props.count}</span>
-      </>
-    )
-  })
-
   // Refs for measuring button positions — dropdowns are rendered outside
   // .studio-composer-toolbar-items (which has overflow:hidden) so they
   // need explicit left positioning to align with their buttons.
@@ -979,10 +897,6 @@ export function StudioComposer(props: {
     props.onDropImageUrl(url!, slot)
   }
 
-  function referenceAssetRotation(index: number) {
-    return [-7.8, 4.1, -3.6][index] ?? 0
-  }
-
   function pickReferenceFile() {
     if (isTemplateReferenceDisabled()) {
       props.onUnsupportedReferenceUpload?.()
@@ -1056,81 +970,18 @@ export function StudioComposer(props: {
         </Show>
         <div class="studio-composer-input-row" classList={{ "with-reference": isImageGeneration() || isVideoMultiReference() }}>
           <Show when={isImageGeneration() || isVideoMultiReference()}>
-            <div class="studio-composer-ref-slot" classList={{ filled: Boolean(referenceAsset()) }}>
-              <Show
-                when={referenceAsset()}
-                fallback={
-                  <button
-                    type="button"
-                    onClick={pickReferenceFile}
-                    class="studio-composer-ref-btn"
-                    classList={{ disabled: isTemplateReferenceDisabled() }}
-                    title="上传参考图"
-                  />
-                }
-              >
-                <div
-                  class="studio-composer-ref-stack"
-                  classList={{ expanded: referenceExpanded() }}
-                  onPointerMove={(event) => {
-                    if (!referenceHoverReady() || (!event.movementX && !event.movementY) || referenceExpanded()) return
-                    setReferenceExpanded(true)
-                  }}
-                  onPointerLeave={() => setReferenceExpanded(false)}
-                >
-                  <For each={referenceAssets()}>
-                    {(asset, index) => (
-                      <div
-                        class="studio-composer-ref-item"
-                        style={{
-                          "--ref-index": String(index()),
-                          "--ref-rotate": `${referenceAssetRotation(index())}deg`,
-                        }}
-                      >
-                        <div class="studio-composer-ref-btn" title={asset.name}>
-                          <img src={asset.dataUrl} alt={asset.name} class="studio-composer-ref-image" />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            tracker.interaction({ module: "studio", name: "reference-remove" })
-                            props.onRemoveAsset(asset.id)
-                          }}
-                          class="studio-composer-ref-remove"
-                          aria-label="删除参考图"
-                          title="删除参考图"
-                        >
-                          <img src="/studio/studio-img-delete-icon.svg" class="studio-composer-ref-remove-icon" alt="" />
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                  <Show when={referenceExpanded() && canAddReferenceAsset()}>
-                    <button
-                      type="button"
-                      onClick={pickReferenceFile}
-                      class="studio-composer-ref-btn studio-composer-ref-add"
-                      title="继续上传参考图"
-                    />
-                  </Show>
-                </div>
-                <Show when={referenceAssets().length > 0 && canAddReferenceAsset() && !referenceExpanded()}>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      pickReferenceFile()
-                    }}
-                    class="studio-composer-ref-upload-float"
-                    aria-label="继续上传参考图"
-                    title="继续上传参考图"
-                  >
-                    <img src="/studio/studio_mask.svg" alt="" />
-                  </button>
-                </Show>
-              </Show>
-            </div>
+            <StudioReferenceImages
+              assets={referenceAssets()}
+              name={(asset) => asset.name}
+              source={(asset) => asset.dataUrl}
+              canAdd={canAddReferenceAsset()}
+              uploadUnavailable={isTemplateReferenceDisabled()}
+              onPick={pickReferenceFile}
+              onRemove={(asset) => {
+                tracker.interaction({ module: "studio", name: "reference-remove" })
+                props.onRemoveAsset(asset.id)
+              }}
+            />
           </Show>
           <div class="studio-composer-input-wrap">
             <Show when={props.recommendationExiting}>
@@ -1288,7 +1139,15 @@ export function StudioComposer(props: {
                 <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("settings", el)} data-toolbar-item="settings">
                   <IconTool
                     label="参数"
-                    children={imageSettingsLabel()}
+                    children={<StudioImageSettingsLabel
+                      aspectRatio={props.aspectRatio}
+                      count={props.count}
+                      styleModel={props.styleModel}
+                      customWidth={props.customWidth}
+                      customHeight={props.customHeight}
+                      isCustom={props.isCustom}
+                      open={props.openMenu === "settings"}
+                    />}
                     disabled={isBusy()}
                     onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                     onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-settings-open" }); props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings") }}
@@ -1409,7 +1268,15 @@ export function StudioComposer(props: {
                 <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("settings", el)} data-toolbar-item="settings">
                   <IconTool
                     label="参数"
-                    children={imageSettingsLabel()}
+                    children={<StudioImageSettingsLabel
+                      aspectRatio={props.aspectRatio}
+                      count={props.count}
+                      styleModel={props.styleModel}
+                      customWidth={props.customWidth}
+                      customHeight={props.customHeight}
+                      isCustom={props.isCustom}
+                      open={props.openMenu === "settings"}
+                    />}
                     disabled={isBusy()}
                     onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                     onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-settings-open" }); props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings") }}
@@ -1650,33 +1517,13 @@ export function StudioComposer(props: {
           </Show>
           <Show when={showMentionEntry() && canInsertMention() && atMenuOpen()}>
             <div class="studio-composer-dropdown-anchor" ref={atAnchorRef}>
-              <div class="studio-menu studio-at-menu" style={{ width: "200px", height: referenceAssets().length > 0 ? "120px" : "150px" }} onClick={() => setAtMenuOpen(false)}>
-                <div class="studio-material-title">可能@的内容</div>
-                <ScrollView class="studio-at-menu-list">
-                  <Show when={referenceAssets().length > 0} fallback={
-                    <div class="studio-at-menu-empty">
-                      <img class="studio-at-menu-empty-img" src={emptyPng} alt="" />
-                      <span class="studio-at-menu-empty-text">你还没有添加图片</span>
-                    </div>
-                  }>
-                    <For each={referenceAssets()}>
-                      {(asset) => (
-                        <div
-                          class="studio-at-menu-item"
-                          onMouseDown={(event) => {
-                            event.preventDefault()
-                            insertMention(asset)
-                            setAtMenuOpen(false)
-                          }}
-                        >
-                          <img class="studio-at-menu-thumb" src={asset.dataUrl} />
-                          <span class="studio-at-menu-name">{asset.name.replace(/\.[^.]+$/, "")}</span>
-                        </div>
-                      )}
-                    </For>
-                  </Show>
-                </ScrollView>
-              </div>
+              <StudioMentionMenu
+                assets={referenceAssets()}
+                name={(asset) => asset.name}
+                source={(asset) => asset.dataUrl}
+                onSelect={insertMention}
+                onClose={() => setAtMenuOpen(false)}
+              />
             </div>
           </Show>
           <Show when={!isBusy()}>
@@ -1972,7 +1819,7 @@ export function StudioToolbarTooltip(props: { label: string; children: JSX.Eleme
   )
 }
 
-function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?: boolean; onPick: () => void; onRemove: () => void; onDrop: (event: DragEvent) => void }): JSX.Element {
+export function VideoFrameButton(props: { label: string; asset?: Pick<StudioAsset, "dataUrl" | "name">; disabled?: boolean; onPick: () => void; onRemove: () => void; onDrop: (event: DragEvent) => void }): JSX.Element {
   return (
     <div class="studio-composer-video-frame-wrap">
       <button
@@ -1982,6 +1829,7 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?
         class="studio-composer-video-frame"
         classList={{ filled: Boolean(props.asset) }}
         title={props.asset ? `替换${props.label}` : `上传${props.label}`}
+        aria-label={props.asset ? `替换${props.label}` : `上传${props.label}`}
         onDrop={(event) => {
           event.stopPropagation()
           props.onDrop(event)
@@ -2016,7 +1864,7 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?
   )
 }
 
-function VideoModeMenu<T extends string>(props: { value: T; modes: { label: string; value: T; icon?: string }[]; onSelect: (value: T) => void }): JSX.Element {
+export function VideoModeMenu<T extends string>(props: { value: T; modes: { label: string; value: T; icon?: string }[]; onSelect: (value: T) => void }): JSX.Element {
   return (
     <div class="studio-menu" style={{ width: "140px", padding: "4px" }}>
       <For each={props.modes}>

@@ -3,11 +3,14 @@ import { plugin } from "bun"
 import solid from "vite-plugin-solid"
 import { createComponent } from "solid-js"
 import { render } from "solid-js/web"
+import { createStore } from "solid-js/store"
 import { BoardDocument, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
 import { STUDIO_STYLE_MODEL_CONFIG, defaultStudioStyleModel } from "@opencode-ai/core/studio/model-availability"
 import { styleModelLabel } from "../data"
 import { clearStudioPermissionCache, ensureStudioPermission } from "../studio-permission-store"
 import type { BoardGenerationRequest } from "./studio-board-api"
+import type { StudioGenerationResult } from "../types"
+import type { BoardOperation } from "./studio-board-operations"
 
 const transform = solid({ hot: false }).transform
 if (typeof transform !== "function") throw new Error("Solid transform is unavailable")
@@ -27,6 +30,8 @@ plugin({
   },
 })
 const { default: StudioBoard } = await import("./studio-board")
+const { StudioBoardCardView } = await import("./studio-board-card")
+const { StudioResultCard } = await import("../studio-result-card")
 const { PlatformProvider } = await import("@/context/platform")
 
 // Happy DOM has SVG points but does not implement their matrix transform.
@@ -60,6 +65,7 @@ async function setup(
     fresh?: boolean
     demo?: boolean
     document?: BoardDocument
+    results?: Record<string, StudioGenerationResult>
     revision?: number
     userIdx?: string
     createResponse?: Promise<string | undefined>
@@ -75,6 +81,7 @@ async function setup(
     backupReadFailures?: number
     uploadResponses?: Promise<Response>[]
     unmountOnExit?: boolean
+    header?: Pick<Parameters<typeof StudioBoard>[0], "title" | "loadSessions" | "onRenameSession" | "onSelectSession" | "onThumbnail" | "thumbnails">
   } = {},
 ) {
   const requests: BoardGenerationRequest[] = []
@@ -120,6 +127,8 @@ async function setup(
     Object.assign(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = new URL(String(input), "http://board.test").pathname
+        const generation = options.results?.[path.replace("/studio/generations/", "")]
+        if (generation && (!init?.method || init.method === "GET")) return Response.json(generation)
         if (path.endsWith("/permissions/check"))
           return Response.json({ code: 200, data: [true, options.seedream ?? true, false] })
         if (path.endsWith("/board")) {
@@ -288,6 +297,7 @@ async function setup(
         },
         get children() {
           return createComponent(StudioBoard, {
+            ...options.header,
             directory: "/test",
             http: { url: "http://board.test" },
             sessionID: options.fresh ? undefined : "test-board",
@@ -341,11 +351,728 @@ async function setup(
 
 function button(container: HTMLElement, label: string) {
   const value = Array.from(container.querySelectorAll("button")).find(
-    (node) => node.getAttribute("aria-label") === label || node.textContent?.trim() === label,
+    (node) =>
+      node.getAttribute("aria-label") === label ||
+      node.getAttribute("title") === label ||
+      node.textContent?.trim() === label,
   )
   if (!value) throw new Error(`Missing button: ${label}. ${container.textContent}`)
   return value
 }
+
+test.each(["image", "video"] as const)("%s card uses real task status without changing selection", (kind) => {
+  const [state, setState] = createStore({
+    card: { ...newBoardCard(`status-${kind}`, kind), currentGenerationID: "studio_gen_status" as string | undefined },
+    result: {
+      id: "studio_gen_status",
+      status: "queued",
+      capability: kind === "image" ? "image.generate" : "video.generate",
+      provider: "internel",
+      taskId: "provider-task",
+      model: "seedream-5-pro",
+      prompt: "状态测试",
+      aspectRatio: "1:1",
+      images: [],
+      order: 5,
+      progress: 0,
+      createdAt: 1,
+    } as StudioGenerationResult,
+    operation: undefined as BoardOperation | undefined,
+  })
+  const actions: string[] = []
+  const container = document.createElement("div")
+  document.body.append(container)
+  const dispose = render(
+    () =>
+      createComponent(StudioBoardCardView, {
+        get card() {
+          return state.card
+        },
+        get results() {
+          return { [state.result.id]: state.result }
+        },
+        get operation() {
+          return state.operation
+        },
+        get locked() {
+          return (
+            !!state.operation ||
+            (["creating", "queued", "running", "abnormal"].includes(state.result.status) &&
+              !!state.card.currentGenerationID)
+          )
+        },
+        get editingBlocked() {
+          return this.locked
+        },
+        selected: false,
+        historyPreview: false,
+        failureSuppressed: false,
+        rebootBlocked: false,
+        mediaURL: (url) => url,
+        onOperate: (action) => actions.push(action),
+        onRefresh: () => actions.push("refresh"),
+        onRemove: () => actions.push("remove"),
+        onResults: () => actions.push("results"),
+        onPlay: () => {},
+      }),
+    container,
+  )
+  const conversation = document.createElement("div")
+  const disposeConversation = render(
+    () =>
+      createComponent(StudioResultCard, {
+        get turn() {
+          return {
+            id: "status-turn",
+            userText: "",
+            assistantText: "",
+            result: state.result,
+            createdAt: 1,
+            isLatest: true,
+          }
+        },
+        busy: false,
+        actionBusy: false,
+        cancelling: false,
+        rebooting: false,
+        refreshing: false,
+        onCancelGeneration: () => {},
+        onEditGeneration: () => {},
+        onRebootGeneration: () => {},
+        onRefreshGeneration: () => {},
+        onSelectImage: () => {},
+      }),
+    conversation,
+  )
+  try {
+    const toolbar = () => container.querySelector(".studio-board-card-task-actions")!
+    const title = () => container.querySelector(".studio-board-card-task-title")?.textContent
+    expect(toolbar().textContent).toContain("当前排队 5 人")
+    expect(container.textContent).not.toContain("预计")
+    expect(title()).toBe("正在创作中…")
+    setState("result", "order", 0)
+    expect(toolbar().textContent).toContain("当前排队 0 人")
+    expect(conversation.querySelector(".studio-result-queue-count")?.textContent).toBe("当前排队 0 人")
+    setState("result", "order", undefined)
+    expect(toolbar().textContent).toContain("排队中")
+    expect(toolbar().textContent).not.toContain("人")
+    expect(conversation.querySelector(".studio-result-queue-count")?.textContent).toBe("排队中")
+    setState("result", { status: "running", progress: 49.6 })
+    expect(toolbar().textContent).toContain("50%")
+    expect(conversation.querySelector(".studio-result-progress-percent")?.textContent).toBe("50%")
+    setState("result", "progress", 150)
+    expect(toolbar().textContent).toContain("100%")
+    setState("result", "progress", undefined)
+    expect(toolbar().textContent).not.toContain("%")
+    button(container, "取消生成").click()
+    expect(actions).toEqual(["cancel"])
+    setState("operation", "cancelling")
+    expect(button(container, "取消生成").disabled).toBe(true)
+    expect(title()).toBe("取消中…")
+    expect(container.textContent).not.toContain("生成失败")
+    setState("operation", "unknown")
+    expect(title()).toBe("请求结果待核对")
+    expect(container.textContent).not.toContain("生成失败")
+    button(container, "刷新状态").click()
+    expect(actions).toEqual(["cancel", "refresh"])
+    setState("operation", undefined)
+    setState("result", { status: "abnormal", error: "轮询原始错误不应作为失败展示" })
+    expect(container.textContent).not.toContain("轮询原始错误不应作为失败展示")
+    expect(title()).toBe("请求结果待核对")
+    setState("result", { status: "failed", error: "供应商返回的实际失败原因" })
+    expect(title()).toBe("生成失败")
+    expect(container.querySelector(".studio-board-card-task-reason")?.textContent).toBe("供应商返回的实际失败原因")
+    expect(conversation.querySelector(".studio-result-error")?.textContent?.trim()).toBe("供应商返回的实际失败原因")
+    button(container, "重新生成").click()
+    expect(actions).toEqual(["cancel", "refresh", "reboot"])
+    setState("result", "rawStatus", "4")
+    expect(container.querySelector(".studio-board-card-task-reason")?.textContent).toBe("用户取消生成")
+    expect(conversation.querySelector(".studio-result-error")?.textContent?.trim()).toBe("用户取消生成")
+    setState("result", { status: "create_failed", taskId: undefined })
+    expect(container.querySelector(".studio-board-card-task-actions")).toBeNull()
+    expect(container.querySelector(".studio-board-card-task-reason")?.textContent).toBe("用户取消生成")
+    expect(container.querySelector(".studio-board-card")?.classList.contains("selected")).toBe(false)
+    setState("card", "currentGenerationID", undefined)
+    expect(container.querySelector(".studio-board-card-task")).toBeNull()
+    expect(container.querySelector(".studio-board-card-empty-icon")).not.toBeNull()
+  } finally {
+    disposeConversation()
+    dispose()
+    container.remove()
+  }
+})
+
+test.each(["image", "video"] as const)(
+  "%s card resizes the graph to decoded media and follows historical previews",
+  async (kind) => {
+    const card = newBoardCard("actual-ratio", kind, { x: 100, y: 100 })
+    card.currentGenerationID = "real-size"
+    card.cover = { generationID: "real-size", mediaID: "wide" }
+    card.taskLinks = [
+      {
+        generationID: "real-size",
+        submissionID: crypto.randomUUID(),
+        visible: true,
+        snapshot: { prompt: "真实尺寸", settings: card.draft.settings, references: [] },
+      },
+    ]
+    const value = await setup({
+      document: { ...emptyBoard(), cards: [card] },
+      results: {
+        "real-size": {
+          id: "real-size",
+          status: "succeeded",
+          capability: kind === "image" ? "image.generate" : "video.generate",
+          provider: "internel",
+          model: "seedream-5-pro",
+          prompt: "真实尺寸",
+          aspectRatio: "1:1",
+          width: 1024,
+          height: 1024,
+          createdAt: 1,
+          images: ["wide", "tall"].map((id) => ({
+            id,
+            kind,
+            url: `https://example.test/${id}.${kind === "video" ? "mp4" : "png"}`,
+            thumbnailUrl: "https://example.test/square-thumbnail.png",
+          })),
+        },
+      },
+    })
+    try {
+      const node = value.container.querySelector('[data-cell-id="actual-ratio"]')!
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      const decode = (width: number, height: number) => {
+        const media = node.querySelector(kind === "image" ? "img" : "video")!
+        Object.defineProperties(
+          media,
+          kind === "image"
+            ? {
+                naturalWidth: { configurable: true, value: width },
+                naturalHeight: { configurable: true, value: height },
+              }
+            : {
+                videoWidth: { configurable: true, value: width },
+                videoHeight: { configurable: true, value: height },
+              },
+        )
+        media.dispatchEvent(new Event(kind === "image" ? "load" : "loadedmetadata"))
+      }
+      expect(node.querySelector(kind === "image" ? "img" : "video")?.getAttribute("src")).toContain("/wide.")
+      decode(1200, 800)
+      await Bun.sleep(30)
+      expect(node.querySelector("foreignObject")?.getAttribute("width")).toBe("304")
+      expect(node.querySelector("foreignObject")?.getAttribute("height")).toBe("230")
+      expect(node.querySelector(".x6-port-input")?.getAttribute("transform")).toBe("matrix(1,0,0,1,-21,115)")
+      const wideAnchor = value.container.querySelector<HTMLDivElement>(".studio-board-composer")!.style.top
+      const preview = (index: number) => {
+        node.querySelector<HTMLButtonElement>("footer button")!.click()
+        const figure = value.container.querySelectorAll<HTMLElement>(".studio-board-results figure")[index]
+        button(figure, "预览").click()
+        button(value.container.querySelector<HTMLElement>(".studio-board-results")!, "关闭").click()
+      }
+      preview(1)
+      expect(node.querySelector(kind === "image" ? "img" : "video")?.getAttribute("src")).toContain("/tall.")
+      decode(800, 1200)
+      await Bun.sleep(30)
+      expect(node.querySelector("foreignObject")?.getAttribute("width")).toBe("204")
+      expect(node.querySelector("foreignObject")?.getAttribute("height")).toBe("330")
+      expect(value.container.querySelector<HTMLDivElement>(".studio-board-composer")!.style.top).not.toBe(wideAnchor)
+      preview(0)
+      await Bun.sleep(30)
+      expect(node.querySelector("foreignObject")?.getAttribute("width")).toBe("304")
+      expect(node.querySelector("foreignObject")?.getAttribute("height")).toBe("230")
+      expect(value.stored.document.cards[0].draft.settings.aspectRatio).toBe("1:1")
+    } finally {
+      value.dispose()
+    }
+  },
+)
+
+test.each(["other-board", undefined])("switching to %s waits for current card edits to save", async (id) => {
+  const response = Promise.withResolvers<void>()
+  const selected: { id?: string; prompt: string }[] = []
+  const value = await setup({
+    document: { ...emptyBoard(), cards: [newBoardCard("switch-card", "image")] },
+    saveResponse: response.promise,
+    header: {
+      title: "当前画布",
+      loadSessions: async () => ({
+        sessions: [
+          {
+            id: "other-board",
+            title: "其他画布",
+            slug: "other",
+            projectID: "test",
+            directory: "/test",
+            version: "test",
+            agent: "octo_studio",
+            studio_mode: "board",
+            pinned: false,
+            sort_order: 0,
+            time: { created: 1, updated: 2 },
+          },
+        ],
+      }),
+      onSelectSession: (next) => {
+        selected.push({ id: next, prompt: value.stored.document.cards[0].draft.prompt })
+      },
+    },
+  })
+  try {
+    value.container.querySelector(".x6-node")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+    const prompt = value.container.querySelector<HTMLTextAreaElement>("textarea")!
+    prompt.value = "切换之前必须保存的内容"
+    prompt.dispatchEvent(new Event("input", { bubbles: true }))
+    button(value.container, "切换画布").click()
+    await Bun.sleep(0)
+    button(value.container, id ? "其他画布" : "新建画布").click()
+    await Bun.sleep(30)
+    expect(selected).toEqual([])
+    expect(value.container.querySelector<HTMLElement>(".studio-board")?.inert).toBe(true)
+    response.resolve()
+    await Bun.sleep(30)
+    expect(selected).toEqual([{ id, prompt: "切换之前必须保存的内容" }])
+    expect(value.container.querySelector<HTMLElement>(".studio-board")?.inert).toBe(false)
+  } finally {
+    response.resolve()
+    value.dispose()
+  }
+})
+
+test("a failed save prevents board switching and can be retried without losing edits", async () => {
+  const selected: string[] = []
+  const value = await setup({
+    document: { ...emptyBoard(), cards: [newBoardCard("switch-card", "image")] },
+    saveFailures: 1,
+    header: {
+      loadSessions: async () => ({
+        sessions: [
+          {
+            id: "other-board",
+            title: "其他画布",
+            slug: "other",
+            projectID: "test",
+            directory: "/test",
+            version: "test",
+            agent: "octo_studio",
+            studio_mode: "board",
+            pinned: false,
+            sort_order: 0,
+            time: { created: 1, updated: 2 },
+          },
+        ],
+      }),
+      onSelectSession: (id) => {
+        if (id) selected.push(id)
+      },
+    },
+  })
+  try {
+    value.container.querySelector(".x6-node")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+    const prompt = value.container.querySelector<HTMLTextAreaElement>("textarea")!
+    prompt.value = "失败时也保留"
+    prompt.dispatchEvent(new Event("input", { bubbles: true }))
+    button(value.container, "切换画布").click()
+    await Bun.sleep(0)
+    button(value.container, "其他画布").click()
+    await Bun.sleep(30)
+    expect(selected).toEqual([])
+    expect(prompt.value).toBe("失败时也保留")
+    expect(value.container.querySelector<HTMLElement>(".studio-board")?.inert).toBe(false)
+    expect(value.container.textContent).toContain("无法离开画布")
+    button(value.container, "切换画布").click()
+    await Bun.sleep(0)
+    button(value.container, "其他画布").click()
+    await Bun.sleep(30)
+    expect(selected).toEqual(["other-board"])
+    expect(value.stored.document.cards[0].draft.prompt).toBe("失败时也保留")
+  } finally {
+    value.dispose()
+  }
+})
+
+test("renaming a fresh empty board creates and binds one session before persisting its title", async () => {
+  const renamed: string[][] = []
+  const value = await setup({
+    fresh: true,
+    header: {
+      onRenameSession: async (id, title) => {
+        renamed.push([id, title])
+      },
+    },
+  })
+  try {
+    value.container.querySelector<HTMLButtonElement>(".studio-board-name")!.click()
+    await Bun.sleep(0)
+    const title = value.container.querySelector<HTMLInputElement>('[aria-label="画布名称"]')!
+    title.value = "空画布也可以命名"
+    title.dispatchEvent(new Event("input", { bubbles: true }))
+    title.blur()
+    await Bun.sleep(30)
+    expect(value.creations).toHaveLength(1)
+    expect(value.bindings).toEqual(["test-board"])
+    expect(renamed).toEqual([["test-board", "空画布也可以命名"]])
+    expect(value.container.querySelector(".studio-board-name")?.textContent).toBe("空画布也可以命名")
+  } finally {
+    value.dispose()
+  }
+})
+
+test.each([false, true])(
+  "switching waits for a pending title update and preserves a failed edit=%s",
+  async (failure) => {
+    const rename = Promise.withResolvers<void>()
+    const selected: string[] = []
+    const value = await setup({
+      header: {
+        loadSessions: async () => ({
+          sessions: [
+            {
+              id: "other-board",
+              title: "其他画布",
+              slug: "other",
+              projectID: "test",
+              directory: "/test",
+              version: "test",
+              agent: "octo_studio",
+              studio_mode: "board",
+              pinned: false,
+              sort_order: 0,
+              time: { created: 1, updated: 2 },
+            },
+          ],
+        }),
+        onRenameSession: () => rename.promise,
+        onSelectSession: (id) => {
+          if (id) selected.push(id)
+        },
+      },
+    })
+    try {
+      value.container.querySelector<HTMLButtonElement>(".studio-board-name")!.click()
+      await Bun.sleep(0)
+      const title = value.container.querySelector<HTMLInputElement>('[aria-label="画布名称"]')!
+      title.value = "等待保存的名称"
+      title.dispatchEvent(new Event("input", { bubbles: true }))
+      title.blur()
+      button(value.container, "切换画布").click()
+      await Bun.sleep(0)
+      button(value.container, "其他画布").click()
+      await Bun.sleep(10)
+      expect(selected).toEqual([])
+      if (failure) rename.reject(new Error("名称保存失败"))
+      if (!failure) rename.resolve()
+      await Bun.sleep(30)
+      expect(selected).toEqual(failure ? [] : ["other-board"])
+      expect(value.container.querySelector<HTMLElement>(".studio-board")?.inert).toBe(false)
+      if (failure) {
+        expect(title.value).toBe("等待保存的名称")
+        expect(value.container.textContent).toContain("名称保存失败")
+      }
+    } finally {
+      rename.resolve()
+      value.dispose()
+    }
+  },
+)
+
+test("board header thumbnail notifications keep the last successful completion when the latest task fails", async () => {
+  const card = newBoardCard("thumbnail", "image")
+  card.currentGenerationID = "failure"
+  card.taskLinks = ["slow", "fast", "failure"].map((generationID) => ({
+    generationID,
+    submissionID: generationID,
+    visible: true,
+    snapshot: { prompt: "thumbnail", settings: card.draft.settings, references: [] },
+  }))
+  const thumbnails: string[] = []
+  const value = await setup({
+    document: { ...emptyBoard(), cards: [card] },
+    results: Object.fromEntries(
+      ["slow", "fast", "failure"].map((id) => [
+        id,
+        {
+          id,
+          status: id === "failure" ? "failed" : "succeeded",
+          capability: "image.generate",
+          provider: "internel",
+          model: "seedream-5-pro",
+          prompt: "thumbnail",
+          aspectRatio: "1:1",
+          createdAt: id === "slow" ? 1 : 10,
+          completedAt: id === "slow" ? 30 : 20,
+          images: id === "failure" ? [] : [{ id, url: `https://example.test/${id}.png` }],
+        },
+      ]),
+    ),
+    header: {
+      onThumbnail: (_, result) => {
+        thumbnails.push(result.id)
+      },
+    },
+  })
+  try {
+    expect(thumbnails.at(-1)).toBe("slow")
+    expect(thumbnails).not.toContain("failure")
+  } finally {
+    value.dispose()
+  }
+})
+
+test("image composer shares the reference stack, expanded upload and live parameter summary", async () => {
+  const card = newBoardCard("stack", "image")
+  card.draft.assets = [
+    { id: "first", name: "first.png", url: "/first.png", role: "reference" },
+    { id: "second", name: "second.png", url: "/second.png", role: "reference" },
+  ]
+  card.draft.settings.aspectRatio = "3:4"
+  card.draft.settings.count = 2
+  const value = await setup({ document: { ...emptyBoard(), cards: [card] } })
+  try {
+    value.container
+      .querySelector(".x6-node")!
+      .dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const row = value.container.querySelector(".studio-composer-input-row.with-reference")!
+    expect(row.querySelector("textarea")).not.toBeNull()
+    expect(row.querySelectorAll(".studio-composer-ref-image")).toHaveLength(2)
+    const stack = row.querySelector(".studio-composer-ref-stack")!
+    expect(stack.classList.contains("expanded")).toBe(false)
+    expect(row.querySelector(".studio-composer-ref-upload-float")).not.toBeNull()
+    const move = new PointerEvent("pointermove", { bubbles: true })
+    Object.defineProperty(move, "movementX", { value: 1 })
+    stack.dispatchEvent(move)
+    expect(stack.classList.contains("expanded")).toBe(true)
+    expect(stack.querySelector(".studio-composer-ref-add")).not.toBeNull()
+    expect(row.querySelector(".studio-composer-ref-upload-float")).toBeNull()
+    const pick = spyOn(value.container.querySelector<HTMLInputElement>('input[type="file"]')!, "click")
+    button(row as HTMLElement, "继续上传参考图").click()
+    expect(pick).toHaveBeenCalledTimes(1)
+    pick.mockRestore()
+    button(row as HTMLElement, "删除参考图 first.png").click()
+    expect(row.querySelectorAll(".studio-composer-ref-image")).toHaveLength(1)
+    stack.dispatchEvent(new PointerEvent("pointerleave"))
+    expect(stack.classList.contains("expanded")).toBe(false)
+    button(row as HTMLElement, "删除参考图 second.png").click()
+    expect(row.querySelector(".studio-composer-ref-stack")).toBeNull()
+    expect(button(row as HTMLElement, "上传参考图").disabled).toBe(false)
+    const settings = button(value.container, "图片设置")
+    expect(settings.textContent).toBe("3:42")
+    expect(settings.querySelector(".studio-composer-icon-tool-ratio-icon")).not.toBeNull()
+    settings.click()
+    button(value.container, "16:9").click()
+    button(value.container, "4张").click()
+    expect(settings.textContent).toBe("16:94")
+    button(value.container, "自定义").click()
+    const width = value.container.querySelector<HTMLInputElement>('input[placeholder="宽"]')!
+    const height = value.container.querySelector<HTMLInputElement>('input[placeholder="高"]')!
+    width.value = "2100"
+    width.dispatchEvent(new Event("input", { bubbles: true }))
+    height.value = "2100"
+    height.dispatchEvent(new Event("input", { bubbles: true }))
+    expect(settings.textContent).toBe("16:94")
+    settings.click()
+    expect(settings.textContent).toBe("2100×21004")
+    expect(settings.querySelector(".studio-composer-icon-tool-ratio-icon")).toBeNull()
+  } finally {
+    value.dispose()
+  }
+})
+
+test.each(["image", "first-last-frame", "multi-reference"] as const)(
+  "%s composer dismisses popups for prompt and uploads while preserving menu interactions and settings",
+  async (mode) => {
+    const card = newBoardCard("popup-card", mode === "image" ? "image" : "video")
+    if (mode !== "image") card.draft.settings.videoInputMode = mode
+    card.draft.prompt = "保留输入内容"
+    const value = await setup({ document: { ...emptyBoard(), cards: [card] } })
+    try {
+      const node = value.container.querySelector(".x6-node")!
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      const composer = value.container.querySelector<HTMLElement>(".studio-board-composer")!
+      const prompt = composer.querySelector<HTMLTextAreaElement>("textarea")!
+      const dialog = () => composer.querySelector<HTMLElement>('[role="dialog"]')
+      const activate = (element: HTMLElement) => {
+        element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+        element.focus()
+        element.click()
+      }
+      const settings = button(composer, mode === "image" ? "图片设置" : "视频设置")
+      const primary = button(
+        composer,
+        mode === "image"
+          ? styleModelLabel(card.draft.settings.styleModel)
+          : mode === "multi-reference"
+            ? "多图参考"
+            : "首尾帧",
+      )
+      const menus = mode === "image" ? [primary, settings, button(composer, "引用参考")] : [primary, settings]
+      menus.forEach((trigger) => {
+        activate(trigger)
+        expect(dialog()).not.toBeNull()
+        dialog()!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+        expect(dialog()).not.toBeNull()
+        prompt.focus()
+        expect(dialog()).toBeNull()
+        trigger.click()
+        expect(dialog()).not.toBeNull()
+        prompt.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+        expect(dialog()).toBeNull()
+        activate(trigger)
+        activate(trigger)
+        expect(dialog()).toBeNull()
+      })
+      activate(settings)
+      activate(button(dialog()!, "16:9"))
+      expect(dialog()).not.toBeNull()
+      expect(settings.textContent).toContain("16:9")
+      activate(primary)
+      expect(dialog()?.getAttribute("aria-label")).toBe(mode === "image" ? "风格模型" : "视频输入方式")
+      activate(primary)
+      expect(dialog()).toBeNull()
+      if (mode === "image") {
+        activate(settings)
+        activate(button(dialog()!, "自定义"))
+        const width = dialog()!.querySelector<HTMLInputElement>('input[placeholder="宽"]')!
+        const height = dialog()!.querySelector<HTMLInputElement>('input[placeholder="高"]')!
+        width.focus()
+        width.value = "2100"
+        width.dispatchEvent(new Event("input", { bubbles: true }))
+        height.focus()
+        height.value = "2100"
+        height.dispatchEvent(new Event("input", { bubbles: true }))
+        expect(dialog()).not.toBeNull()
+        prompt.focus()
+        expect(dialog()).toBeNull()
+        expect(settings.textContent).toContain("2100×2100")
+        activate(settings)
+        expect(dialog()!.querySelector<HTMLInputElement>('input[placeholder="宽"]')?.value).toBe("2100")
+        expect(dialog()!.querySelector<HTMLInputElement>('input[placeholder="高"]')?.value).toBe("2100")
+        prompt.focus()
+      }
+      const pick = spyOn(composer.querySelector<HTMLInputElement>('input[type="file"]')!, "click").mockImplementation(
+        () => {
+          expect(dialog()).toBeNull()
+        },
+      )
+      try {
+        menus.forEach((trigger) => {
+          const uploads = mode === "first-last-frame" ? ["上传首帧", "上传尾帧"] : ["上传参考图"]
+          uploads.forEach((label) => {
+            activate(trigger)
+            activate(button(composer, label))
+            expect(dialog()).toBeNull()
+          })
+        })
+        expect(pick).toHaveBeenCalledTimes(menus.length * (mode === "first-last-frame" ? 2 : 1))
+        if (mode === "image") {
+          activate(button(composer, "引用参考"))
+          expect(dialog()?.textContent).toContain("你还没有添加图片")
+          expect(dialog()?.querySelector("button")).toBeNull()
+          prompt.focus()
+          expect(dialog()).toBeNull()
+          expect(pick).toHaveBeenCalledTimes(menus.length)
+        }
+      } finally {
+        pick.mockRestore()
+      }
+      expect(prompt.value).toBe("保留输入内容")
+      expect(composer.isConnected).toBe(true)
+      activate(settings)
+      value.container
+        .querySelector(".studio-board-graph")!
+        .dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+      expect(dialog()).toBeNull()
+    } finally {
+      value.dispose()
+    }
+  },
+)
+
+test("board mention popup matches the shared empty state and lists each uploaded or connected reference", async () => {
+  const sources = [1, 2].map((index) => {
+    const card = newBoardCard(`mention-source-${index}`, "image")
+    card.title = `来源图片 ${index}`
+    card.cover = { generationID: "source-success", mediaID: "source-image" }
+    card.taskLinks = [
+      {
+        generationID: "source-success",
+        submissionID: crypto.randomUUID(),
+        visible: true,
+        snapshot: { prompt: "source", settings: card.draft.settings, references: [] },
+      },
+    ]
+    return card
+  })
+  const target = newBoardCard("mention-target", "image")
+  target.draft.prompt = "保留原来的描述"
+  target.draft.assets = [
+    { id: "upload", name: "portrait.final.png", url: "https://example.test/upload.png", role: "reference" },
+  ]
+  const value = await setup({
+    document: {
+      ...emptyBoard(),
+      cards: [...sources, target, newBoardCard("empty-mention", "image")],
+      draftEdges: sources.map((card) => ({
+        id: `mention-${card.id}`,
+        sourceID: card.id,
+        targetID: target.id,
+        role: "reference",
+      })),
+    },
+  })
+  try {
+    const select = (id: string) => {
+      const node = value.container.querySelector(`[data-cell-id="${id}"]`)!
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+    }
+    select("empty-mention")
+    button(value.container, "引用参考").click()
+    const empty = value.container.querySelector<HTMLElement>(".studio-at-menu")!
+    expect(empty.style.width).toBe("200px")
+    expect(empty.style.height).toBe("150px")
+    expect(empty.querySelector(".studio-material-title")?.textContent).toBe("可能@的内容")
+    expect(empty.querySelector(".studio-at-menu-empty-text")?.textContent).toBe("你还没有添加图片")
+    expect(empty.querySelector(".studio-at-menu-empty-img")).not.toBeNull()
+    expect(empty.querySelector("button")).toBeNull()
+    select(target.id)
+    button(value.container, "引用参考").click()
+    const popup = value.container.querySelector<HTMLElement>(".studio-at-menu")!
+    expect(popup.style.width).toBe("200px")
+    expect(popup.style.height).toBe("120px")
+    expect(popup.querySelector(".scroll-view__viewport")).not.toBeNull()
+    expect(popup.querySelector(".studio-at-menu-empty")).toBeNull()
+    expect(Array.from(popup.querySelectorAll(".studio-at-menu-name")).map((item) => item.textContent)).toEqual([
+      "来源图片 1",
+      "来源图片 2",
+      "portrait.final",
+    ])
+    expect(Array.from(popup.querySelectorAll(".studio-at-menu-thumb")).map((item) => item.getAttribute("src"))).toEqual(
+      ["https://example.test/source.png", "https://example.test/source.png", "https://example.test/upload.png"],
+    )
+    const row = popup.querySelectorAll<HTMLElement>(".studio-at-menu-item")[1]
+    const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true })
+    row.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(value.container.querySelector(".studio-at-menu")).toBeNull()
+    const prompt = value.container.querySelector<HTMLTextAreaElement>("textarea")!
+    expect(prompt.value).toBe("保留原来的描述 @参考图2 ")
+    expect(document.activeElement).toBe(prompt)
+    expect(prompt.selectionStart).toBe(prompt.value.length)
+    button(value.container, "引用参考").click()
+    value.container
+      .querySelectorAll<HTMLElement>(".studio-at-menu-item")[2]
+      .dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))
+    expect(prompt.value).toBe("保留原来的描述 @参考图2  @参考图3 ")
+    expect(value.container.querySelector(".studio-at-menu")).toBeNull()
+  } finally {
+    value.dispose()
+  }
+})
 
 test.each([false, true])("exit waits for every reference upload, including when one fails=%s", async (failure) => {
   const response = Promise.withResolvers<Response>()
@@ -375,7 +1102,7 @@ test.each([false, true])("exit waits for every reference upload, including when 
       await Bun.sleep(30)
       expect(value.uploads).toHaveLength(2)
       expect(value.container.textContent).toContain("上传中")
-      const exit = button(value.container, "← 退出画布")
+      const exit = button(value.container, "退出画布")
       exit.click()
       exit.click()
       input.dispatchEvent(new Event("change", { bubbles: true }))
@@ -402,7 +1129,7 @@ test.each([false, true])("exit waits for every reference upload, including when 
     reopened.container
       .querySelector(".x6-node")!
       .dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
-    expect(reopened.container.querySelectorAll(".studio-board-references img")).toHaveLength(failure ? 1 : 2)
+    expect(reopened.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(failure ? 1 : 2)
   } finally {
     reopened.dispose()
   }
@@ -413,14 +1140,14 @@ test("video frame upload finishes registration before exit saves and unmounts", 
   const value = await setup({ uploadResponses: [response.promise], unmountOnExit: true })
   try {
     button(value.container, "新建视频卡片").click()
-    button(value.container, "＋ 上传首帧").click()
+    button(value.container, "上传首帧").click()
     const input = value.container.querySelector<HTMLInputElement>('input[type="file"]')!
     const transfer = new DataTransfer()
     transfer.items.add(new File(["frame"], "frame.png", { type: "image/png" }))
     input.files = transfer.files
     input.dispatchEvent(new Event("change", { bubbles: true }))
     await Bun.sleep(30)
-    button(value.container, "← 退出画布").click()
+    button(value.container, "退出画布").click()
     await Bun.sleep(30)
     expect(value.exits).toHaveLength(0)
     response.resolve(Response.json({ path: "/test/.octo/test-board/uploads/frame.png" }))
@@ -455,8 +1182,8 @@ test("an unresolved frame edge still disables uploading into the same slot", asy
       .querySelectorAll(".x6-node")[1]
       .dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
     expect(value.container.querySelectorAll(".studio-board-references img")).toHaveLength(0)
-    expect(button(value.container, "＋ 上传首帧").disabled).toBe(true)
-    expect(button(value.container, "＋ 上传尾帧").disabled).toBe(false)
+    expect(button(value.container, "上传首帧").disabled).toBe(true)
+    expect(button(value.container, "上传尾帧").disabled).toBe(false)
     expect(value.uploads).toHaveLength(0)
   } finally {
     value.dispose()
@@ -538,6 +1265,9 @@ test("extracted card views keep one composer across selection, then dispose a re
     await Bun.sleep(30)
     const first = value.container.querySelectorAll(".x6-node")[0]
     const article = first.querySelector("article")!
+    expect(first.querySelector("foreignObject")?.getAttribute("width")).toBe("304")
+    expect(first.querySelector("foreignObject")?.getAttribute("height")).toBe("330")
+    expect(first.querySelector(".x6-port-input")?.getAttribute("transform")).toBe("matrix(1,0,0,1,-21,165)")
     const selectCard = (title: string) => {
       const node = Array.from(value.container.querySelectorAll(".studio-board-card"))
         .find((card) => card.getAttribute("aria-label") === title)!
@@ -813,8 +1543,8 @@ test("video-only permission exposes separate frame uploads and submits them with
   try {
     button(value.container, "新建视频卡片").click()
     expect(value.container.querySelector(".studio-composer-icon-at")).toBeNull()
-    expect(button(value.container, "＋ 上传尾帧").disabled).toBe(false)
-    button(value.container, "＋ 上传首帧").click()
+    expect(button(value.container, "上传尾帧").disabled).toBe(false)
+    button(value.container, "上传首帧").click()
     const input = value.container.querySelector<HTMLInputElement>('input[type="file"]')!
     const transfer = new DataTransfer()
     transfer.items.add(new File(["frame"], "frame.png", { type: "image/png" }))
@@ -822,8 +1552,8 @@ test("video-only permission exposes separate frame uploads and submits them with
     input.dispatchEvent(new Event("change", { bubbles: true }))
     await Bun.sleep(30)
     expect(input.multiple).toBe(false)
-    expect(button(value.container, "＋ 上传首帧").disabled).toBe(true)
-    button(value.container, "＋ 上传尾帧").click()
+    expect(button(value.container, "替换首帧").disabled).toBe(false)
+    button(value.container, "上传尾帧").click()
     const last = new DataTransfer()
     last.items.add(new File(["last frame"], "last.png", { type: "image/png" }))
     input.files = last.files
@@ -845,6 +1575,163 @@ test("video-only permission exposes separate frame uploads and submits them with
   }
 })
 
+test("video input modes share ordinary upload controls, preserve separate material and submit only the selected mode", async () => {
+  const card = newBoardCard("video-modes", "video")
+  card.draft.settings.styleModel = "portrait"
+  card.draft.settings.videoInputMode = "first-last-frame"
+  const value = await setup({
+    document: { ...emptyBoard(), cards: [card] },
+    uploadResponses: Array.from({ length: 7 }, (_, index) =>
+      Promise.resolve(Response.json({ path: `/test/.octo/test-board/uploads/video-${index}.png` })),
+    ),
+  })
+  try {
+    const video = value.container.querySelector(".studio-board-card-video")!.closest(".x6-node")!
+    expect(video.querySelector("foreignObject")?.getAttribute("width")).toBe("304")
+    expect(video.querySelector("foreignObject")?.getAttribute("height")).toBe("330")
+    expect(video.querySelector(".x6-port-output")).toBeNull()
+    expect(video.querySelector(".x6-port-input circle")?.getAttribute("r")).toBe("13")
+    expect(video.querySelector(".x6-port-input circle")?.getAttribute("stroke")).toBe("#e1e1e1")
+    const select = () => {
+      const node = value.container.querySelector('.studio-board-card[aria-label="视频"]')!.closest(".x6-node")!
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+    }
+    select()
+    expect(value.container.querySelector(".studio-board-composer.video")).not.toBeNull()
+    expect(value.container.textContent).not.toContain(styleModelLabel("portrait"))
+    expect(value.container.querySelectorAll(".studio-composer-video-frame")).toHaveLength(2)
+    expect(button(value.container, "视频设置").textContent).toBe("1:11")
+    const upload = async (label: string, names: string[]) => {
+      button(value.container, label).click()
+      const input = value.container.querySelector<HTMLInputElement>('input[type="file"]')!
+      const transfer = new DataTransfer()
+      names.forEach((name) => transfer.items.add(new File([name], name, { type: "image/png" })))
+      input.files = transfer.files
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+      await Bun.sleep(40)
+    }
+    await upload("上传首帧", ["first.png"])
+    await upload("上传尾帧", ["last.png"])
+    button(value.container, "交换首尾帧").click()
+    expect(
+      Array.from(value.container.querySelectorAll(".studio-composer-video-image")).map((img) =>
+        img.getAttribute("alt"),
+      ),
+    ).toEqual(["last.png", "first.png"])
+    await upload("替换首帧", ["replacement.png"])
+    expect(value.container.querySelector(".studio-composer-video-image")?.getAttribute("alt")).toBe("replacement.png")
+    button(value.container, "首尾帧").click()
+    button(value.container, "多图参考").click()
+    expect(value.container.querySelector(".studio-composer-video-frames")).toBeNull()
+    await upload("上传参考图", ["a.png", "b.png", "c.png", "d.png"])
+    expect(value.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(4)
+    expect(value.container.querySelector(".studio-composer-ref-upload-float")).toBeNull()
+    button(value.container, "多图参考").click()
+    button(value.container, "首尾帧").click()
+    expect(
+      Array.from(value.container.querySelectorAll(".studio-composer-video-image")).map((img) =>
+        img.getAttribute("alt"),
+      ),
+    ).toEqual(["replacement.png", "first.png"])
+    button(value.container, "新建视频卡片").click()
+    expect(value.container.querySelectorAll(".studio-composer-video-image")).toHaveLength(0)
+    select()
+    button(value.container, "首尾帧").click()
+    button(value.container, "多图参考").click()
+    const prompt = value.container.querySelector<HTMLTextAreaElement>("textarea")!
+    prompt.value = "多图生成视频"
+    prompt.dispatchEvent(new Event("input", { bubbles: true }))
+    button(value.container, "发送新任务").click()
+    await Bun.sleep(50)
+    expect(value.requests).toHaveLength(1)
+    expect(value.requests[0].board.snapshot.settings).toMatchObject({
+      videoInputMode: "multi-reference",
+      videoMode: "first_last_frame",
+    })
+    expect(value.requests[0].board.snapshot.references.map((ref) => ref.role)).toEqual(Array(4).fill("reference"))
+    expect(value.stored.document.cards[0].draft.assets).toHaveLength(6)
+    expect(value.stored.document.cards[0].draft.settings.videoInputMode).toBe("multi-reference")
+  } finally {
+    value.dispose()
+  }
+})
+
+test("same-image source cards display separate video references and each delete removes exactly one edge", async () => {
+  const sources = [1, 2, 3].map((index) => {
+    const card = newBoardCard(`source-${index}`, "image")
+    card.title = `图片 0${index}`
+    card.cover = { generationID: "source-success", mediaID: "source-image" }
+    card.taskLinks = [
+      {
+        generationID: "source-success",
+        submissionID: crypto.randomUUID(),
+        visible: true,
+        snapshot: { prompt: "来源图片", settings: card.draft.settings, references: [] },
+      },
+    ]
+    return card
+  })
+  const target = newBoardCard("multi-video", "video")
+  target.title = "多图视频"
+  target.draft.prompt = "根据三个来源生成视频"
+  target.draft.settings.videoInputMode = "multi-reference"
+  const value = await setup({
+    document: {
+      ...emptyBoard(),
+      cards: [...sources, target],
+      draftEdges: sources.map((card) => ({
+        id: `edge-${card.id}`,
+        sourceID: card.id,
+        targetID: target.id,
+        role: "reference" as const,
+      })),
+    },
+  })
+  try {
+    for (let attempt = 0; attempt < 50 && value.container.querySelectorAll(".x6-node").length < 4; attempt++)
+      await Bun.sleep(10)
+    const node = value.container.querySelector('.studio-board-card[aria-label="多图视频"]')!.closest(".x6-node")!
+    node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+    node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+    expect(value.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(3)
+    expect(
+      new Set(
+        Array.from(value.container.querySelectorAll(".studio-composer-ref-image")).map((image) =>
+          image.getAttribute("src"),
+        ),
+      ).size,
+    ).toBe(1)
+    expect(value.container.querySelectorAll(".x6-edge")).toHaveLength(3)
+    button(value.container, "删除参考图 图片 02").click()
+    await Bun.sleep(30)
+    expect(value.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(2)
+    expect(value.container.querySelectorAll(".x6-edge")).toHaveLength(2)
+    expect(
+      Array.from(value.container.querySelectorAll(".studio-composer-ref-image")).map((image) =>
+        image.getAttribute("alt"),
+      ),
+    ).toEqual(["图片 01", "图片 03"])
+    button(value.container, "发送新任务").click()
+    await Bun.sleep(40)
+    expect(value.requests).toHaveLength(1)
+    expect(value.requests[0].board.snapshot.references.map((reference) => reference.sourceID)).toEqual([
+      "source-1",
+      "source-3",
+    ])
+    expect(value.stored.document.draftEdges.map((edge) => edge.sourceID)).toEqual(["source-1", "source-3"])
+    button(value.container, "删除参考图 图片 01").click()
+    expect(value.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(1)
+    button(value.container, "删除参考图 图片 03").click()
+    expect(value.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(0)
+    expect(button(value.container, "上传参考图").disabled).toBe(false)
+    await Bun.sleep(30)
+    expect(value.container.querySelectorAll(".x6-edge")).toHaveLength(0)
+  } finally {
+    value.dispose()
+  }
+})
+
 test("loading a board preserves its unsaved backup until the recovery choice is made", async () => {
   const value = await setup({ failure: true, backup: true })
   try {
@@ -858,7 +1745,7 @@ test("loading a board preserves its unsaved backup until the recovery choice is 
     expect(button(value.container, "移除图片").disabled).toBe(true)
     prompt.value = "恢复期间不应接受的编辑"
     prompt.dispatchEvent(new Event("input", { bubbles: true }))
-    button(value.container, "← 退出画布").click()
+    button(value.container, "退出画布").click()
     await Bun.sleep(600)
     expect(value.saves).toHaveLength(0)
     expect(
@@ -1065,7 +1952,7 @@ test.each(["reboot", "running", "submission"] as const)(
       }
       value.stored.document.cards = []
       value.stored.revision++
-      button(value.container, "← 退出画布").click()
+      button(value.container, "退出画布").click()
       await Bun.sleep(30)
       button(value.container, "重新加载").click()
       await Bun.sleep(30)
@@ -1094,7 +1981,7 @@ test("reload retains an existing card's uncertain reboot and original operation 
   const value = await setup({ failure: true, reboot: true })
   try {
     value.stored.revision++
-    button(value.container, "← 退出画布").click()
+    button(value.container, "退出画布").click()
     await Bun.sleep(30)
     button(value.container, "重新加载").click()
     await Bun.sleep(30)
@@ -1117,7 +2004,7 @@ test("a late reboot response cannot restore the lock of a remotely removed card"
     await Bun.sleep(10)
     value.stored.document.cards = []
     value.stored.revision++
-    button(value.container, "← 退出画布").click()
+    button(value.container, "退出画布").click()
     await Bun.sleep(30)
     button(value.container, "重新加载").click()
     await Bun.sleep(30)
@@ -1356,7 +2243,7 @@ test.each(["network", "readback", "reboot"] as const)(
         const prompt = value.container.querySelector<HTMLTextAreaElement>("textarea")!
         prompt.value = "退出前尚未保存的新卡草稿"
         prompt.dispatchEvent(new Event("input", { bubbles: true }))
-        button(value.container, "← 退出画布").click()
+        button(value.container, "退出画布").click()
         await Bun.sleep(30)
         expect(value.exits).toHaveLength(1)
         expect(value.saves).toHaveLength(writes)
@@ -1410,7 +2297,7 @@ test.each([false, true])(
           .dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
         button(value.container, "发送新任务").click()
         await Bun.sleep(30)
-        button(value.container, "← 退出画布").click()
+        button(value.container, "退出画布").click()
         await Bun.sleep(30)
         expect(value.exits).toHaveLength(1)
         const backup = JSON.parse(value.exits[0])
@@ -1491,7 +2378,7 @@ test("exit waits for an in-flight submission before backing up its uncertain out
     value.container.querySelector(".x6-node")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
     button(value.container, "发送新任务").click()
     await Bun.sleep(30)
-    button(value.container, "← 退出画布").click()
+    button(value.container, "退出画布").click()
     await Bun.sleep(30)
     expect(value.exits).toEqual([])
     accepted.resolve()
@@ -1518,12 +2405,12 @@ test("an uncertain exit keeps the editor open if its backup cannot be written", 
         throw new DOMException("Storage is full", "QuotaExceededError")
       },
     })
-    button(value.container, "← 退出画布").click()
+    button(value.container, "退出画布").click()
     await Bun.sleep(30)
     expect(value.exits).toEqual([])
     expect(value.container.textContent).toContain("本地草稿备份失败")
     Object.defineProperty(localStorage, "setItem", { configurable: true, value: setItem })
-    button(value.container, "← 退出画布").click()
+    button(value.container, "退出画布").click()
     await Bun.sleep(30)
     expect(value.exits).toHaveLength(1)
   } finally {
@@ -1584,7 +2471,141 @@ test("reboot closes and commits the settings popup before locking draft writes",
   }
 })
 
-test("alignment guides clear when dragging ends or is interrupted and reappear on the next drag", async () => {
+test.each([
+  ["image", "reference"],
+  ["video", "reference"],
+  ["video", "firstFrame"],
+  ["video", "lastFrame"],
+] as const)("completed edges reach the %s card border at %s while a dragged edge uses its port", async (kind, role) => {
+  const { Graph } = await import("@antv/x6")
+  const captured: { graph?: InstanceType<typeof Graph> } = {}
+  const original = Graph.prototype.addNode
+  const addNode = spyOn(Graph.prototype, "addNode").mockImplementation(function (
+    this: InstanceType<typeof Graph>,
+    node: Parameters<InstanceType<typeof Graph>["createNode"]>[0] | Parameters<typeof original>[0],
+    options?: Parameters<typeof original>[1],
+  ) {
+    captured.graph = this
+    return Reflect.apply(original, this, [node, options])
+  })
+  const source = newBoardCard("edge-source", "image", { x: 100, y: 100 })
+  source.cover = { generationID: "edge-result", mediaID: "edge-image" }
+  source.taskLinks = [
+    {
+      generationID: "edge-result",
+      submissionID: "edge-submission",
+      visible: true,
+      snapshot: { prompt: "source", settings: source.draft.settings, references: [] },
+    },
+  ]
+  const targets = ["loaded-target", "new-target"].map((id, index) => {
+    const card = newBoardCard(id, kind, { x: 600, y: 100 + index * 400 })
+    card.draft.settings.videoInputMode = role === "reference" ? "multi-reference" : "first-last-frame"
+    return card
+  })
+  const value = await setup({
+    document: {
+      ...emptyBoard(),
+      cards: [source, ...targets],
+      draftEdges: [{ id: "loaded-edge", sourceID: source.id, targetID: targets[0].id, role }],
+    },
+    results: {
+      "edge-result": {
+        id: "edge-result",
+        status: "succeeded",
+        capability: "image.generate",
+        provider: "internel",
+        model: "seedream-5-pro",
+        prompt: "source",
+        aspectRatio: "1:1",
+        createdAt: 1,
+        images: [{ id: "edge-image", url: "https://example.test/source.png" }],
+      },
+    },
+  })
+  try {
+    const graph = captured.graph!
+    const edge = graph.getCellById("loaded-edge")!
+    const sourceNode = graph.getCellById(source.id)!
+    const targetNode = graph.getCellById(targets[0].id)!
+    if (!edge.isEdge() || !sourceNode.isNode() || !targetNode.isNode()) throw new Error("Expected connected cards")
+    const view = graph.findViewByCell(edge)!
+    if (!view.isEdgeView()) throw new Error("Expected a rendered edge")
+    expect(edge.getSource()).toMatchObject({ cell: source.id, port: "output" })
+    expect(edge.getTarget()).toMatchObject({ cell: targets[0].id, port: role })
+    expect(view.sourcePoint.x).toBe(402)
+    expect(view.targetPoint.x).toBe(602)
+    Reflect.apply(graph.trigger, graph, ["node:click", { node: targetNode, e: new MouseEvent("click") }])
+    expect(view.targetPoint.x).toBe(602)
+    Reflect.apply(graph.trigger, graph, ["blank:click", {}])
+    expect(view.targetPoint.x).toBe(602)
+    sourceNode.resize(204, 330)
+    sourceNode.position(150, 130)
+    targetNode.resize(304, 50)
+    expect(view.sourcePoint.x).toBe(352)
+    expect(view.targetPoint.x).toBe(602)
+    expect(view.targetPoint.y).toBe(138)
+    const temporary = Reflect.apply(graph.options.connecting.createEdge!, graph, [{}])
+    if (!temporary?.isEdge()) throw new Error("Expected a temporary edge")
+    temporary.setSource({ cell: source.id, port: "output" })
+    temporary.setTarget({ x: 550, y: 500 })
+    graph.addEdge(temporary)
+    expect(temporary.getSource().connectionPoint).toBeUndefined()
+    Reflect.apply(graph.trigger, graph, ["edge:mouseenter", { edge: temporary }])
+    expect(graph.findViewByCell(temporary)?.container.classList.contains("studio-board-edge-hover")).toBe(false)
+    temporary.setTarget({ cell: targets[1].id, port: role })
+    expect(temporary.getSource().connectionPoint).toBeUndefined()
+    Reflect.apply(graph.trigger, graph, ["edge:connected", { edge: temporary }])
+    expect(temporary.getSource()).toMatchObject({
+      cell: source.id,
+      port: "output",
+      connectionPoint: { name: "studio-board-card-border" },
+    })
+    expect(temporary.getTarget()).toMatchObject({
+      cell: targets[1].id,
+      port: role,
+      connectionPoint: { name: "studio-board-card-border" },
+    })
+    await Bun.sleep(30)
+    const connected = graph.findViewByCell(temporary)!
+    if (!connected.isEdgeView()) throw new Error("Expected a completed edge")
+    expect(connected.sourcePoint.x).toBe(352)
+    expect(connected.targetPoint.x).toBe(602)
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
+    Object.defineProperty(media, "matches", { value: true })
+    const matchMedia = spyOn(window, "matchMedia").mockReturnValue(media)
+    try {
+      const click = (type = "edge:click", button = 0) =>
+        Reflect.apply(graph.trigger, graph, [type, { edge: temporary, e: new MouseEvent("click", { button }) }])
+      click()
+      expect(graph.getCellById(temporary.id)).toBe(temporary)
+      Reflect.apply(graph.trigger, graph, ["edge:mouseenter", { edge: temporary }])
+      expect(connected.container.classList.contains("studio-board-edge-hover")).toBe(true)
+      expect(temporary.attr("line/stroke")).toBe("#7775e7")
+      click("edge:dblclick")
+      click("edge:click", 2)
+      expect(graph.getCellById(temporary.id)).toBe(temporary)
+      Reflect.apply(graph.trigger, graph, ["edge:mouseleave", { edge: temporary }])
+      expect(connected.container.classList.contains("studio-board-edge-hover")).toBe(false)
+      expect(temporary.attr("line/stroke")).toBe("#a7abc4")
+      Reflect.apply(graph.trigger, graph, ["edge:mouseenter", { edge: temporary }])
+      click()
+      expect(graph.getCellById(temporary.id)).toBeNull()
+      expect(connected.container.classList.contains("studio-board-edge-hover")).toBe(false)
+      expect(graph.getCellById(edge.id)).toBe(edge)
+      await Bun.sleep(30)
+      const backup = JSON.parse(localStorage.getItem("studio.board.backup:http://board.test:/test:test-board")!)
+      expect(backup.document.draftEdges.map((item: { id: string }) => item.id)).toEqual([edge.id])
+    } finally {
+      matchMedia.mockRestore()
+    }
+  } finally {
+    value.dispose()
+    addNode.mockRestore()
+  }
+})
+
+test("card drags hide the composer, retain its draft and restore it with guides cleared on release or interruption", async () => {
   const { Graph } = await import("@antv/x6")
   const captured: { graph?: InstanceType<typeof Graph> } = {}
   const original = Graph.prototype.addNode
@@ -1609,9 +2630,20 @@ test("alignment guides clear when dragging ends or is interrupted and reappear o
     const graph = captured.graph!
     const node = graph.getCellById("moving")!
     if (!node.isNode()) throw new Error("Expected a card node")
+    const element = value.container.querySelector('[data-cell-id="moving"]')!
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+    const composer = value.container.querySelector<HTMLDivElement>(".studio-board-composer")!
+    const prompt = composer.querySelector<HTMLTextAreaElement>("textarea")!
+    expect(composer.style.visibility).toBe("hidden")
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+    document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
+    expect(composer.style.visibility).toBe("")
+    prompt.value = "拖动时保留草稿"
+    prompt.dispatchEvent(new Event("input", { bubbles: true }))
     ;["node:moved", "pointerup", "pointercancel", "blur"].forEach((event) => {
       node.position(103, 102)
       Reflect.apply(graph.trigger, graph, ["node:moving", { node }])
+      expect(composer.style.visibility).toBe("hidden")
       expect(value.container.querySelectorAll(".studio-board-guide")).toHaveLength(2)
       expect(node.position()).toEqual({ x: 100, y: 100 })
       if (event === "node:moved") Reflect.apply(graph.trigger, graph, [event, { node }])
@@ -1619,6 +2651,9 @@ test("alignment guides clear when dragging ends or is interrupted and reappear o
         document.dispatchEvent(new PointerEvent(event, { bubbles: true }))
       if (event === "blur") window.dispatchEvent(new Event(event))
       expect(value.container.querySelectorAll(".studio-board-guide")).toHaveLength(0)
+      expect(composer.style.visibility).toBe("")
+      expect(value.container.querySelector("textarea")).toBe(prompt)
+      expect(prompt.value).toBe("拖动时保留草稿")
     })
     await Bun.sleep(30)
     const backup = JSON.parse(localStorage.getItem("studio.board.backup:http://board.test:/test:test-board")!)

@@ -6,6 +6,7 @@ import {
   boardReferences,
   boardMedia,
   boardRebootable,
+  boardCardSize,
   boardWheelZoom,
   boardDocumentJSON,
   boardDocumentSnapshot,
@@ -14,6 +15,16 @@ import {
   newBoardCard,
   type BoardResults,
 } from "./studio-board-state"
+
+test("card geometry preserves the actual media ratio with a bounded longest side", () => {
+  expect(boardCardSize()).toEqual({ width: 304, height: 330 })
+  expect(boardCardSize(1200, 800)).toEqual({ width: 304, height: 230 })
+  expect(boardCardSize(800, 1200)).toEqual({ width: 204, height: 330 })
+  expect(boardCardSize(1920, 1080)).toEqual({ width: 304, height: 198.75 })
+  expect(boardCardSize(0, 1080)).toEqual({ width: 304, height: 330 })
+  expect(boardCardSize(Number.NaN, 1080)).toEqual({ width: 304, height: 330 })
+  expect(boardCardSize(undefined, 1080)).toEqual({ width: 304, height: 330 })
+})
 
 function fixture() {
   const a = newBoardCard("a", "image")
@@ -142,6 +153,16 @@ describe("board task and draft boundaries", () => {
     document.draftEdges = []
     expect(boardFrameSourceCount(document, b.id, role)).toBe(0)
     expect(boardConnectionError(document, results, "a", b.id, role)).toBeUndefined()
+  })
+  test("video connection roles follow the selected input mode", () => {
+    const { document, results, b } = fixture()
+    b.kind = "video"
+    b.draft.settings.videoInputMode = "first-last-frame"
+    expect(boardConnectionError(document, results, "a", b.id, "reference")).toContain("输入模式不匹配")
+    expect(boardConnectionError(document, results, "a", b.id, "firstFrame")).toBeUndefined()
+    b.draft.settings.videoInputMode = "multi-reference"
+    expect(boardConnectionError(document, results, "a", b.id, "firstFrame")).toContain("输入模式不匹配")
+    expect(boardConnectionError(document, results, "a", b.id, "reference")).toBeUndefined()
   })
   test("only capable provider tasks reboot; cancelled created tasks remain eligible", () => {
     const { results } = fixture()

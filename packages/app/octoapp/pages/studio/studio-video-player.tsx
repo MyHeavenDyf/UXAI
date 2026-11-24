@@ -16,7 +16,12 @@ export function StudioVideoPlayer(props: {
   poster?: string
   class?: string
   mount: () => HTMLElement
+  inline?: boolean
+  onMetadata?: (media: { width: number; height: number; duration: number }) => void
+  onPlay?: (video: HTMLVideoElement) => void
 }): JSX.Element {
+  const inlineHost = props.inline ? document.createElement("div") : undefined
+  if (inlineHost) inlineHost.className = "studio-video-player-inline-host"
   const [playbackState, setPlaybackState] = createSignal<"idle" | "playing" | "paused" | "ended">("idle")
   const [currentTime, setCurrentTime] = createSignal(0)
   const [duration, setDuration] = createSignal(0)
@@ -38,7 +43,7 @@ export function StudioVideoPlayer(props: {
   const playing = () => playbackState() === "playing"
 
   function updatePosition() {
-    if (disposed) return
+    if (disposed || props.inline) return
     cancelAnimationFrame(positionFrame)
     positionFrame = requestAnimationFrame(() => {
       // 双重 rAF：确保在 layout 完成后再测量，避免拿到 stale 尺寸
@@ -47,18 +52,22 @@ export function StudioVideoPlayer(props: {
         const parent = anchorRef.parentElement
         if (!parent) return
         const style = getComputedStyle(parent)
-        const availableWidth = Math.max(0, parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
-        const availableHeight = Math.max(0, parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
+        const availableWidth = Math.max(
+          0,
+          parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        )
+        const availableHeight = Math.max(
+          0,
+          parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+        )
         if (availableWidth <= 0 || availableHeight <= 0) {
-          setPosition((position) => position.visible ? { ...position, visible: false } : position)
+          setPosition((position) => (position.visible ? { ...position, visible: false } : position))
           clearPlaybackClickTimer()
           if (!videoRef.paused) videoRef.pause()
           return
         }
         // 容器比视频宽 → 高度撑满；容器比视频高 → 宽度撑满
-        const width = availableWidth / availableHeight > mediaRatio()
-          ? availableHeight * mediaRatio()
-          : availableWidth
+        const width = availableWidth / availableHeight > mediaRatio() ? availableHeight * mediaRatio() : availableWidth
         const height = width / mediaRatio()
         anchorRef.style.width = `${width}px`
         anchorRef.style.height = `${height}px`
@@ -69,7 +78,13 @@ export function StudioVideoPlayer(props: {
           left: rect.left - mountRect.left,
           width: rect.width,
           height: rect.height,
-          visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth,
+          visible:
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.bottom > 0 &&
+            rect.right > 0 &&
+            rect.top < innerHeight &&
+            rect.left < innerWidth,
         })
       })
     })
@@ -124,13 +139,17 @@ export function StudioVideoPlayer(props: {
   }
 
   function playOnHover() {
-    if (!videoRef.paused || error()) return
+    if (props.inline || !videoRef.paused || error()) return
     if (!audioPreferenceTouched()) videoRef.muted = true
     startPlayback(false)
   }
 
   function toggleMuted() {
-    tracker.interaction({ module: "studio", name: "video-mute-toggle", extend: JSON.stringify({ muted: !(videoRef.muted || videoRef.volume === 0) }) })
+    tracker.interaction({
+      module: "studio",
+      name: "video-mute-toggle",
+      extend: JSON.stringify({ muted: !(videoRef.muted || videoRef.volume === 0) }),
+    })
     setAudioPreferenceTouched(true)
     if (videoRef.muted || videoRef.volume === 0) {
       videoRef.muted = false
@@ -157,6 +176,16 @@ export function StudioVideoPlayer(props: {
   }
 
   onMount(() => {
+    if (inlineHost) {
+      onCleanup(() => {
+        disposed = true
+        clearControlsTimer()
+        clearPlaybackClickTimer()
+        videoRef.pause()
+        inlineHost.remove()
+      })
+      return
+    }
     const mountEl = props.mount()
     const observer = new ResizeObserver(updatePosition)
     observer.observe(anchorRef)
@@ -193,6 +222,13 @@ export function StudioVideoPlayer(props: {
 
   createEffect(on(mediaRatio, updatePosition, { defer: true }))
 
+  // Move the portal host, preserving the same video and playback position in fullscreen.
+  createEffect(() => {
+    if (!inlineHost || !anchorRef) return
+    const mount = fullscreen() ? props.mount() : anchorRef
+    if (inlineHost.parentElement !== mount) mount.append(inlineHost)
+  })
+
   createEffect(
     on(
       () => props.src,
@@ -203,7 +239,11 @@ export function StudioVideoPlayer(props: {
         setCurrentTime(0)
         setDuration(0)
         setError("")
-        if (videoRef) videoRef.load()
+        setMediaRatio(16 / 9)
+        if (videoRef) {
+          videoRef.pause()
+          videoRef.load()
+        }
       },
       { defer: true },
     ),
@@ -219,31 +259,55 @@ export function StudioVideoPlayer(props: {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       event.preventDefault()
+      event.stopPropagation()
       exitFullscreen()
     }
-    document.addEventListener("keydown", onKeyDown)
+    document.addEventListener("keydown", onKeyDown, true)
     scheduleControlsHide()
     onCleanup(() => {
-      document.removeEventListener("keydown", onKeyDown)
+      document.removeEventListener("keydown", onKeyDown, true)
     })
   })
 
   return (
     <>
-      <div ref={anchorRef!} class="studio-video-player-anchor" />
-      <Portal mount={props.mount()}>
+      <div
+        ref={anchorRef!}
+        class="studio-video-player-anchor"
+        classList={{ "studio-video-player-inline-anchor": props.inline }}
+      />
+      <Portal mount={inlineHost ?? props.mount()}>
         <div
           class="studio-video-player"
           classList={{
             fullscreen: fullscreen(),
             "controls-hidden": !controlsVisible(),
+            "studio-video-player-inline": props.inline,
+            compact: props.inline && !fullscreen(),
           }}
-          style={fullscreen() ? undefined : {
-            top: `${position().top}px`,
-            left: `${position().left}px`,
-            width: `${position().width}px`,
-            height: `${position().height}px`,
-            visibility: position().visible ? "visible" : "hidden",
+          style={
+            fullscreen() || props.inline
+              ? undefined
+              : {
+                  top: `${position().top}px`,
+                  left: `${position().left}px`,
+                  width: `${position().width}px`,
+                  height: `${position().height}px`,
+                  visibility: position().visible ? "visible" : "hidden",
+                }
+          }
+          on:pointerdown={(event) => {
+            if (props.inline) event.stopPropagation()
+          }}
+          on:mousedown={(event) => {
+            if (props.inline) event.stopPropagation()
+          }}
+          on:keydown={(event) => {
+            if (props.inline) event.stopPropagation()
+          }}
+          on:wheel={(event) => {
+            if (props.inline && event.target instanceof Element && event.target.closest("input, button"))
+              event.stopPropagation()
           }}
           onMouseMove={scheduleControlsHide}
           onMouseEnter={playOnHover}
@@ -266,26 +330,39 @@ export function StudioVideoPlayer(props: {
             poster={props.poster}
             class={`studio-video-player-media ${props.class ?? ""}`}
             playsinline
-            preload="auto"
+            preload={props.inline ? "metadata" : "auto"}
             onClick={schedulePlaybackToggle}
             onDblClick={() => {
               clearPlaybackClickTimer()
               toggleFullscreen()
             }}
-            onPlay={() => {
+            onPlay={(event) => {
               setPlaybackState("playing")
               scheduleControlsHide()
+              props.onPlay?.(event.currentTarget)
             }}
             onPause={() => {
-              setPlaybackState((state) => state === "idle" || state === "ended" ? state : "paused")
+              setPlaybackState((state) => (state === "idle" || state === "ended" ? state : "paused"))
               setControlsVisible(true)
               clearControlsTimer()
             }}
             onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-            onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+            onDurationChange={(event) =>
+              setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)
+            }
             onLoadedMetadata={(event) => {
+              if (
+                event.currentTarget.currentSrc &&
+                event.currentTarget.currentSrc !== event.currentTarget.src
+              )
+                return
               if (event.currentTarget.videoWidth && event.currentTarget.videoHeight) {
                 setMediaRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight)
+                props.onMetadata?.({
+                  width: event.currentTarget.videoWidth,
+                  height: event.currentTarget.videoHeight,
+                  duration: Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0,
+                })
               }
             }}
             onVolumeChange={(event) => {
@@ -296,7 +373,9 @@ export function StudioVideoPlayer(props: {
               setPlaybackState("ended")
               setControlsVisible(true)
             }}
-            onError={(event) => setError(event.currentTarget.error ? "视频加载失败，请重试或下载后查看" : "视频加载失败")}
+            onError={(event) =>
+              setError(event.currentTarget.error ? "视频加载失败，请重试或下载后查看" : "视频加载失败")
+            }
           />
 
           <Show when={playbackState() !== "playing" && !error()}>
@@ -306,7 +385,9 @@ export function StudioVideoPlayer(props: {
           </Show>
 
           <Show when={error()}>
-            <div class="studio-video-player-error" role="alert">{error()}</div>
+            <div class="studio-video-player-error" role="alert">
+              {error()}
+            </div>
           </Show>
 
           <Show when={fullscreen()}>
@@ -333,7 +414,7 @@ export function StudioVideoPlayer(props: {
               step="0.01"
               value={Math.min(currentTime(), duration() || 0)}
               aria-label="视频进度"
-              style={{ "--studio-video-progress": `${duration() ? currentTime() / duration() * 100 : 0}%` }}
+              style={{ "--studio-video-progress": `${duration() ? (currentTime() / duration()) * 100 : 0}%` }}
               onInput={(event) => {
                 videoRef.currentTime = Number(event.currentTarget.value)
                 setCurrentTime(videoRef.currentTime)
@@ -376,7 +457,8 @@ export function StudioVideoPlayer(props: {
                 }}
               />
               <span class="studio-video-player-time">
-                {formatStudioMediaTime(currentTime())} / {formatStudioMediaTime(duration())}
+                {formatStudioMediaTime(currentTime())}
+                <span class="studio-video-player-duration"> / {formatStudioMediaTime(duration())}</span>
               </span>
               <button
                 type="button"
@@ -417,7 +499,15 @@ function VolumeIcon(props: { muted: boolean }) {
       <path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor" />
       <Show
         when={props.muted}
-        fallback={<path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />}
+        fallback={
+          <path
+            d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+        }
       >
         <path d="m16 9 5 6m0-6-5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
       </Show>
@@ -430,9 +520,25 @@ function FullscreenIcon(props: { active: boolean }) {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <Show
         when={props.active}
-        fallback={<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />}
+        fallback={
+          <path
+            d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        }
       >
-        <path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        <path
+          d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </Show>
     </svg>
   )

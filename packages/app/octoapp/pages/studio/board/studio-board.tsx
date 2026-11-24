@@ -1,4 +1,4 @@
-import { Graph, Shape, type Edge, type Node } from "@antv/x6"
+import { Graph, Point, Shape, type Edge, type Node } from "@antv/x6"
 import { batch, createEffect, createMemo, getOwner, onCleanup, onMount, runWithOwner, Show } from "solid-js"
 import { createStore, reconcile as reconcileStore } from "solid-js/store"
 import { render } from "solid-js/web"
@@ -7,6 +7,8 @@ import {
   BoardSnapshot,
   boardFrameSourceCount,
   boardGenerationError,
+  boardReferenceActive,
+  BOARD_VIDEO_REFERENCE_LIMIT,
   recoverBoardDraft,
   type BoardSubmission,
 } from "@opencode-ai/core/studio-board"
@@ -47,9 +49,11 @@ import {
 import { StudioBoardCardView } from "./studio-board-card"
 import { StudioBoardComposer } from "./studio-board-composer"
 import { StudioBoardResults } from "./studio-board-results"
+import { StudioBoardHeader, type BoardSessionPage } from "./studio-board-header"
+import type { ThumbnailMap } from "../session-thumbnail"
 import "./studio-board.css"
 
-const WIDTH = 280
+const WIDTH = 304
 const HEIGHT = 330
 const hosts = new Map<string, HTMLElement>()
 const edgeStyle = {
@@ -60,6 +64,22 @@ const edgeStyle = {
     line: { stroke: "#a7abc4", strokeWidth: 2, sourceMarker: null, targetMarker: null },
     wrap: { strokeWidth: 18 },
   },
+}
+Graph.registerConnectionPoint(
+  "studio-board-card-border",
+  (line, view, _magnet, _options, type) => {
+    const box = view.cell.getBBox()
+    // The media starts below the title, with a two-pixel inset from the node bounds.
+    const radius = Math.min(12, (box.height - 30) / 2)
+    return new Point(
+      type === "source" ? box.right - 2 : box.left + 2,
+      Math.max(box.top + 28 + radius, Math.min(box.bottom - 2 - radius, line.end.y)),
+    )
+  },
+  true,
+)
+function cardTerminal(cell: string, port: string) {
+  return { cell, port, connectionPoint: { name: "studio-board-card-border" } }
 }
 Shape.HTML.register({
   shape: "studio-board-card",
@@ -75,6 +95,13 @@ export default function StudioBoard(props: {
   sessionID?: string
   userIdx?: string
   demo?: boolean
+  title?: string
+  thumbnails?: ThumbnailMap
+  loadSessions?: (cursor?: string) => Promise<BoardSessionPage>
+  loadThumbnails?: (sessions: BoardSessionPage["sessions"]) => void
+  onRenameSession?: (id: string, title: string) => Promise<void>
+  onSelectSession?: (id?: string) => void | Promise<void>
+  onThumbnail?: (id: string, result: StudioGenerationResult) => void
   createSession: (creationID: string) => Promise<string | undefined>
   onSessionCreated: (id: string) => void
   onExit: () => void
@@ -107,16 +134,18 @@ export default function StudioBoard(props: {
     menu: undefined as
       | { x: number; y: number; point: { x: number; y: number }; sourceID?: string; previewID?: string }
       | undefined,
-    anchor: { left: 0, top: 0, width: 440 },
+    anchor: { left: 0, top: 0, width: 544 },
     marquee: undefined as { x: number; y: number; width: number; height: number } | undefined,
     historyPreviewIDs: [] as string[],
     suppressedFailureIDs: [] as string[],
     guides: {} as { x?: number; y?: number },
+    draggingCard: false,
   })
   const documentJSON = createMemo(() => boardDocumentJSON(state.document))
   const dirty = () => documentJSON() !== state.savedDocumentJSON
   const operations = createBoardOperations()
   const roots = new Map<string, () => void>()
+  const cardSizes = new Map<string, { width: number; height: number }>()
   const tokens = new Map<string, number>()
   const reboots = new Map<string, string>()
   const pending = new Map<string, BoardGenerationRequest>()
@@ -162,6 +191,7 @@ export default function StudioBoard(props: {
   let saveChain = Promise.resolve()
   let initialBackup: ReturnType<typeof boardBackup.parse> | undefined
   let creating: Promise<string | undefined> | undefined
+  let titleChange: Promise<void> | undefined
   let stopFlow = () => {}
   let temporaryEdge: Edge | undefined
   let selectionStart: { x: number; y: number } | undefined
@@ -181,7 +211,7 @@ export default function StudioBoard(props: {
       if (!node?.isNode()) return
       const bounds = board.getBoundingClientRect()
       const point = graph.localToClient(node.getBBox().bottomCenter)
-      const width = Math.min(440, bounds.width - 32)
+      const width = Math.min(544, bounds.width - 32)
       setState("anchor", {
         left: point.x - bounds.left - width / 2,
         top: point.y - bounds.top + 16,
@@ -226,6 +256,24 @@ export default function StudioBoard(props: {
     if (!card || editingBlocked(card)) return
     setState("document", "cards", (card) => card.id === id, "draft", "settings", key, value)
     updateAnchor()
+  }
+  function swapVideoFrames(card: BoardCard) {
+    if (editingBlocked(card)) return
+    const swap = (role: "reference" | "firstFrame" | "lastFrame") =>
+      role === "firstFrame" ? ("lastFrame" as const) : role === "lastFrame" ? ("firstFrame" as const) : role
+    batch(() => {
+      setState(
+        "document",
+        "cards",
+        (item) => item.id === card.id,
+        "draft",
+        "assets",
+        (assets) => assets.map((asset) => ({ ...asset, role: swap(asset.role) })),
+      )
+      setState("document", "draftEdges", (edges) =>
+        edges.map((edge) => (edge.targetID === card.id ? { ...edge, role: swap(edge.role) } : edge)),
+      )
+    })
   }
   function closeMenu() {
     if (temporaryEdge) graph?.removeCell(temporaryEdge)
@@ -299,6 +347,8 @@ export default function StudioBoard(props: {
         target: { cell: targetID, port: role },
       })
     if (!connection) return false
+    connection.setSource(cardTerminal(sourceID, "output"))
+    connection.setTarget(cardTerminal(targetID, role))
     setState("document", "draftEdges", (edges) => [...edges, { id: connection.id, sourceID, targetID, role }])
     if (role !== "reference") draftSetting(targetID, "videoMode", "first_last_frame")
     select(targetID)
@@ -318,12 +368,13 @@ export default function StudioBoard(props: {
       state.document.cards.every(
         (card) =>
           item.x + WIDTH + 40 < card.position.x ||
-          item.x > card.position.x + WIDTH + 40 ||
+          item.x > card.position.x + (cardSizes.get(card.id)?.width ?? WIDTH) + 40 ||
           item.y + HEIGHT + 24 < card.position.y ||
-          item.y > card.position.y + HEIGHT + 24,
+          item.y > card.position.y + (cardSizes.get(card.id)?.height ?? HEIGHT) + 24,
       ),
     )!
     const card = newBoardCard(crypto.randomUUID(), kind, point)
+    if (kind === "video") card.draft.settings.videoInputMode = "first-last-frame"
     card.title = `${kind === "image" ? "图片" : "视频"} ${String(state.document.cards.filter((item) => item.kind === kind).length + 1).padStart(2, "0")}`
     if (kind === "image" && !props.demo && studioPermissionState.status === "ready")
       card.draft.settings.styleModel = defaultStudioStyleModel(studioPermissionState.seedream)
@@ -347,6 +398,7 @@ export default function StudioBoard(props: {
       notify("请等待任务结束后修改引用")
       return
     }
+    stopFlow()
     graph?.removeCell(id)
     setState("document", "draftEdges", (edges) => edges.filter((item) => item.id !== id))
   }
@@ -370,6 +422,7 @@ export default function StudioBoard(props: {
     graph?.removeCell(id)
     roots.get(id)?.()
     roots.delete(id)
+    cardSizes.delete(id)
     hosts.delete(id)
     setState("document", "cards", (cards) => cards.filter((item) => item.id !== id))
     setState("document", "removedCardIDs", (ids) => [...new Set([...ids, id])])
@@ -382,7 +435,7 @@ export default function StudioBoard(props: {
       if (card.kind === "image")
         node.portProp("output", "attrs/circle", {
           magnet: !!boardCover(card, state.results),
-          opacity: boardCover(card, state.results) ? 1 : 0.35,
+          opacity: 1,
         })
       node
         .getPorts()
@@ -390,12 +443,27 @@ export default function StudioBoard(props: {
         .forEach((port) => {
           const blocked =
             editingBlocked(card) ||
+            !boardReferenceActive(card.kind, card.draft.settings, port.id!) ||
             (port.id !== "reference" && !!boardFrameSourceCount(state.document, card.id, port.id!))
           node.portProp(port.id!, "attrs/circle", {
             magnet: blocked ? false : "passive",
             opacity: blocked ? 0.35 : 1,
+            display: boardReferenceActive(card.kind, card.draft.settings, port.id!) ? "" : "none",
           })
+          node.portProp(
+            port.id!,
+            "attrs/plus/display",
+            boardReferenceActive(card.kind, card.draft.settings, port.id!) ? "" : "none",
+          )
         })
+    })
+    state.document.draftEdges.forEach((edge) => {
+      const cell = graph?.getCellById(edge.id)
+      const card = state.document.cards.find((card) => card.id === edge.targetID)
+      if (!cell?.isEdge() || !card) return
+      if (cell.getTargetPortId() !== edge.role) cell.setTarget(cardTerminal(card.id, edge.role))
+      const active = boardReferenceActive(card.kind, card.draft.settings, edge.role)
+      if (cell.isVisible() !== active) cell.setVisible(active)
     })
   }
   function mountCard(card: BoardCard) {
@@ -422,6 +490,15 @@ export default function StudioBoard(props: {
                   failureSuppressed={state.suppressedFailureIDs.includes(value().currentGenerationID ?? "")}
                   rebootBlocked={busy() || awaitingRecovery()}
                   mediaURL={mediaURL}
+                  playerMount={() => board}
+                  onSize={(size) => {
+                    cardSizes.set(id, size)
+                    const node = graph?.getCellById(id)
+                    if (!node?.isNode()) return
+                    if (node.size().width === size.width && node.size().height === size.height) return
+                    node.resize(size.width, size.height)
+                    updateAnchor()
+                  }}
                   onOperate={(action) => void operate(id, action)}
                   onRefresh={() => void reconcile(id)}
                   onRemove={() => removeCard(id)}
@@ -441,26 +518,39 @@ export default function StudioBoard(props: {
         }, host),
       )!,
     )
-    const port = (position: "left" | "right", y?: number) => ({
-      position: { name: position, args: { dx: position === "left" ? -18 : 18, ...(y === undefined ? {} : { y }) } },
+    const port = (position: "left" | "right") => ({
+      position: {
+        name: position,
+        args: {
+          dx: position === "left" ? -21 : 21,
+        },
+      },
       markup: [
         { tagName: "circle", selector: "circle" },
         { tagName: "path", selector: "plus" },
       ],
       attrs: {
         circle: {
-          r: 10,
+          r: 13,
           magnet: position === "left" ? "passive" : false,
-          stroke: "#858ac0",
-          strokeWidth: 1.5,
+          stroke: "#e1e1e1",
+          strokeWidth: 1,
           fill: "#fff",
         },
-        plus: { d: "M -4 0 L 4 0 M 0 -4 L 0 4", stroke: "#7479ae", strokeWidth: 1.4, pointerEvents: "none" },
+        plus: {
+          d: "M -5.25 0 L 5.25 0 M 0 -5.25 L 0 5.25",
+          stroke: "#777",
+          strokeWidth: 0.875,
+          strokeLinecap: "round",
+          pointerEvents: "none",
+        },
       },
     })
     graph.addNode({
       id,
       shape: "studio-board-card",
+      width: cardSizes.get(id)?.width ?? WIDTH,
+      height: cardSizes.get(id)?.height ?? HEIGHT,
       x: card.position.x,
       y: card.position.y,
       zIndex: 1,
@@ -473,6 +563,7 @@ export default function StudioBoard(props: {
                 { id: "output", group: "output" },
               ]
             : [
+                { id: "reference", group: "input" },
                 { id: "firstFrame", group: "firstFrame", args: { y: "35%" } },
                 { id: "lastFrame", group: "lastFrame", args: { y: "65%" } },
               ],
@@ -494,10 +585,11 @@ export default function StudioBoard(props: {
       graph?.addEdge({
         ...edgeStyle,
         id: edge.id,
-        source: { cell: edge.sourceID, port: "output" },
-        target: { cell: edge.targetID, port: edge.role },
+        source: cardTerminal(edge.sourceID, "output"),
+        target: cardTerminal(edge.targetID, edge.role),
       }),
     )
+    updatePorts()
     graph?.zoomTo(state.document.viewport.zoom)
     graph?.translate(state.document.viewport.x, state.document.viewport.y)
     select("")
@@ -649,6 +741,48 @@ export default function StudioBoard(props: {
     clearTimeout(saveTimer)
     if (props.demo || !state.ready) return Promise.resolve()
     return enqueueWrite(() => persistBoard(retry))
+  }
+  function rename(title: string) {
+    if (props.demo) return Promise.resolve()
+    const change = enqueueWrite(async () => {
+      const id = await ensureSession()
+      if (!id || disposed) throw new Error("创建画布会话失败")
+      if (props.onRenameSession) {
+        await props.onRenameSession(id, title)
+        return
+      }
+      await request(`/session/${encodeURIComponent(id)}`, "PATCH", { title })
+    })
+    titleChange = change
+    return change.finally(() => {
+      if (titleChange === change) titleChange = undefined
+    })
+  }
+  function leave(action: () => void | Promise<void>) {
+    if (state.exiting) return
+    const changingTitle = titleChange
+    setState("menuTab", "")
+    setState("exiting", true)
+    clearTimeout(saveTimer)
+    void enqueueWrite(async () => {
+      if (disposed) return
+      await changingTitle
+      if (awaitingRecovery() || props.demo || (!state.sessionID && !state.document.cards.length)) {
+        if (!props.demo && !state.sessionID && !awaitingRecovery()) localStorage.removeItem(backupKey())
+        await action()
+        return
+      }
+      if (pending.size || reboots.size) {
+        if ((await writeBackup()) && !disposed) await action()
+        return
+      }
+      await persistBoard(true)
+      if (!disposed) await action()
+    })
+      .catch((error: unknown) => notify(`无法离开画布：${boardErrorMessage(error)}`))
+      .finally(() => {
+        if (!disposed) setState("exiting", false)
+      })
   }
   async function persistBoard(retry = false) {
     if (disposed) return
@@ -822,6 +956,7 @@ export default function StudioBoard(props: {
   function pickUpload(role: "reference" | "firstFrame" | "lastFrame") {
     const card = selected()
     if (!card || editingBlocked(card)) return
+    setState("menuTab", "")
     uploadRole = role
     uploadCardID = selected()?.id
     if (!uploadInput) return
@@ -841,11 +976,23 @@ export default function StudioBoard(props: {
       notify("请选择 10MB 以内的 PNG、JPG 或 WebP 图片")
       return
     }
-    if (role !== "reference" && (files.length > 1 || boardFrameSourceCount(state.document, card.id, role))) {
-      notify("该帧已有引用，请先移除后替换")
+    if (!boardReferenceActive(card.kind, card.draft.settings, role)) return
+    if (
+      role !== "reference" &&
+      boardFrameSourceCount(state.document, card.id, role) &&
+      !refs.some((ref) => ref.role === role)
+    ) {
+      notify("该帧引用不可用，请先移除后替换")
       return
     }
-    if (files.length + refs.length > referenceImageLimit(card.draft.settings.styleModel)) {
+    if (role !== "reference" && files.length > 1) {
+      notify("每个首尾帧槽位仅支持一张图片")
+      return
+    }
+    if (
+      files.length + refs.filter((ref) => role === "reference" || ref.role !== role).length >
+      (card.kind === "video" ? BOARD_VIDEO_REFERENCE_LIMIT : referenceImageLimit(card.draft.settings.styleModel))
+    ) {
       notify("参考图数量超过当前模型上限")
       return
     }
@@ -886,8 +1033,20 @@ export default function StudioBoard(props: {
               (item) => item.id === card.id,
               "draft",
               "assets",
-              (items) => [...items, ...assets],
+              (items) => [
+                ...items.filter((item) => role === "reference" || !assets.length || item.role !== role),
+                ...assets,
+              ],
             )
+            if (role !== "reference" && assets.length) {
+              const removed = state.document.draftEdges.filter(
+                (edge) => edge.targetID === card.id && edge.role === role,
+              )
+              setState("document", "draftEdges", (edges) =>
+                edges.filter((edge) => !removed.some((item) => item.id === edge.id)),
+              )
+              removed.forEach((edge) => graph?.removeCell(edge.id))
+            }
             if (role !== "reference" && assets.length)
               setState(
                 "document",
@@ -947,7 +1106,7 @@ export default function StudioBoard(props: {
     }
     if (
       state.document.draftEdges
-        .filter((edge) => edge.targetID === card.id)
+        .filter((edge) => edge.targetID === card.id && boardReferenceActive(card.kind, settings, edge.role))
         .some((edge) => {
           const source = state.document.cards.find((item) => item.id === edge.sourceID)
           return !source || !boardCover(source, state.results)
@@ -1101,14 +1260,19 @@ export default function StudioBoard(props: {
   }
   function flow(edge: Edge) {
     stopFlow()
-    edge.attr("line/stroke", "#7775e7")
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      stopFlow = () => edge.attr("line/stroke", "#a7abc4")
-      return
-    }
+    if (!state.document.draftEdges.some((item) => item.id === edge.id)) return
     const view = graph?.findViewByCell(edge)
-    const path = view?.container.querySelector<SVGPathElement>("path[data-selector=line], path.connection")
-    if (!view || !path) return
+    if (!view) return
+    view.container.classList.add("studio-board-edge-hover")
+    edge.attr("line/stroke", "#7775e7")
+    const reset = () => {
+      view.container.classList.remove("studio-board-edge-hover")
+      edge.attr("line/stroke", "#a7abc4")
+    }
+    stopFlow = reset
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    const path = view.container.querySelector<SVGPathElement>("path[data-selector=line], path.connection")
+    if (!path) return
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g")
     group.style.pointerEvents = "none"
     const dots = Array.from({ length: 24 }, (_, index) => {
@@ -1137,7 +1301,7 @@ export default function StudioBoard(props: {
     stopFlow = () => {
       cancelAnimationFrame(animation)
       group.remove()
-      edge.attr("line/stroke", "#a7abc4")
+      reset()
     }
   }
   onMount(() => {
@@ -1180,6 +1344,7 @@ export default function StudioBoard(props: {
       },
     })
     graph.on("node:mousedown", ({ node, e }) => {
+      if (e.button === 0) setState("draggingCard", true)
       if (!e.ctrlKey && !e.metaKey) select(node.id)
     })
     graph.on("node:click", ({ node, e }) => select(node.id, e.ctrlKey || e.metaKey))
@@ -1193,9 +1358,13 @@ export default function StudioBoard(props: {
       closeMenu()
       openMenu(e.clientX, e.clientY)
     })
-    const clearGuides = () => setState("guides", { x: undefined, y: undefined })
+    const endDrag = () => {
+      setState("draggingCard", false)
+      setState("guides", { x: undefined, y: undefined })
+    }
     graph.on("node:moving", ({ node }) => {
       if (snapping) return
+      setState("draggingCard", true)
       const position = node.position()
       const other = graph!
         .getNodes()
@@ -1218,7 +1387,7 @@ export default function StudioBoard(props: {
     })
     graph.on("node:moved", ({ node }) => {
       editCard(node.id, { position: node.position() })
-      clearGuides()
+      endDrag()
     })
     const viewport = () => {
       closeMenu()
@@ -1243,7 +1412,11 @@ export default function StudioBoard(props: {
         if (!disposed && !state.document.draftEdges.some((item) => item.id === edge.id)) finishBlankEdge(edge)
       }),
     )
-    graph.on("edge:dblclick", ({ edge }) => removeEdge(edge.id))
+    graph.on("edge:click", ({ edge, e }) => {
+      if (e.button !== 0 || !graph?.findViewByCell(edge)?.container.classList.contains("studio-board-edge-hover"))
+        return
+      removeEdge(edge.id)
+    })
     graph.on("edge:mouseenter", ({ edge }) => flow(edge))
     graph.on("edge:mouseleave", () => stopFlow())
     const wheel = (event: WheelEvent) => {
@@ -1261,8 +1434,19 @@ export default function StudioBoard(props: {
       })
     }
     canvas.addEventListener("wheel", wheel, { passive: false })
+    const dismissDropdown = (event: Event) => {
+      const target = event.target
+      if (
+        !state.menuTab ||
+        !(target instanceof Element) ||
+        dropdown?.contains(target) ||
+        Array.from(menuButtons.values()).some((button) => button.contains(target))
+      )
+        return
+      setState("menuTab", "")
+    }
     const down = (event: PointerEvent) => {
-      if (event.target instanceof Element && !composer?.contains(event.target)) setState("menuTab", "")
+      dismissDropdown(event)
       if (
         event.target instanceof Element &&
         event.target.closest(
@@ -1291,7 +1475,7 @@ export default function StudioBoard(props: {
       })
     }
     const up = () => {
-      clearGuides()
+      endDrag()
       if (!selectionStart) return
       const rect = state.marquee
       const bounds = board.getBoundingClientRect()
@@ -1317,10 +1501,11 @@ export default function StudioBoard(props: {
       updateAnchor()
     }
     board.addEventListener("pointerdown", down, true)
+    board.addEventListener("focusin", dismissDropdown, true)
     document.addEventListener("pointermove", move)
     document.addEventListener("pointerup", up)
-    document.addEventListener("pointercancel", clearGuides)
-    window.addEventListener("blur", clearGuides)
+    document.addEventListener("pointercancel", endDrag)
+    window.addEventListener("blur", endDrag)
     const observer = new ResizeObserver(updateAnchor)
     observer.observe(board)
     if (!props.demo) void initialize()
@@ -1336,10 +1521,11 @@ export default function StudioBoard(props: {
       timers.forEach(clearTimeout)
       canvas.removeEventListener("wheel", wheel)
       board.removeEventListener("pointerdown", down, true)
+      board.removeEventListener("focusin", dismissDropdown, true)
       document.removeEventListener("pointermove", move)
       document.removeEventListener("pointerup", up)
-      document.removeEventListener("pointercancel", clearGuides)
-      window.removeEventListener("blur", clearGuides)
+      document.removeEventListener("pointercancel", endDrag)
+      window.removeEventListener("blur", endDrag)
       graph?.dispose()
       roots.forEach((dispose, id) => {
         dispose()
@@ -1355,7 +1541,8 @@ export default function StudioBoard(props: {
       .filter((card) => card.kind === "video")
       .forEach((card) => {
         const mode =
-          card.draft.assets.length || state.document.draftEdges.some((edge) => edge.targetID === card.id)
+          card.draft.assets.some((asset) => boardReferenceActive(card.kind, card.draft.settings, asset.role)) ||
+          state.document.draftEdges.some((edge) => edge.targetID === card.id && boardReferenceActive(card.kind, card.draft.settings, edge.role))
             ? "first_last_frame"
             : "text"
         if (card.draft.settings.videoMode !== mode) draftSetting(card.id, "videoMode", mode)
@@ -1392,6 +1579,18 @@ export default function StudioBoard(props: {
     const id = state.sessionID
     if (id) props.onBusy?.(id, busy())
   })
+  const latestSuccess = createMemo(
+    () =>
+      Object.values(state.results)
+        .filter((result) => result.status === "succeeded" && result.images.length)
+        .sort(
+          (a, b) => (b.completedAt ?? b.updatedAt ?? b.createdAt) - (a.completedAt ?? a.updatedAt ?? a.createdAt),
+        )[0],
+  )
+  createEffect(() => {
+    const result = latestSuccess()
+    if (state.sessionID && result) props.onThumbnail?.(state.sessionID, result)
+  })
 
   return (
     <div
@@ -1425,50 +1624,32 @@ export default function StudioBoard(props: {
     >
       <div ref={canvas} class="studio-board-graph" />
       <header class="studio-board-header">
-        <div class="studio-board-header-left">
-          <button
-            type="button"
-            class="studio-board-exit"
-            disabled={state.exiting}
-            onClick={() => {
-              if (state.exiting) return
-              if (awaitingRecovery()) {
-                props.onExit()
-                return
-              }
-              if (props.demo || (!state.sessionID && !state.document.cards.length)) {
-                if (!props.demo) localStorage.removeItem(backupKey())
-                props.onExit()
-                return
-              }
-              setState("menuTab", "")
-              setState("exiting", true)
-              clearTimeout(saveTimer)
-              void enqueueWrite(async () => {
-                if (disposed) return
-                // Uncertain operations cannot change the revision until reconciled,
-                // but their original IDs and unsaved drafts can safely survive exit.
-                if (pending.size || reboots.size) {
-                  if ((await writeBackup()) && !disposed) props.onExit()
-                  return
+        <StudioBoardHeader
+          title={props.title ?? (props.demo ? "演示画布" : "未命名画布")}
+          sessionID={state.sessionID}
+          status={
+            state.saveError ||
+            (state.saving ? "保存中…" : state.sessionID ? (dirty() ? "未保存" : "已保存") : "尚未保存")
+          }
+          pending={dirty() || state.saving || !state.sessionID}
+          failed={!!state.saveError}
+          disabled={state.exiting}
+          thumbnails={props.thumbnails}
+          mediaURL={mediaURL}
+          loadSessions={props.loadSessions}
+          loadThumbnails={props.loadThumbnails}
+          onSelect={
+            !props.demo && props.onSelectSession
+              ? (id) => {
+                  if (id === state.sessionID && id) return
+                  leave(() => props.onSelectSession?.(id))
                 }
-                await persistBoard(true)
-                if (!disposed) props.onExit()
-              })
-                .catch(() => notify("保存失败，请重试保存后退出"))
-                .finally(() => {
-                  if (!disposed) setState("exiting", false)
-                })
-            }}
-          >
-            ← 退出画布
-          </button>
-          <span class="studio-board-header-divider" />
-          <span class="studio-board-name">{props.demo ? "演示画布" : "灵感画布"}</span>
-          <Show when={props.demo}>
-            <span class="studio-board-badge">DEMO</span>
-          </Show>
-        </div>
+              : undefined
+          }
+          onRename={rename}
+          onExit={() => leave(props.onExit)}
+          onSave={() => void save().catch(() => {})}
+        />
         <div class="studio-board-save">
           <span>
             {props.demo
@@ -1586,6 +1767,7 @@ export default function StudioBoard(props: {
             document={state.document}
             references={references()}
             anchor={state.anchor}
+            hidden={state.draggingCard}
             blocked={editingBlocked(card)}
             canGenerate={
               !!card.draft.prompt.trim() && !busy() && state.ready && !awaitingRecovery() && !state.saveError
@@ -1609,7 +1791,13 @@ export default function StudioBoard(props: {
               menuButton: (tab, element) => menuButtons.set(tab, element),
             }}
             onUpload={(files) => void upload(files)}
+            onDropUpload={(files, role) => {
+              uploadRole = role
+              uploadCardID = card.id
+              void upload(files)
+            }}
             onPickUpload={pickUpload}
+            onSwapFrames={() => swapVideoFrames(card)}
             onRemoveReference={(reference) => {
               if (editingBlocked(card)) return
               const edge = state.document.draftEdges.find(
@@ -1715,7 +1903,7 @@ export default function StudioBoard(props: {
         </div>
       </Show>
       <footer class="studio-board-footer">
-        <span class="studio-board-help">拖动平移 · 滚轮缩放 · Shift 拖动框选 · ⌘ / Ctrl 多选 · 双击连线移除</span>
+        <span class="studio-board-help">拖动平移 · 滚轮缩放 · Shift 拖动框选 · ⌘ / Ctrl 多选 · 悬停连线后单击剪断</span>
         <div class="studio-board-zoom">
           <button type="button" aria-label="缩小画布" onClick={() => graph?.zoomTo(Math.max(0.35, state.zoom - 0.1))}>
             −

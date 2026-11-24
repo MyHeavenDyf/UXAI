@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import {
   extractFirstImageFromMessages,
+  extractBoardThumbnailFromMessages,
   sessionThumbnailUsesVideoElement,
   shouldReplaceSessionThumbnail,
 } from "./session-thumbnail"
@@ -10,6 +11,7 @@ function message(
   output: Record<string, unknown>,
   created = 1,
   attachments?: Array<{ url: string; kind?: "image" | "video"; mime?: string }>,
+  completed = created + 1,
 ) {
   return {
     info: {
@@ -30,13 +32,44 @@ function message(
         input: {},
         output: JSON.stringify(output),
         attachments,
-        time: { start: created, end: created + 1 },
+        time: { start: created, end: completed },
       },
     } as Part],
   }
 }
 
 describe("Studio session thumbnail extraction", () => {
+  test("board thumbnails use the latest successful completion rather than task creation order", () => {
+    const slow = message({ media: [{ kind: "image", url: "https://example.com/slow.png" }] }, 1, undefined, 30)
+    const fast = message({ media: [{ kind: "image", url: "https://example.com/fast.png" }] }, 10, undefined, 20)
+    const failed = message({ error: "生成失败" }, 40, undefined, 50)
+    expect(extractBoardThumbnailFromMessages([slow, fast, failed])).toEqual({
+      url: "https://example.com/slow.png",
+      kind: "image",
+      generationAt: 30,
+    })
+    expect(extractFirstImageFromMessages([slow, fast, failed])).toBe("https://example.com/fast.png")
+    const video = message(
+      {
+        media: [
+          {
+            kind: "video",
+            url: "https://example.com/video.mp4",
+            thumbnailStatus: "ready",
+            thumbnailUrl: ".octo/ses_1/thumbnails/video.webp",
+          },
+        ],
+      },
+      2,
+      undefined,
+      60,
+    )
+    expect(extractBoardThumbnailFromMessages([slow, fast, video, failed])).toEqual({
+      url: ".octo/ses_1/thumbnails/video.webp",
+      kind: "video",
+      generationAt: 60,
+    })
+  })
   test("does not let an older generation overwrite the latest session thumbnail", () => {
     const latest = {
       url: ".octo/ses_1/thumbnails/latest.webp",

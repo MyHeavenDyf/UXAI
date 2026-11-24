@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { boardEdgeError, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
+import { boardEdgeError, boardDraftReferences, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
 import { Database, eq } from "@/storage/db"
 import { Instance } from "@/project/instance"
 import { SessionID, MessageID, PartID } from "@/session/schema"
@@ -363,6 +363,53 @@ test.each(["firstFrame", "lastFrame"] as const)(
   },
 )
 
+test("video mode changes save inactive frame edges and validate only active references", async () => {
+  await using dir = await tmpdir()
+  await provideTestInstance({
+    directory: dir.path,
+    fn: async () => {
+      const id = session("board")
+      const source = newBoardCard("source", "image")
+      source.draft.prompt = "来源图片"
+      const target = newBoardCard("target", "video")
+      target.draft.prompt = "视频"
+      target.draft.settings.videoInputMode = "first-last-frame"
+      saveBoard(id, 0, { ...emptyBoard(), cards: [source, target] })
+      task(id, "source-task", "succeeded")
+      attachBoardGeneration(
+        id,
+        {
+          cardID: source.id,
+          submissionID: crypto.randomUUID(),
+          revision: 1,
+          snapshot: { prompt: source.draft.prompt, settings: source.draft.settings, references: [] },
+        },
+        "source-task",
+      )
+      const board = getBoard(id)
+      board.document.cards[0].cover = { generationID: "source-task", mediaID: "image-1" }
+      board.document.draftEdges.push({ id: "frame", sourceID: source.id, targetID: target.id, role: "firstFrame" })
+      board.document.cards[1].draft.settings.videoInputMode = "multi-reference"
+      const saved = saveBoard(id, board.revision, board.document)
+      expect(saved.document.draftEdges).toHaveLength(1)
+      const snapshot = { prompt: target.draft.prompt, settings: saved.document.cards[1].draft.settings, references: [] }
+      expect(() =>
+        validateBoardSubmission(id, {
+          cardID: target.id,
+          submissionID: crypto.randomUUID(),
+          revision: saved.revision,
+          snapshot,
+        }),
+      ).not.toThrow()
+      saved.document.cards[1].draft.settings.videoInputMode = "first-last-frame"
+      const restored = saveBoard(id, saved.revision, saved.document)
+      expect(boardDraftReferences(restored.document, target.id, () => "https://example.test/image.png")).toMatchObject([
+        { sourceID: source.id, role: "firstFrame" },
+      ])
+    },
+  })
+})
+
 test("uploaded references are compared by canonical fields and altered uploads are rejected", async () => {
   await using dir = await tmpdir()
   await provideTestInstance({
@@ -491,6 +538,7 @@ test.each(["stored", "legacy"])(
   "board generation and %s reboot baselines reconcile without duplicate provider calls",
   async (mode) => {
     const requests: {
+      task_type?: string
       user?: { idx?: string }
       args?: {
         customer_prompt?: string
@@ -499,6 +547,7 @@ test.each(["stored", "legacy"])(
         duration?: string
         resolution?: string
         count?: number
+        image_list?: { image: string }[]
       }
     }[] = []
     const reboots: { user?: { idx?: string } }[] = []
@@ -733,6 +782,58 @@ test.each(["stored", "legacy"])(
           count: 1,
         })
         await cancelGeneration(next.id)
+        const multiBoard = getBoard(id)
+        const multi = multiBoard.document.cards.find((card) => card.id === video.id)!
+        multi.draft.settings.videoInputMode = "multi-reference"
+        multi.draft.settings.videoMode = "first_last_frame"
+        multi.draft.settings.styleModel = "portrait"
+        multi.draft.assets = ["reference", "reference", "firstFrame"].map((role, index) => ({
+          id: `multi-${index}`,
+          name: `multi-${index}.png`,
+          url: `${dir.path}/.octo/${id}/uploads/multi-${index}.png`,
+          role: role as "reference" | "firstFrame",
+        }))
+        await Promise.all(
+          multi.draft.assets.map((asset) =>
+            Bun.write(
+              asset.url,
+              Buffer.from(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+                "base64",
+              ),
+            ),
+          ),
+        )
+        const multiSaved = saveBoard(id, multiBoard.revision, multiBoard.document)
+        const multiTask = await createGeneration({
+          sessionID: id,
+          capability: "video.generate",
+          prompt: multi.draft.prompt,
+          board: {
+            cardID: multi.id,
+            submissionID: crypto.randomUUID(),
+            revision: multiSaved.revision,
+            snapshot: {
+              prompt: multi.draft.prompt,
+              settings: multi.draft.settings,
+              references: boardDraftReferences(multiSaved.document, multi.id, () => undefined),
+            },
+          },
+        })
+        for (const attempt of Array.from({ length: 80 }, (_, index) => index)) {
+          const row = Database.use((db) =>
+            db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, multiTask.id)).get(),
+          )
+          if (row?.provider_task_id) break
+          if (attempt === 79) throw new Error("Multi-reference video creation did not finish")
+          await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        expect(requests[2].task_type).toBe("multi-i2v_seedance")
+        expect(requests[2].args?.image_list).toHaveLength(2)
+        expect(getBoard(id).document.cards.find((card) => card.id === multi.id)?.draft.settings.videoInputMode).toBe(
+          "multi-reference",
+        )
+        await cancelGeneration(multiTask.id)
         upstreamState.rebootUnknown = true
         const completedID = crypto.randomUUID()
         await expect(rebootGeneration(accepted.id, completedID)).rejects.toThrow("尚未确认")

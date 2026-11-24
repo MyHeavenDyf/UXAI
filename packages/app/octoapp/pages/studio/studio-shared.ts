@@ -39,6 +39,27 @@ export function isStudioGenerationFailure(status: StudioGenerationResult["status
   return status === "create_failed" || status === "failed"
 }
 
+export function studioGenerationProgress(progress = 0) {
+  return Number.isFinite(progress) ? Math.round(Math.min(100, Math.max(0, progress))) : 0
+}
+
+export function studioGenerationQueueLabel(order?: number) {
+  if (typeof order !== "number" || !Number.isFinite(order) || order < 0) return "排队中"
+  return `当前排队 ${Math.floor(order)} 人`
+}
+
+export function studioGenerationFailureMessage(
+  result?: Pick<StudioGenerationResult, "status" | "rawStatus" | "error">,
+  toolError?: string,
+) {
+  if (Number(result?.rawStatus) === 4) return "用户取消生成"
+  return (
+    toolError?.trim() ||
+    result?.error?.trim() ||
+    (result?.status === "create_failed" ? "任务创建失败，请检查网络或稍后再试" : "生成失败，请稍后重试")
+  )
+}
+
 export function studioResultCardStatus(input: {
   result?: Pick<StudioGenerationResult, "status" | "images" | "error">
   toolError?: string

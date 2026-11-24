@@ -552,6 +552,7 @@ function StudioPageContent() {
   const [canvasView, setCanvasView] = createSignal<StudioCanvasView>("file-manager")
   const [boardEntry, setBoardEntry] = createStore({ tab: "conversation" as "conversation" | "board", open: false, editorID: 1 })
   let pendingBoardSessionID: string | undefined
+  const boardSessionIDs = new Set<string>()
   createEffect(
     on(
       () => [routeSlug(), params.id, server.current?.http.url, projectDir()],
@@ -699,7 +700,10 @@ function StudioPageContent() {
     on(
       () => [boardEntry.editorID, params.id, dataStore.session.find((session) => session.id === params.id)?.studio_mode],
       ([, , mode]) => {
-        if (mode === "board") setBoardEntry({ tab: "board", open: true })
+        if (mode === "board") {
+          if (params.id) boardSessionIDs.add(params.id)
+          setBoardEntry({ tab: "board", open: true })
+        }
       },
     ),
   )
@@ -879,14 +883,15 @@ function StudioPageContent() {
     const state = part.state
     const sessionID = part.sessionID
     if (!sessionID) return
+    const generationAt = boardSessionIDs.has(sessionID) ? state.time.end : state.time.start
     const media = parseToolMedia(state.output)
     if (media.length > 0) {
-      setSessionThumbnail(sessionID, media, state.time.start)
+      setSessionThumbnail(sessionID, media, generationAt)
       return
     }
     const legacy = extractStudioThumbnailMedia(part)
     if (!legacy) return
-    studioThumbnails.setThumbnail(sessionID, legacy.url, legacy.kind, state.time.start)
+    studioThumbnails.setThumbnail(sessionID, legacy.url, legacy.kind, generationAt)
   })
   onCleanup(thumbnailUnsub)
 
@@ -6212,8 +6217,50 @@ function StudioPageContent() {
               sessionID={params.id}
               userIdx={uiplusUserAccount()}
               demo={!params.id && import.meta.env.VITE_STUDIO_BOARD_DEMO === "true"}
+              title={
+                sessionTitle(
+                  activeStudioSession()?.title ?? dataStore.session.find((session) => session.id === params.id)?.title,
+                ) ?? "未命名画布"
+              }
+              thumbnails={studioThumbnails.thumbnails}
+              loadSessions={async (cursor) => {
+                const response = await globalSDK.createClient({ directory: projectDir() }).experimental.session.list(
+                  {
+                    directory: projectDir(),
+                    agent: "octo_studio",
+                    studio_mode: "board",
+                    roots: true,
+                    order: "updated",
+                    limit: 30,
+                    cursor,
+                  },
+                  { throwOnError: true },
+                )
+                const sessions = response.data ?? []
+                sessions.forEach((session) => boardSessionIDs.add(session.id))
+                return { sessions, nextCursor: response.response.headers.get("x-next-cursor") ?? undefined }
+              }}
+              loadThumbnails={(sessions) => void studioThumbnails.loadThumbnails(sessions)}
+              onThumbnail={(id, result) => {
+                boardSessionIDs.add(id)
+                setSessionThumbnail(id, result.images, result.completedAt ?? result.updatedAt ?? result.createdAt)
+              }}
+              onRenameSession={async (id, title) => {
+                await globalSDK
+                  .createClient({ directory: projectDir() })
+                  .session.update({ sessionID: id, title }, { throwOnError: true })
+                setSyncStore("session", (session) => session.id === id, "title", title)
+                window.dispatchEvent(new CustomEvent("octo:session-renamed", { detail: { sessionID: id, title } }))
+              }}
+              onSelectSession={async (id) => {
+                const next = id ?? (await createStudioSession("未命名画布", "board", crypto.randomUUID()))
+                if (!next) throw new Error("创建画布失败，请重试")
+                boardSessionIDs.add(next)
+                navigate(`/${routeSlug()}/studio/${next}`)
+              }}
               createSession={(creationID) => createStudioSession("未命名画布", "board", creationID)}
               onSessionCreated={(id) => {
+                boardSessionIDs.add(id)
                 pendingBoardSessionID = id
                 navigate(`/${routeSlug()}/studio/${id}`, { replace: true })
               }}
