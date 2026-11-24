@@ -92,18 +92,23 @@ describe("路径推导", () => {
   })
 
   test("状态文件：normal 按 session 隔离，项目相对路径作 safeName", () => {
-    setAssessmentContext({ projectDir: "D:/proj", sessionId: "ses_123", workspaceKind: "normal" })
+    setAssessmentContext({ projectDir: "D:/proj", sessionId: "ses_123", workspaceKind: "normal", checkTurnEnded: () => false })
     expect(computeAssessmentStatePath("D:/proj/src/a.html")).toBe("D:/proj/.octo/ses_123/assessment/src_a.html.json")
   })
 
   test("状态文件：code 项目级 .octo/assessment（跨 session）", () => {
-    setAssessmentContext({ projectDir: "D:/proj", sessionId: "ses_123", workspaceKind: "code" })
+    setAssessmentContext({ projectDir: "D:/proj", sessionId: "ses_123", workspaceKind: "code", checkTurnEnded: () => false })
     expect(computeAssessmentStatePath("D:/proj/src/a.html")).toBe("D:/proj/.octo/assessment/src_a.html.json")
   })
 
   test("状态文件：项目外路径兜底文件名", () => {
-    setAssessmentContext({ projectDir: "D:/proj", sessionId: "ses_123", workspaceKind: "normal" })
+    setAssessmentContext({ projectDir: "D:/proj", sessionId: "ses_123", workspaceKind: "normal", checkTurnEnded: () => false })
     expect(computeAssessmentStatePath("E:/elsewhere/x.html")).toBe("D:/proj/.octo/ses_123/assessment/x.html.json")
+  })
+
+  test("状态文件：显式 sessionId 覆盖当前上下文会话（延后/跨视图采集落在原会话目录）", () => {
+    setAssessmentContext({ projectDir: "D:/proj", sessionId: "ses_current", workspaceKind: "normal", checkTurnEnded: () => false })
+    expect(computeAssessmentStatePath("D:/proj/src/a.html", "ses_turn")).toBe("D:/proj/.octo/ses_turn/assessment/src_a.html.json")
   })
 
   test("评审文件：空 filePath 返回 null；纯文件名走根相对路径", () => {
@@ -142,6 +147,7 @@ describe("状态机流转", () => {
       fileKey,
       filePath: "D:/mock/state-machine-test.html",
       skillName: "技能B",
+      sessionId: "ses_test",
       reviewData: [{ xpath: "#demo", pin: 1, title: "t", type: "颜色", solution: [{ desc: "d", suggest: "s" }] }],
     })
     expect(assessmentStatus()).toBe("pending")
