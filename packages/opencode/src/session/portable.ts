@@ -16,6 +16,7 @@ import { Session } from "./session"
 import { SessionStatus } from "./status"
 import { Todo } from "./todo"
 import { collectPortableDependencies } from "./portable-dependencies"
+import { collectInsightSharedFiles } from "./portable-insight-files"
 import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
 import { isExcludedPortableFile, loadPortableFileBlacklist } from "./portable-exclusions"
 import { materializeStudioSessionParts } from "@/studio/studio-history-service"
@@ -293,6 +294,7 @@ function collectFiles(
 ) {
   return Effect.gen(function* () {
     const blobs = new Set<string>()
+    const insight = entries[0].info.agent === "octo_insight"
     const global = Option.getOrElse(yield* Effect.serviceOption(Global.Service), Global.make)
     const contents = new Map<string, Promise<Uint8Array>>()
     const read = (file: string) => {
@@ -316,15 +318,26 @@ function collectFiles(
           root: path.join(sourceDirectory, sessionDirectory, "design", "history", entry.info.id),
         },
       ]),
-      scope === "project" ? [{ scope: "project" as const, sessionID: entries[0].info.id, root: sourceDirectory }] : [],
+      insight || scope === "project" ? [{ scope: "project" as const, sessionID: entries[0].info.id, root: sourceDirectory }] : [],
     ].flat()
+    const owned = new Map(insight ? yield* Effect.forEach(
+      locations.filter((location) => location.scope !== "project"),
+      (location) => Effect.promise(async () => [location.root, await listFiles(location.root, false, blacklist)] as const),
+      { concurrency: 2 },
+    ) : [])
     const files = yield* Effect.forEach(
       locations,
       (location) =>
         Effect.promise(async () => {
-          const files = (await listFiles(location.root, location.scope === "project", blacklist)).filter((file) => path.resolve(file) !== output)
+          const files = (insight && location.scope === "project"
+            ? await collectInsightSharedFiles({ root: sourceDirectory, sessions: entries, list: (directory) => listFiles(directory, true, blacklist) })
+            : owned.get(location.root) ?? await listFiles(location.root, location.scope === "project", blacklist))
+            .filter((file) => path.resolve(file) !== output && !isExcludedPortableFile(file, blacklist) &&
+              (location.scope !== "project" || isProjectFile(path.relative(location.root, file), true)))
           const dependencies = await collectPortableDependencies({
             root: location.root, files, read, blacklist,
+            ...(insight ? { markdown: true } : {}),
+            ...(insight && location.scope === "project" ? { entries: [...files, ...[...owned.values()].flat()] } : {}),
             trustedRoots: ["skill", "skills"].map((dir) => path.join(global.octoConfig, dir, "ict-react-coder", "scripts", "preview", "assets")),
           })
           return [

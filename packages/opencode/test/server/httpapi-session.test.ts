@@ -282,6 +282,30 @@ describe("session HttpApi", () => {
     })),
   )
 
+  it.live("does not export Design files when Insight clients request project scope through either backend",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
+      const session = yield* createSession(tmp.path, { title: "Insight only", agent: "octo_insight" })
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".octo", session.id, "outputs/report.md"), "![图](../../../used.png)"))
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "used.png"), "referenced image"))
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "design.html"), "unrelated Design page"))
+      const endpoint = pathFor(SessionPaths.portableExport, { sessionID: session.id })
+      for (const experimental of [true, false]) {
+        for (const scope of [undefined, "project"]) {
+          const output = path.join(tmp.path, ".exports", `insight-${experimental}-${scope ?? "session"}.zip`)
+          const response = yield* requestWithBackend(experimental, endpoint, {
+            method: "POST", headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+            body: JSON.stringify({ path: output, scope }),
+          })
+          expect(response.status).toBe(200)
+          const zip = yield* Effect.promise(async () => JSZip.loadAsync(await Bun.file(output).arrayBuffer()))
+          const manifest = yield* Effect.promise(async () => JSON.parse(await zip.file("manifest.json")!.async("string")))
+          expect(manifest.files.map((file: { scope: string; path: string }) => `${file.scope}:${file.path}`).sort())
+            .toEqual(["project:used.png", "session:outputs/report.md"])
+        }
+      }
+    })),
+  )
+
   it.live("serves bounded share previews with matching pagination and errors through both backends",
     withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) => Effect.gen(function* () {
       const session = yield* createSession(tmp.path, { title: "Share preview" })
