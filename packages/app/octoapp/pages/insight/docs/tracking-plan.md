@@ -274,3 +274,20 @@ artifact-file-write/edit、artifact-mcp-return 的 extend.files 元素新增 fil
      · 用户主动操作 = 裸 kebab name；服务端真实使用（模型调起 MCP/skill 并回显）= server- 前缀
   ② 再在 tracking.md 加 / 改 / 删对应行（记已实现的落点，不再用桌面收集单）
 ```
+
+## 需求 150：文件管理与对话交互
+
+| name | 触发时机与 extend |
+| --- | --- |
+| result-copy-content | 保留结果工具栏原口径。代码块内复制成功上报 tabType、viewMode=source、source=code-block |
+| result-code-toggle | 代码块内展开或收起后上报 tabType、action=open/close |
+| toggle-right-panel | 点击对话区文件管理按钮，action=open/close，包含宽屏面板和窄屏抽屉 |
+| files-refresh | 点击文件列表刷新或加载失败后的重试按钮 |
+| files-group-mode | 点击工具栏的类型或修改时间，沿用 Design 的 mode=kind/modified |
+| files-filter | 勾选、取消勾选或清除类型后，沿用 Design 的 kinds 数组 |
+| files-sort | 点击列表表头后，key=kind/mtime，dir=asc/desc |
+| files-section-toggle | 点击生成文件或上传文件的分组标题，section=generated/uploaded，action=open/close |
+| group-show-more | 点击左侧分组底部的查看更多 |
+| message-copy | 用户消息复制到剪贴板后，sessionId |
+
+以上事件使用 module=insight。自动刷新、自动打开面板和初始化状态不计为用户交互。复制事件不包含正文或文件路径。
