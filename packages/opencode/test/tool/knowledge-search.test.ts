@@ -3,7 +3,7 @@ import { buildOutput, parseDocs } from "../../src/tool/knowledge_search"
 
 // 新接口 queryKnowledge 的响应整形(SPEC-INS-030 §4.2 / §7,Q3 定案:只查全量库)。
 // 后端已按 documentId 去重 + 按相关性降序返回;parseDocs 只做:保序、按 documentId 兜底去重、
-// 解析引用标题、chunkContent→content、documentUrl→url。
+// chunkTitle→title(缺则取正文首个 md 标题 / id)、chunkContent→content、documentUrl→url。
 describe("parseDocs(新接口扁平数组)", () => {
   it("按返回序整形,字段映射正确", () => {
     const docs = parseDocs([
@@ -24,26 +24,6 @@ describe("parseDocs(新接口扁平数组)", () => {
     expect(docs).toHaveLength(1)
     expect(docs[0].title).toBe("先出现")
     expect(docs[0].content).toBe("第一条")
-  })
-
-  it("优先使用文档标题，再用正文首行一级标题补全引用标题", () => {
-    const docs = parseDocs([
-      {
-        documentId: "a",
-        documentTitle: "  如何申请用户酬金  ",
-        chunkTitle: "用研工具",
-        chunkContent: "# 申请流程\n正文",
-      },
-      {
-        documentId: "b",
-        documentTitle: "  ",
-        chunkTitle: "用研工具",
-        chunkContent: "# 如何组织用户访谈\r\n正文",
-      },
-      { documentId: "c", chunkTitle: "可用性测试", chunkContent: "## 一节内容\n正文" },
-      { documentId: "d", chunkTitle: "访谈模板", chunkContent: "# 访谈模板。## 使用步骤：这是压成一行的正文。" },
-    ])
-    expect(docs.map((doc) => doc.title)).toEqual(["如何申请用户酬金", "如何组织用户访谈", "可用性测试", "访谈模板"])
   })
 
   it("chunkTitle 缺失 → 取正文首个 markdown 标题兜底", () => {
