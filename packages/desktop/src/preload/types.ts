@@ -61,7 +61,7 @@ export type DownloadSavePathInfo = {
 }
 
 // jk-j60099994-replace-with-60062650-preload-types-1-start
-export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+export type SkillConfigEntry = { description?: string; import?: boolean; type?: string; usage?: string }
 // jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
@@ -243,6 +243,8 @@ export type ElectronAPI = {
   ensureSkillConfig: () => Promise<void>
   openSkillFolder: () => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-start
+  getSkillsByUsage: (usage: string) => Promise<SkillConfigEntry[]>
+  getSkillKeyByName: (skillName: string) => Promise<string | undefined>
   setDesignSystemSkillConfig: (skillName: string) => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
@@ -255,14 +257,14 @@ export type ElectronAPI = {
   setUploadsDir: (dir: string) => Promise<void>
   /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
-  readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  readFileBuffer: (path: string, strict?: boolean) => Promise<ArrayBuffer | null>
   /** 大文件归档:只 stat 不读盘,返回文件大小与修改时间;非普通文件返回 null */
   statFile: (path: string) => Promise<{ size: number; mtimeMs: number } | null>
   /** 轻量存在性预检：只 stat 不读盘，仅当路径是存在的普通文件时返回 true(不存在/目录/无权限均为 false) */
   fileExists: (path: string) => Promise<boolean>
   /** 目录存在性预检：仅当路径是存在的目录时返回 true(与 fileExists 对称) */
   dirExists: (path: string) => Promise<boolean>
-  deleteFile: (path: string) => Promise<void>
+  deleteFile: (path: string, strict?: boolean) => Promise<void>
   /** 原子重命名（同文件系统内 fs.rename）。用于"写临时文件 → rename 到目标"原子落盘模式。 */
   renameFile: (srcPath: string, destPath: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>

@@ -70,13 +70,13 @@ export type DesktopApi = {
   downloadResource?: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp?: (url: string, namespace: string, filename: string) => Promise<string>
   writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
-  readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  readFileBuffer?: (path: string, strict?: boolean) => Promise<ArrayBuffer | null>
   /** 原子重命名（同文件系统内）。用于"写临时文件 → rename 到目标"原子落盘。 */
   renameFile?: (srcPath: string, destPath: string) => Promise<void>
   statFile?: (path: string) => Promise<{ size: number; mtimeMs: number } | null>
   listDirectory?: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   copyFileTo?: (srcPath: string, destPath: string) => Promise<void>
-  deleteFile?: (path: string) => Promise<void>
+  deleteFile?: (path: string, strict?: boolean) => Promise<void>
   fileExists?: (path: string) => Promise<boolean>
   /** 目录存在性预检:仅当路径是存在的目录时返回 true(与 fileExists 对称) */
   dirExists?: (path: string) => Promise<boolean>
