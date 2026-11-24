@@ -119,9 +119,49 @@ describe("portable session", () => {
       "outputs/child.html", "outputs/report.md", "uploads/own.txt",
     ])
     await provideTestInstance({ directory: target.path, fn: async () => {
-      await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
-      expect(await Bun.file(path.join(target.path, "shared/chart.svg")).text()).toBe("contents")
+      const imported = await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
+      const privateRoot = path.join(target.path, ".octo", imported.sessionID, "outputs")
+      expect(await Bun.file(path.join(privateRoot, "shared/chart.svg")).text()).toBe("contents")
+      expect(await Bun.file(path.join(privateRoot, "report.md")).text()).toContain("![图表](shared/chart.svg)")
+      expect(await Bun.file(path.join(target.path, "shared/chart.svg")).exists()).toBe(false)
       expect(await Bun.file(path.join(target.path, "design.html")).exists()).toBe(false)
+    } })
+  })
+
+  test.each([undefined, "session", "project"] as const)("imports Insight files privately from old shared archives even when scope is %s", async (scope) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Private Insight", agent: "octo_insight" }))
+      const messageID = MessageID.ascending()
+      await runSession((svc) => svc.updateMessage({
+        id: messageID, sessionID: session.id, role: "user", agent: "octo_insight", time: { created: 1 },
+        model: { modelID: ModelID.make("test"), providerID: ProviderID.make("test") },
+      }))
+      await runSession((svc) => svc.updatePart({
+        id: PartID.ascending(), sessionID: session.id, messageID, type: "text", synthetic: true,
+        text: `[附件]\n- 资料: ${path.join(source.path, "brief.pdf")}`,
+      }))
+      await Bun.write(path.join(source.path, "brief.pdf"), "attachment")
+      await Bun.write(path.join(source.path, "chart.png"), "image")
+      await Bun.write(path.join(source.path, ".octo", session.id, "uploads/private.txt"), "private upload")
+      await Bun.write(path.join(source.path, ".octo", session.id, "outputs/report.md"), `![图](../../../chart.png)\n[附件](${path.join(source.path, "brief.pdf")})`)
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope: "project" }))
+    } })
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const imported = await AppRuntime.runPromise(importPortableSession(exported.output, scope))
+      const root = path.join(target.path, ".octo", imported.sessionID)
+      expect(await Bun.file(path.join(root, "uploads/private.txt")).text()).toBe("private upload")
+      expect(await Bun.file(path.join(root, "uploads/brief.pdf")).text()).toBe("attachment")
+      expect(await Bun.file(path.join(root, "outputs/chart.png")).text()).toBe("image")
+      const report = await Bun.file(path.join(root, "outputs/report.md")).text()
+      expect(report).toContain("![图](chart.png)")
+      expect(report).toContain(path.join(root, "outputs/brief.pdf").replaceAll("\\", "/"))
+      const messages = await runSession((svc) => svc.messages({ sessionID: imported.sessionID }))
+      expect(messages[0].parts[0]).toMatchObject({ text: `[附件]\n- 资料: ${path.join(root, "uploads/brief.pdf").replaceAll("\\", "/")}` })
+      expect(await Bun.file(path.join(target.path, "chart.png")).exists()).toBe(false)
+      expect(await Bun.file(path.join(target.path, "brief.pdf")).exists()).toBe(false)
+      expect(await Bun.file(path.join(target.path, "private.txt")).exists()).toBe(false)
     } })
   })
 
