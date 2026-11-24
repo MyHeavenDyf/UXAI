@@ -6,8 +6,8 @@ import { IconSizeCheckmark } from "../icons"
 
 export type AutoArchiveValue = "on" | "off"
 
-export const AUTO_ARCHIVE_ON = "开启自动归档"
-export const AUTO_ARCHIVE_OFF = "关闭自动归档"
+export const AUTO_ARCHIVE_ON = "开启自动同步云端"
+export const AUTO_ARCHIVE_OFF = "关闭自动同步云端"
 
 /**
  * 自动归档开关（输入框「设计系统选择」右侧）。
@@ -49,7 +49,7 @@ export function AutoArchiveSelector(props: {
           class="max-w-[320px] flex flex-col px-2 pt-2 pb-2 rounded-md bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
           style="box-shadow: 0 4px 12px rgba(0,0,0,0.16)"
         >
-          <Kobalte.Title class="sr-only">自动归档</Kobalte.Title>
+          <Kobalte.Title class="sr-only">自动同步云端</Kobalte.Title>
           <For each={items()}>
             {(item) => (
               <button

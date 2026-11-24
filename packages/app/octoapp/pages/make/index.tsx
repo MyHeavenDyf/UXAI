@@ -263,14 +263,24 @@ function MakeContent() {
   // 代码类型工作区:session 只隔离对话不隔离产物 (统一文件树:产物/上传落项目根,标注走 .octo/comments)
   const isProjectScope = () => workspaceKind() === "code"
 
-  // 评估状态上下文:assessment-state 按此推导评审文件(产物目录分支)与状态文件路径
+  // 评估状态上下文:assessment-state 按此推导评审文件路径与状态文件路径。
+  
   createEffect(() => {
     const dir = projectDir()
     if (!dir) return
     const kind = workspaceKind()
     const sid = params.id ?? ""
     if (kind !== "code" && !sid) return
-    setAssessmentContext({ projectDir: dir, sessionId: sid, workspaceKind: kind })
+    setAssessmentContext({
+      projectDir: dir,
+      sessionId: sid,
+      workspaceKind: kind,
+      checkTurnEnded: (sessionID, sentAt) => {
+        if (sync.data.session_status[sessionID]?.type !== "idle") return false
+        const msgs = (sync.data.message?.[sessionID] ?? []) as Message[]
+        return msgs.some((m) => m.role === "assistant" && typeof m.time.completed === "number" && m.time.created >= sentAt - 1000)
+      },
+    })
   })
   // 切换 session:暂停待修改评估(磁盘数据保留,重新激活时可恢复)
   createEffect(on(() => params.id, (id, prev) => {
@@ -1747,8 +1757,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (lastBusyState && !busy && id) {
       // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
       setFilesRefreshKey(k => k + 1)
-      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态。
-      void harvestAssessmentReview(() => effectiveBusy())
+      // 评估回合结束：5s 轮询）
+      harvestAssessmentReview()
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -2516,9 +2526,9 @@ const sessionMessagesLoaded = createMemo(() => {
   const handleArchiveTerminal = (task: PendingArchivePoll, result: AutoArchiveResult) => {
     reportAutoArchiveResult({ title: task.name, mode: task.mode, resumed: task.resumed }, result)
     if (result.success) {
-      showOctoToast({ title: "已自动归档", description: task.name })
+      showOctoToast({ title: "已自动同步云端", description: task.name })
     } else {
-      showOctoToast({ title: "自动归档失败", description: result.message })
+      showOctoToast({ title: "自动同步云端失败", description: result.message })
     }
   }
 
@@ -2530,7 +2540,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (getSubtypeConfig(card.subtype).features.downloadUI === "legacy") return
     if (!isAssetLibraryLoggedIn()) {
       reportAutoArchiveResult({ title: card.title, subtype: card.subtype, mode: "normal" }, { success: false, message: "未登录" })
-      showOctoToast({ title: "自动归档失败", description: "未登录" })
+      showOctoToast({ title: "自动同步云端失败", description: "未登录" })
       return
     }
     if (autoArchiveReported.has(card.id)) return
@@ -2548,7 +2558,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // 构建失败/上传失败即时提示（触发时必在 Make 页）；上传成功 → 轮询终态才 toast
       if (!uploaded.success) {
         reportAutoArchiveResult({ title: card.title, subtype: card.subtype, mode: "normal" }, uploaded)
-        showOctoToast({ title: "自动归档失败", description: uploaded.message })
+        showOctoToast({ title: "自动同步云端失败", description: uploaded.message })
         return
       }
       startArchivePoll({ id: uploaded.id!, name: title, mode: "normal", startedAt: Date.now() }, handleArchiveTerminal)
@@ -2561,7 +2571,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (autoArchive() !== "on") return
     if (!isAssetLibraryLoggedIn()) {
       reportAutoArchiveResult({ title: filePath.split(/[/\\]/).pop() ?? filePath, mode: "code" }, { success: false, message: "未登录" })
-      showOctoToast({ title: "自动归档失败", description: "未登录" })
+      showOctoToast({ title: "自动同步云端失败", description: "未登录" })
       return
     }
     const fileName = filePath.split(/[/\\]/).pop() ?? filePath
@@ -2596,7 +2606,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // 构建失败/上传失败即时提示（触发时必在 Make 页）；上传成功 → 轮询终态才 toast
       if (!uploaded.success) {
         reportAutoArchiveResult(info, uploaded)
-        showOctoToast({ title: "自动归档失败", description: uploaded.message })
+        showOctoToast({ title: "自动同步云端失败", description: uploaded.message })
         return
       }
       startArchivePoll({ id: uploaded.id!, name: info.title, mode: "code", startedAt: Date.now() }, handleArchiveTerminal)
