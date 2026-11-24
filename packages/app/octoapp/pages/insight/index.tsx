@@ -403,13 +403,23 @@ function InsightContent() {
   //   → 这里仍会重新触发 sync，避免中间聊天区永久空白（白屏 bug）。
   //   sync.session.sync 自带 inflight 去重，重复调用安全；加载完 message[id] 有值后不再触发。
   const needsSessionSync = createMemo(() => !routeSession() || sync.data.message[routeParams.id ?? ""] === undefined)
+  const [sessionLoadFailed, setSessionLoadFailed] = createSignal(false)
+  const [sessionLoadAttempt, setSessionLoadAttempt] = createSignal(0)
   createEffect(
     on(
-      () => [routeParams.id, needsSessionSync(), isChildSession()] as const,
+      () => [routeParams.id, needsSessionSync(), isChildSession(), sessionLoadAttempt()] as const,
       ([id, missing, child]) => {
+        setSessionLoadFailed(false)
         if (!id || !missing || child) return
+        let cancelled = false
+        onCleanup(() => { cancelled = true })
         console.log("[octo:sync] session.sync", { sessionID: id })
         void sync.session.sync(id)
+          .catch(error => { console.warn("[octo:sync] session load failed", { sessionID: id, error }) })
+          .then(() => {
+            // sync 也可能正常返回但未填充缓存，例如会话已被删除。
+            if (!cancelled && routeParams.id === id && !isChildSession() && needsSessionSync()) setSessionLoadFailed(true)
+          })
       },
     ),
   )
@@ -2841,7 +2851,12 @@ function InsightContent() {
                     /* 已有 id 但消息缓存未就绪：显示加载占位,绝不渲染空白。
                        否则切回已存在会话、缓存被清时中间区会整块空白(白屏 bug)。 */
                     <div class="size-full flex items-center justify-center">
-                      <div class="octo-spinner" />
+                      <Show when={sessionLoadFailed()} fallback={<div class="octo-spinner" />}>
+                        <div class="flex flex-col items-center gap-3">
+                          <p role="alert">无法加载会话，请重试。</p>
+                          <Button variant="secondary" onClick={() => setSessionLoadAttempt(attempt => attempt + 1)}>重试</Button>
+                        </div>
+                      </Show>
                     </div>
                   }
                 >
