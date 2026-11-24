@@ -2696,6 +2696,12 @@ it.live(
                 part.type === "tool" && part.tool === "execute_tool" && part.state.status === "completed",
             )
             expect(execute?.state.output).toContain("octo-tool-search")
+            // part input 必须保持元工具外层形态:重放历史把它作为 tool-call 参数回传模型,
+            // 若被内层 bash 的 ctx.metadata 覆写成扁平参数,模型会学错调用形态。
+            expect(execute?.state.input).toMatchObject({
+              tool_name: "bash",
+              params: { command: "echo octo-tool-search", description: "echo test value" },
+            })
             expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
           }),
         )

@@ -485,6 +485,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // 剔除,元工具无法触达,不存在绕过权限的路径。
       const toolSearch = Flag.OPENCODE_TOOL_SEARCH
       const deferred: Record<string, ToolSearch.DeferredTool> = {}
+      // execute_tool 委托执行时,借 options 携带元工具的原始入参({tool_name, params})。
+      // part 的 input 会被重放为 tool-call 参数(message-v2 toModelMessages),必须保持
+      // 元工具外层形态;内层工具的 ctx.metadata 若把它覆写成扁平的内层参数,模型会从
+      // 历史学错调用形态(实测 GLM 第二轮直接裸传内层参数导致 tool_name 为空)。
+      const ENVELOPE = Symbol("metatoolEnvelope")
 
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
@@ -509,7 +514,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 title: val.title,
                 metadata: val.metadata,
                 status: "running",
-                input: args,
+                input: (options as any)[ENVELOPE] ?? args,
                 time: { start: Date.now() },
               },
             }
@@ -782,12 +787,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               return Promise.resolve({
                 title: "execute_tool",
                 metadata: {},
-                output: `Unknown deferred tool "${name}". Available deferred tools: ${deferredNames()}. Use search_tools with "select:<name>" to read its schema first.`,
+                output: `Unknown deferred tool "${name}". Available deferred tools: ${deferredNames()}. Note execute_tool expects {"tool_name": "<name>", "params": {...}} — the target tool's parameters go inside "params". Use search_tools with "select:<name>" to read its schema first.`,
               })
             }
             // 委托桶内已包装的 execute:权限询问(ctx.ask)、工具追踪(observe)、
             // 输出截断、插件触发等链路与直呼完全一致,元工具只做透传。
-            return entry.execute(args?.params, options)
+            // ENVELOPE 携带本次调用的外层入参,part input 与重放历史保持元工具形态。
+            return entry.execute(args?.params, { ...options, [ENVELOPE]: args } as ToolExecutionOptions)
           },
         })
         yield* elog.info("tool search enabled", {

@@ -42,10 +42,12 @@
 |---|---|
 | 权限不绕过 | 被 Permission deny（disabled）或用户按消息关闭（`input.tools[id] === false`）的工具**在进桶之前剔除**，模型通过 search/execute 均无法触达 |
 | 委托透明 | execute_tool 只做透传（`entry.execute(args?.params, options)`），不重新包装 —— 避免双重 observe / 双重截断，内层 schema 校验（Tool.wrap decode）照常拦截非法参数 |
+| part input 保外层形态 | execute_tool 委托时用 Symbol 在 options 上携带元工具原始入参，`context()` 写 part `input` 时优先用它。原因：重放历史把 `part.state.input` 作为 tool-call 参数回传模型（message-v2.ts），若被内层工具 `ctx.metadata` 覆写成扁平的内层参数，模型会从历史学错调用形态（GLM-5.3 真机实测：第二轮裸传 `{command, description}` 导致 `tool_name` 为空、报 Unknown tool 后才自纠；修复后第二轮一次成功） |
 | 缓存稳定 | tools 数组 per-agent 确定（flag + agent.defer + MCP 配置会话内不变），不破坏 Anthropic prompt caching 的前缀稳定性 |
 | 单次传输 | search 结果含完整 schema，留在历史里；compaction 后自然清除，重搜代价低（v1 不做 preCompactDiscoveredTools 边界携带） |
 | llm.ts 不豁免元工具 | 分析后确认无需改：`*: allow` 的 agent 元工具自然通过；`*: deny` 的 agent 桶为空（进桶前已剔除），语义自洽 |
 | announcement 只报名字 | 对齐 Claude Code 的 searchHint A/B 结论：展开描述无收益，名字公告足够引导 |
+| 旧 MCP 公告自动消失 | `<available_user_mcp_tools>` 派生自 activeTools（prompt.ts prepareRequest），MCP 工具入桶后派生源为空，旧公告不再注入，无重复公告 |
 
 ## 四、文件变更清单
 
@@ -90,7 +92,7 @@
 - 单元：`test/tool/tool-search.test.ts`（19 个用例：解析/打分/排序/格式化）；
 - 集成：`test/session/prompt.test.ts` 末尾四个 `it.live`（30s 超时，TestLLMServer 范式；前三个 agent=octo_make，MCP 用例 agent=build + `makeHttp(mcpWithTools)` stub 层）：
   1. defer 列表生效 + announcement 注入（tools 数组无 bash/webfetch，有 search_tools/execute_tool/read；system 含 `<available-deferred-tools>`、`- bash`、`- webfetch`）；
-  2. 两步链路端到端（search 返回 `### bash` + schema 文本 → execute_tool 透传执行 `echo octo-tool-search` → 输出断言）；
+  2. 两步链路端到端（search 返回 `### bash` + schema 文本 → execute_tool 透传执行 `echo octo-tool-search` → 输出断言；并断言 execute_tool part 的 `input` 保持 `{tool_name, params}` 外层形态）；
   3. 会话权限 deny bash → 桶内无此工具，search 返回 `No deferred tool named "bash"`；
   4. MCP defer（stub toolsForAgent 返回 `testfixture_probe`）：MCP 工具不进 tools 数组、可经两步链路执行，且旧 `<available_user_mcp_tools>` 公告不再注入（其派生源 activeTools 已无 MCP 工具，无重复公告）。
 
@@ -98,6 +100,14 @@
 `bun test packages/opencode/test/session/prompt.test.ts -t "tool search"`。
 
 > 本机注意：整文件并行跑 prompt.test.ts 有资源竞争性失败（auth.json 轮询 + preload.ts 的 afterAll 在高负载下超过 bun 5s hook 默认超时，报 `(unnamed)` 失败）；`-t` 过滤单跑稳定。该现象与本次改动无关（stash 验证过干净树同样失败）。
+
+### 真实模型 E2E（2026-11-24，glm-5.3 经 volce 网关）
+
+`OCTO_TOOL_SEARCH=1 bun run dev serve` + octo_make 会话实测：
+
+- 第一轮「请用 bash 运行 echo …」：模型 reasoning 明确引用 deferred 公告 → `search_tools({"query":"select:bash"})` 拿到完整 schema → `execute_tool` 执行成功并回报输出；elog `deferredTools=bash,webfetch`、directTools 含 search/execute 无 bash/webfetch；
+- 第二轮同型请求：**直接 `execute_tool` 一次成功**（不再 search，schema 已留在历史；prompt cache 命中）——验证「多次调用只传一次」；
+- 修复前第二轮曾出现一次失败重试：模型从重放历史学到扁平的 `{command, description}` 形态（part input 被内层 ctx.metadata 覆写所致），报 Unknown tool 后自纠——即上表「part input 保外层形态」的来源，修复后复测无此现象。
 
 ## 七、灰度与回滚
 
