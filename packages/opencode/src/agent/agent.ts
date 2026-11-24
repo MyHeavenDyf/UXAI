@@ -73,6 +73,9 @@ export const Info = Schema.Struct({
   steps: Schema.optional(Schema.Finite),
   skills: Schema.optional(Schema.Array(Schema.String)),
   mcp: Schema.optional(Schema.Array(Schema.String)),
+  // 渐进式披露:列出的工具 ID 不进入 API tools 数组,改由 search_tools/
+  // execute_tool 元工具按需发现与调用(Flag.OPENCODE_TOOL_SEARCH 开启时生效)。
+  defer: Schema.optional(Schema.Array(Schema.String)),
 })
   .annotate({ identifier: "Agent" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
@@ -385,6 +388,10 @@ export const layer = Layer.effect(
             native: false,
             skills: ["html-prototype"],
             mcp: ["pixso"],
+            // 渐进式披露(OCTO_TOOL_SEARCH 灰度):bash/git 教程与 webfetch 长描述改为
+            // 按需加载,描述不再按 agent 裁剪,成本从每轮固定变为用则支付。
+            // 注意 defer 匹配的是工具注册 ID:shell=bash、webfetch=webfetch。
+            defer: ["bash", "webfetch"],
           },
           octo_make_plan: {
             name: "octo_make_plan",

@@ -117,4 +117,10 @@ export const Flag = {
   get OPENCODE_CLIENT() {
     return process.env["OPENCODE_CLIENT"] ?? "cli"
   },
+  // 工具渐进式披露(env 名沿用产品前缀 OCTO_TOOL_SEARCH)。运行时求值:测试与
+  // CLI 会在进程启动后才设置该变量。开启后 agent.defer 列出的工具与全部 MCP
+  // 工具不进 API tools 数组,由 search_tools/execute_tool 元工具按需发现调用。
+  get OPENCODE_TOOL_SEARCH() {
+    return truthy("OCTO_TOOL_SEARCH")
+  },
 }
