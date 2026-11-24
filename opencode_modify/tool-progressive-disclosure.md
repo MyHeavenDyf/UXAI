@@ -88,10 +88,11 @@
 ## 六、测试
 
 - 单元：`test/tool/tool-search.test.ts`（19 个用例：解析/打分/排序/格式化）；
-- 集成：`test/session/prompt.test.ts` 末尾三个 `it.live`（30s 超时，TestLLMServer 范式，agent=octo_make）：
+- 集成：`test/session/prompt.test.ts` 末尾四个 `it.live`（30s 超时，TestLLMServer 范式；前三个 agent=octo_make，MCP 用例 agent=build + `makeHttp(mcpWithTools)` stub 层）：
   1. defer 列表生效 + announcement 注入（tools 数组无 bash/webfetch，有 search_tools/execute_tool/read；system 含 `<available-deferred-tools>`、`- bash`、`- webfetch`）；
   2. 两步链路端到端（search 返回 `### bash` + schema 文本 → execute_tool 透传执行 `echo octo-tool-search` → 输出断言）；
-  3. 会话权限 deny bash → 桶内无此工具，search 返回 `No deferred tool named "bash"`。
+  3. 会话权限 deny bash → 桶内无此工具，search 返回 `No deferred tool named "bash"`；
+  4. MCP defer（stub toolsForAgent 返回 `testfixture_probe`）：MCP 工具不进 tools 数组、可经两步链路执行，且旧 `<available_user_mcp_tools>` 公告不再注入（其派生源 activeTools 已无 MCP 工具，无重复公告）。
 
 运行：`bun test packages/opencode/test/tool/tool-search.test.ts` 与
 `bun test packages/opencode/test/session/prompt.test.ts -t "tool search"`。
