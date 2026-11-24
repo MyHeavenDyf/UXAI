@@ -122,3 +122,22 @@
 - compaction 边界不携带已发现工具（preCompactDiscoveredTools）：search 结果天然留在历史，压缩清除后模型重搜一次即可，代价可接受；
 - 桶为 per-request 构造（resolveTools 每轮重跑），闭包持有 execute 引用，无跨请求状态；
 - octo_make 的 defer 目前不含 skill 工具；skill 走 SKILL.md 注入体系，与工具披露正交。
+
+## 九、打包与开启方式（desktop 发行）
+
+**打包（无需额外操作，自动进包）**：desktop sidecar 引用的是 opencode 的构建产物而非源码——
+`packages/desktop/electron.vite.config.ts:10` 把 `virtual:opencode-server` alias 到 `../opencode/dist/node/node.js`；
+`packages/desktop/scripts/predev.ts:20` 与 `prebuild.ts:9` 都会执行 `cd ../opencode && bun script/build-node.ts` 重建该产物。
+因此 dev / electron-builder 打包流程自动携带本功能。2026-11-24 已重建并验证：`dist/node/node.js` 含 `OCTO_TOOL_SEARCH`、`available-deferred-tools`、`tool search enabled` 字符串。
+
+> 坑：`packages/opencode` 的 `bun run build`（script/build.ts）是 CLI 多平台二进制构建，**开头 `rm -rf dist`** 且本机在 linux-arm64 目标上下载 bun 运行时失败——会误删 `dist/node`。重建 node bundle 一律用 `bun run script/build-node.ts`。
+
+**开启（三层，按放量阶段选择）**：
+
+| 层级 | 做法 | 适用 |
+|---|---|---|
+| 用户系统环境变量 | `setx OCTO_TOOL_SEARCH 1` 后重启 app；链路：系统 env → 主进程 env → `createSidecarEnv()`（server.ts:256，全量拷贝 process.env）→ sidecar | 个人试用 / 灰度观察 |
+| app 级默认注入 | `preferAppEnv()`（`packages/desktop/src/main/server.ts:66`）加 `OCTO_TOOL_SEARCH: "1"`，与 OCTO_EXPERIMENTAL_FILEWATCHER 并列 | 产品放量 / 回滚=删一行 |
+| 编译期渠道差异化 | `createSidecarEnv` 已有 `import.meta.env.OCTO_*` 模式（OCTO_KB_BASE_URL 等，来自 .env + electron-vite mode），可加 beta 渠道先行 | 按渠道灰度 |
+
+**打包态验证**：sidecar 日志看 elog `tool search enabled`（含 agent/deferredTools/directTools 字段）；flag 未设置时所有路径与现状一致（零风险默认关）。
