@@ -122,4 +122,13 @@ export const Flag = {
   get OCTO_DISABLE_MEMORY() {
     return truthy("OCTO_DISABLE_MEMORY")
   },
+  // Memory debug dumps: default ON during the test phase (set OCTO_MEMORY_DEBUG=0
+  // or "false" to turn off). OCTO_MEMORY_DEBUG_DIR overrides the dump directory
+  // (default ~/.temp/auto-memory).
+  get OCTO_MEMORY_DEBUG() {
+    return !falsy("OCTO_MEMORY_DEBUG")
+  },
+  get OCTO_MEMORY_DEBUG_DIR() {
+    return process.env["OCTO_MEMORY_DEBUG_DIR"]
+  },
 }

@@ -82,6 +82,10 @@ process.env["OPENCODE_DB"] = ":memory:"
 // Keep the memory-extraction fork from firing inside tests: its LLM call would
 // consume replies queued on the mock test server and break prompt loop tests.
 process.env["OCTO_DISABLE_MEMORY"] = "1"
+// Debug dumps default to ON in the flag (test phase); turn them off for the
+// shared test process so unit tests never write to the real ~/.temp. The
+// memory e2e file re-enables them with its own temp directory.
+process.env["OCTO_MEMORY_DEBUG"] = "0"
 
 // rg 二进制:上面已把 XDG 重定向到空临时目录,ripgrep.ts 解析不到 Global.Path.bin 下的 rg,
 // 会走 GitHub 兜底下载,离线/内网环境直接挂死(表现为一切依赖 skill.files 的测试 timeout)。

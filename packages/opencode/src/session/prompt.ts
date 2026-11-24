@@ -752,10 +752,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: input.messages })
       const memCfg = (yield* config.get()).memory
-      // 跨会话记忆注入:主 agent 顶层会话才注入;hidden 工具型 agent、subagent、
-      // task 子会话一律跳过。走 prepareRequest 使记忆计入 compaction 固定成本预算。
+      // 跨会话记忆注入:主 agent 顶层会话才注入;统一开关(env 硬关/config 关闭)与
+      // hidden 工具型 agent、subagent、task 子会话一律跳过。走 prepareRequest 使
+      // 记忆计入 compaction 固定成本预算。MemoryStore 内部自带异常降级,不影响主流程。
       const memory =
-        memCfg?.enabled !== false &&
+        !MemoryStore.disabled(memCfg) &&
         input.agent.hidden !== true &&
         input.agent.mode !== "subagent" &&
         !input.session.parentID
