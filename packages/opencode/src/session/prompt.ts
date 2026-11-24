@@ -73,6 +73,9 @@ import { SessionTable } from "./session.sql"
 import { AUTOMATIC_COMPACTION_ENABLED, usable as usableContext } from "./overflow"
 import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
 import { Token } from "@/util/token"
+import { MemoryExtract } from "@/memory/extract"
+import { MemoryDebug } from "@/memory/debug"
+import { MemoryStore } from "@/memory/store"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -718,6 +721,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       model: Provider.Model
       processor: Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall">
       onStructuredOutput: (output: unknown) => void
+      // 估算/压缩调试等干跑路径:不落 auto-memory 注入埋点
+      dryRun?: boolean
     }) {
       const lastUserMsg = input.messages.findLast((message) => message.info.role === "user")
       const tools = yield* resolveTools({
@@ -746,13 +751,23 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
 
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: input.messages })
+      const memCfg = (yield* config.get()).memory
+      // 跨会话记忆注入:主 agent 顶层会话才注入;hidden 工具型 agent、subagent、
+      // task 子会话一律跳过。走 prepareRequest 使记忆计入 compaction 固定成本预算。
+      const memory =
+        memCfg?.enabled !== false &&
+        input.agent.hidden !== true &&
+        input.agent.mode !== "subagent" &&
+        !input.session.parentID
+          ? MemoryStore.system(input.session.projectID, memCfg?.budget_tokens)
+          : []
       const [skills, env, instructions, modelMsgs] = yield* Effect.all([
         sys.skills(input.agent).pipe(Effect.catch(() => Effect.succeed(undefined))),
         sys.environment(input.model),
         instruction.system().pipe(Effect.orDie),
         MessageV2.toModelMessagesEffect(input.messages, input.model),
       ])
-      const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+      const system = [...env, ...instructions, ...memory, ...(skills ? [skills] : [])]
       const userMcpSummary = Object.keys((yield* config.get()).mcp ?? {})
         .filter((name) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(name))
         .flatMap((name) => {
@@ -775,6 +790,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         )
       }
       if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+      if (memory.length > 0 && !input.dryRun)
+        yield* MemoryDebug.dumpInject({
+          sessionID: input.session.id,
+          model: `${input.model.providerID}/${input.model.id}`,
+          system,
+          modelMsgs,
+          activeTools,
+        })
       return { activeTools, format, modelMsgs, studioImageGeneration, system }
     })
 
@@ -804,6 +827,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           completeToolCall: () => Effect.succeed(undefined),
         },
         onStructuredOutput: () => {},
+        dryRun: true,
       })
       const system = Token.estimateValue(request.system)
       const tools = Token.estimateValue(request.activeTools)
@@ -849,6 +873,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             completeToolCall: () => Effect.succeed(undefined),
           },
           onStructuredOutput: () => {},
+          dryRun: true,
         })
         yield* CompactionDebug.dump({
           sessionID: input.sessionID,
@@ -1844,6 +1869,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               })
             }
             yield* slog.info("exiting loop")
+            // 回合结束后 fork 记忆提取,节流/跳过规则在 extract 内部
+            yield* MemoryExtract.extract({
+              config,
+              agents,
+              provider,
+              llm,
+              session,
+              history: msgs,
+              lastUser,
+            }).pipe(Effect.ignore, Effect.forkIn(scope))
             break
           }
 

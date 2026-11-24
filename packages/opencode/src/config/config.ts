@@ -32,6 +32,7 @@ import { ConfigLayout } from "./layout"
 import { ConfigLSP } from "./lsp"
 import { ConfigManaged } from "./managed"
 import { ConfigMCP } from "./mcp"
+import { ConfigMemory } from "./memory"
 import * as BuiltinMCP from "./builtin-mcp"
 import { ConfigModelID } from "./model-id"
 import { ConfigParse } from "./parse"
@@ -287,6 +288,10 @@ export const Info = Schema.Struct({
       }),
     }),
   ),
+  memory: Schema.optional(ConfigMemory.Info).annotate({
+    description:
+      "Cross-session auto memory: extraction, storage and injection of remembered notes (default: enabled)",
+  }),
   experimental: Schema.optional(
     Schema.Struct({
       disable_paste_summary: Schema.optional(Schema.Boolean),

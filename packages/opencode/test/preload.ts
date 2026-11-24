@@ -79,6 +79,10 @@ delete process.env["OPENCODE_SERVER_USERNAME"]
 // Use in-memory sqlite
 process.env["OPENCODE_DB"] = ":memory:"
 
+// Keep the memory-extraction fork from firing inside tests: its LLM call would
+// consume replies queued on the mock test server and break prompt loop tests.
+process.env["OCTO_DISABLE_MEMORY"] = "1"
+
 // rg 二进制:上面已把 XDG 重定向到空临时目录,ripgrep.ts 解析不到 Global.Path.bin 下的 rg,
 // 会走 GitHub 兜底下载,离线/内网环境直接挂死(表现为一切依赖 skill.files 的测试 timeout)。
 // 优先复用系统 PATH 或真实用户缓存里已存在的 rg(OPENCODE_RIPGREP_PATH 优先级最高)。

@@ -117,4 +117,9 @@ export const Flag = {
   get OPENCODE_CLIENT() {
     return process.env["OPENCODE_CLIENT"] ?? "cli"
   },
+  // Cross-session auto memory: on by default; set OCTO_DISABLE_MEMORY=1 to hard-off
+  // (tests use this to keep the extraction fork away from mock LLM reply queues).
+  get OCTO_DISABLE_MEMORY() {
+    return truthy("OCTO_DISABLE_MEMORY")
+  },
 }
