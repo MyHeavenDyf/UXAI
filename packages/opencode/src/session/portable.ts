@@ -1101,7 +1101,7 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
     const insightDocument = (file: FileEntry, target: string, content: Uint8Array) => {
       if (!insight || !plan.paths.size || !/\.(?:html?|css|[cm]?js|jsx|tsx?|json|svg|md|txt)$/i.test(file.path)) return content
       const key = `${file.sessionID}\0${file.scope ?? "session"}\0${file.directory}\0${file.path}\0${file.blob}`
-      const projectKey = `${file.sessionID}\0project\0.\0${file.path.replace(/^outputs\//, "")}\0${file.blob}`
+      const projectKey = `${file.sessionID}\0project\0.\0${file.path.replace(/^(?:uploads|outputs)\//, "")}\0${file.blob}`
       const original = originals.get(key) ?? originals.get(projectKey)
       if (!original) return content
       const sourceRoot = bundle.manifest.sourceDirectory.replaceAll("\\", "/").replace(/\/+$/, "")
@@ -1131,8 +1131,12 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
         if (!entry) return value
         // Documents use the outputs copy so relative links between project files remain valid.
         const destination = path.join(context.directory, sessionDirectory, sessionIDs.get(entry.sessionID)!, "outputs", relative)
-        const mapped = url ? pathToFileURL(destination).href : absolute ? destination.replaceAll("\\", "/") : path.relative(path.dirname(target), destination).replaceAll("\\", "/")
-        return mapped + (match[2] ?? "")
+        if (url) return pathToFileURL(destination).href + (match[2] ?? "")
+        const mapped = absolute ? destination.replaceAll("\\", "/") : path.relative(path.dirname(target), destination).replaceAll("\\", "/")
+        // Keep module specifiers relative, and write URL paths rather than raw
+        // filenames so spaces, #, ?, and % retain their resource-name meaning.
+        const relativePath = !absolute && /^\.\.?\//.test(normalized) && !mapped.startsWith(".") ? `./${mapped}` : mapped
+        return relativePath.split("/").map((part, index) => absolute && index === 0 && /^[a-z]:$/i.test(part) ? part : encodeURIComponent(part)).join("/") + (match[2] ?? "")
       })
       return rewritten === text ? content : new TextEncoder().encode(rewritten)
     }

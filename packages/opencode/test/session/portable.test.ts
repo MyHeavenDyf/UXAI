@@ -33,6 +33,60 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test.each(["markdown", "module", "upload"])("preserves Insight %s resource references after private import", async (kind) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "Resource references", agent: "octo_insight" }))
+      if (kind === "markdown") {
+        await Bun.write(path.join(source.path, ".octo", session.id, "outputs/report.md"), "![图](../../../shared/chart%20space%23100%25.png?v=1#preview)")
+        await Bun.write(path.join(source.path, "shared/chart space#100%.png"), "image")
+      }
+      if (kind === "module") {
+        await Bun.write(path.join(source.path, ".octo", session.id, "outputs/index.html"), '<script type="module">import "../../../shared/utils.js?v=1#ready";</script>')
+        await Bun.write(path.join(source.path, "shared/utils.js"), "export const ready = true")
+      }
+      if (kind === "upload") {
+        await Bun.write(path.join(source.path, "incoming/page.html"), '<link rel="stylesheet" href="./style.css"><img src="./image.png">')
+        await Bun.write(path.join(source.path, "incoming/image.png"), "image")
+        await Bun.write(path.join(source.path, "incoming/style.css"), 'body { background: url("./image.png") }')
+        const messageID = MessageID.ascending()
+        await runSession((svc) => svc.updateMessage({
+          id: messageID, sessionID: session.id, role: "user", agent: "octo_insight", time: { created: 1 },
+          model: { modelID: ModelID.make("test"), providerID: ProviderID.make("test") },
+        }))
+        await runSession((svc) => svc.updatePart({
+          id: PartID.ascending(), sessionID: session.id, messageID, type: "file", filename: "page.html", mime: "text/html",
+          url: pathToFileURL(path.join(source.path, "incoming/page.html")).href,
+        }))
+      }
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope: "project" }))
+    } })
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const imported = await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
+      const outputs = path.join(target.path, ".octo", imported.sessionID, "outputs")
+      if (kind === "markdown") {
+        const text = await Bun.file(path.join(outputs, "report.md")).text()
+        expect(text).toBe("![图](./shared/chart%20space%23100%25.png?v=1#preview)")
+        expect(await Bun.file(new URL("./shared/chart%20space%23100%25.png", pathToFileURL(path.join(outputs, "report.md")))).text()).toBe("image")
+      }
+      if (kind === "module") {
+        const text = await Bun.file(path.join(outputs, "index.html")).text()
+        expect(text).toBe('<script type="module">import "./shared/utils.js?v=1#ready";</script>')
+        expect(await Bun.file(path.join(outputs, "shared/utils.js")).text()).toBe("export const ready = true")
+      }
+      if (kind === "upload") {
+        const messages = await runSession((svc) => svc.messages({ sessionID: imported.sessionID }))
+        const attachment = messages[0].parts.find((part) => part.type === "file")
+        expect(attachment?.url).toBe(pathToFileURL(path.join(target.path, ".octo", imported.sessionID, "uploads/incoming/page.html")).href)
+        const text = await Bun.file(new URL(attachment!.url)).text()
+        expect(text).toBe('<link rel="stylesheet" href="../../outputs/incoming/style.css"><img src="../../outputs/incoming/image.png">')
+        expect(await Bun.file(new URL("../../outputs/incoming/image.png", attachment!.url)).text()).toBe("image")
+        expect(await Bun.file(new URL("../../outputs/incoming/style.css", attachment!.url)).text()).toContain('url("./image.png")')
+      }
+    } })
+  })
+
   test("uploads only Insight-owned files and used shared dependencies when generating a share link", async () => {
     const uploads: string[][] = []
     const server = Bun.serve({ port: 0, fetch: async (request) => {
@@ -122,7 +176,7 @@ describe("portable session", () => {
       const imported = await AppRuntime.runPromise(importPortableSession(exported.output, "project"))
       const privateRoot = path.join(target.path, ".octo", imported.sessionID, "outputs")
       expect(await Bun.file(path.join(privateRoot, "shared/chart.svg")).text()).toBe("contents")
-      expect(await Bun.file(path.join(privateRoot, "report.md")).text()).toContain("![图表](shared/chart.svg)")
+      expect(await Bun.file(path.join(privateRoot, "report.md")).text()).toContain("![图表](./shared/chart.svg)")
       expect(await Bun.file(path.join(target.path, "shared/chart.svg")).exists()).toBe(false)
       expect(await Bun.file(path.join(target.path, "design.html")).exists()).toBe(false)
     } })
@@ -155,7 +209,7 @@ describe("portable session", () => {
       expect(await Bun.file(path.join(root, "uploads/brief.pdf")).text()).toBe("attachment")
       expect(await Bun.file(path.join(root, "outputs/chart.png")).text()).toBe("image")
       const report = await Bun.file(path.join(root, "outputs/report.md")).text()
-      expect(report).toContain("![图](chart.png)")
+      expect(report).toContain("![图](./chart.png)")
       expect(report).toContain(path.join(root, "outputs/brief.pdf").replaceAll("\\", "/"))
       const messages = await runSession((svc) => svc.messages({ sessionID: imported.sessionID }))
       expect(messages[0].parts[0]).toMatchObject({ text: `[附件]\n- 资料: ${path.join(root, "uploads/brief.pdf").replaceAll("\\", "/")}` })
