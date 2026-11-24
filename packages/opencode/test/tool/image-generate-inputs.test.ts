@@ -197,6 +197,11 @@ describe("internal video task types", () => {
         referenceImages: [image, image, image],
         extra: { videoMode: "first_last_frame", videoInputMode: "multi-reference" },
       },
+      {
+        capability: "video.generate",
+        prompt: "Multi reference text only",
+        extra: { videoMode: "text", videoInputMode: "multi-reference" },
+      },
       { capability: "video.generate", prompt: "Text to video", extra: { videoMode: "text" } },
     ] satisfies ImageGenerateInput[]
     const tasks = await Promise.all(inputs.map((input) => createInternalGeneration({
@@ -204,7 +209,7 @@ describe("internal video task types", () => {
       extra: { ...input.extra, userIdx: "video-test-user" },
     })))
 
-    expect(tasks.map((task) => task.model)).toEqual(["i2v_seedance", "multi-i2v_seedance", "t2v_seedance"])
+    expect(tasks.map((task) => task.model)).toEqual(["i2v_seedance", "multi-i2v_seedance", "t2v_seedance", "t2v_seedance"])
     expect(requests).toEqual(expect.arrayContaining([
       expect.objectContaining({
         task_type: "i2v_seedance",
@@ -225,17 +230,18 @@ describe("internal video task types", () => {
       }),
       expect.objectContaining({
         task_type: "t2v_seedance",
+        args: expect.objectContaining({ prompt: "Multi reference text only" }),
+      }),
+      expect.objectContaining({
+        task_type: "t2v_seedance",
         args: expect.objectContaining({ prompt: "Text to video" }),
       }),
     ]))
-  })
-
-  test("rejects multi-reference video without reference images", async () => {
-    await expect(createInternalGeneration({
-      capability: "video.generate",
-      prompt: "No references",
-      extra: { videoInputMode: "multi-reference", userIdx: "video-test-user" },
-    })).rejects.toThrow("Multi-reference video generation requires at least one reference image.")
+    const multiReferenceTextOnlyRequest = requests.find(
+      (request) => (request as { args?: { prompt?: string } }).args?.prompt === "Multi reference text only",
+    ) as { task_type: string; args: { image_list?: unknown } } | undefined
+    expect(multiReferenceTextOnlyRequest?.task_type).toBe("t2v_seedance")
+    expect(multiReferenceTextOnlyRequest?.args.image_list).toBeUndefined()
   })
 })
 

@@ -301,6 +301,11 @@
   color: var(--octo-text-primary);
   background: rgba(0,0,0,0.04);
 }
+/* 局部修改选中态对齐 Design，包含 hover，兼容两种工具栏按钮样式。 */
+:where([data-page="insight"]) .insight-local-edit-toggle[aria-pressed="true"] {
+  color: var(--octo-brand);
+  background: var(--octo-brand-a8);
+}
 :where([data-page="insight"]) .octo-action-btn > svg {
   flex-shrink: 0;
 }

@@ -7,6 +7,8 @@ import type {
   AppAgentsResponses,
   AppLogErrors,
   AppLogResponses,
+  AppSkillsAvailableErrors,
+  AppSkillsAvailableResponses,
   AppSkillsRefreshResponses,
   AppSkillsResponses,
   ArtifactArchiveResponses,
@@ -476,6 +478,38 @@ export class Skills extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<AppSkillsRefreshResponses, unknown, ThrowOnError>({
       url: "/skill/refresh",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List skills available to an agent
+   *
+   * Return the skills available to the given agent — the same filter used for <available_skills> in the prompt. Reflects the latest state after POST /skill/refresh.
+   */
+  public available<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      agent: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "agent" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<AppSkillsAvailableResponses, AppSkillsAvailableErrors, ThrowOnError>({
+      url: "/skill/available",
       ...options,
       ...params,
     })
@@ -7370,7 +7404,7 @@ export class History2 extends HeyApiClient {
   /**
    * Snapshot session media to history
    *
-   * Copies a session's media to the history table before session deletion.
+   * Copies a session's media to the history table before session deletion, and re-materializes imported session parts so re-opening a share restores assets deleted from history.
    */
   public snapshot<ThrowOnError extends boolean = false>(
     parameters?: {

@@ -21,6 +21,7 @@ import {
   appendFileSync,
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -80,6 +81,8 @@ type Entry = {
 export type OpenResult =
   | { ok: true; port: number; reused: boolean }
   | { ok: false; error: string; logTail?: string }
+  /** 工程在本机跑不起来,要先走接手(fastui-prepare.ts)。`error` 给不认识这个字段的调用方兜底展示 */
+  | { ok: false; needsPrepare: true; error: string }
 
 /** 以工程目录为键 —— 身份的单位是产物工程,不是会话(同一对话可以有多个工程,要能同时预览) */
 const running = new Map<string, Entry>()
@@ -144,6 +147,25 @@ function identify(projectDir: string): SessionState | null {
 }
 
 type Resolved = { ok: true; projectDir: string; name: string; state: SessionState } | { ok: false; error: string }
+
+const NEEDS_PREPARE = { ok: false, needsPrepare: true, error: "需要先在本机准备预览环境" } as const
+
+/**
+ * 工程在本机跑不起来,要先接手(octo-agent SPEC-DES-009 §3.2 / §3.4)。都是存在性判断,毫秒级:
+ *   - 工程根没有 `node_modules`:分享导入、尚未接手(本机建 / 复用工程一定会建这个链接,分享导出一定不带它)
+ *   - 标记里的依赖池或 node 在本机不存在:导入工程记的是发送方的路径;本机共享池被删了也落在这里
+ * 接手由 fastui-prepare.ts 调 skill 脚本完成,这里只判定。
+ */
+export function needsPrepare(projectDir: string, state: SessionState): boolean {
+  try {
+    lstatSync(join(projectDir, "node_modules"))
+  } catch {
+    return true
+  }
+  if (!state.depsDir || !existsSync(state.depsDir)) return true
+  const node = state.nodeBin && existsSync(state.nodeBin) ? state.nodeBin : state.envDir ? nodeBinOf(state.envDir) : null
+  return !node || !existsSync(node)
+}
 
 /**
  * (工作区, 会话, 产物名) → 工程目录(SPEC-DES-008 §3.7),命中就停:
@@ -570,6 +592,7 @@ const opening = new Map<string, Promise<OpenResult>>()
 export async function open(target: FastuiTarget): Promise<OpenResult> {
   const r = resolveProject(target)
   if (!r.ok) return { ok: false, error: r.error }
+  if (needsPrepare(r.projectDir, r.state)) return NEEDS_PREPARE
   return openProject(r.projectDir, r.name, r.state)
 }
 
@@ -624,6 +647,8 @@ function stopEntry(e: Entry, { sync = false }: { sync?: boolean } = {}): Promise
 export async function restart(target: FastuiTarget): Promise<OpenResult> {
   const r = resolveProject(target)
   if (!r.ok) return { ok: false, error: r.error }
+  // 接手失败后点「重新编译」走这里:仍需接手就回到接手流程,而不是拿着别人机器的路径去起服务
+  if (needsPrepare(r.projectDir, r.state)) return NEEDS_PREPARE
   // 正在进行的打开先让它有结果,避免与它交错地杀掉/起服务
   await opening.get(r.projectDir)
   const existing = running.get(r.projectDir)

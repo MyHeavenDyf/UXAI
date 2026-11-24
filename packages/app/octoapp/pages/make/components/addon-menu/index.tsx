@@ -1051,6 +1051,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
       <LibraryDialog
         trackerModule={trackerModule()}
+        strictMessages={props.strictAssetLibraryMessages}
         open={libraryDialogOpen()}
         productId={props.productId}
         selections={props.selections as MentionSelection[]}

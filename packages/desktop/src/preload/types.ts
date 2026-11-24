@@ -8,6 +8,11 @@ export type ServerReadyData = {
 
 /** fastui 卡片的目标:工程在哪由主进程按 SPEC-DES-008 §3.7 查,渲染进程不拼路径 */
 export type FastuiTarget = { workspaceDir: string; sessionId: string; name?: string }
+/** `needsPrepare`:工程在本机跑不起来(分享导入未接手等),先调 fastuiPreviewPrepare 再 open(octo-agent SPEC-DES-009) */
+export type FastuiOpenResult =
+  | { ok: true; port: number; reused: boolean }
+  | { ok: false; error: string; logTail?: string }
+  | { ok: false; needsPrepare: true; error: string }
 
 export type SharedSessionResult = { sessionID: string; directory: string; agent?: string }
 export type PreparedSharedSession = { token: string; agent?: string; module: "design" | "insight" | "pattern" | "studio" }
@@ -56,7 +61,7 @@ export type DownloadSavePathInfo = {
 }
 
 // jk-j60099994-replace-with-60062650-preload-types-1-start
-export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+export type SkillConfigEntry = { description?: string; import?: boolean; type?: string; usage?: string }
 // jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
@@ -139,13 +144,16 @@ export type ElectronAPI = {
    * 否则当场挑端口起服务。产物名缺省用于老卡片(对话里只有一个工程时才能确定)。
    * 工程在哪由主进程按(工作区, 会话, 产物名)查(SPEC-DES-008 §3.7)。
    */
-  fastuiPreviewOpen: (
-    target: FastuiTarget,
-  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  fastuiPreviewOpen: (target: FastuiTarget) => Promise<FastuiOpenResult>
   /** 「重新编译」:结束当前服务并当场重起 */
-  fastuiPreviewRestart: (
+  fastuiPreviewRestart: (target: FastuiTarget) => Promise<FastuiOpenResult>
+  /**
+   * 分享导入的工程在本机接手(octo-agent SPEC-DES-009):open / restart 返回 `needsPrepare` 时调。
+   * 调 skill 脚本补环境、改写工程标记、建依赖链接;首装可能要几分钟。完成后再调 open。
+   */
+  fastuiPreviewPrepare: (
     target: FastuiTarget,
-  ) => Promise<{ ok: true; port: number; reused: boolean } | { ok: false; error: string; logTail?: string }>
+  ) => Promise<{ ok: true; adopted: boolean } | { ok: false; error: string; logTail?: string }>
   /** 这个(会话, 产物名)有没有 fastui 工程 —— 导出按钮与老卡片转换的判据,与预览同一个查找函数 */
   fastuiResolve: (
     target: FastuiTarget,
@@ -229,11 +237,14 @@ export type ElectronAPI = {
   /** 设置-MCP 页:写全局配置文件的 mcp 段(jsonc 保留注释,内置名单拒改);生效需随后 global.dispose */
   mcpConfigWrite: (input: McpConfigWriteInput) => Promise<void>
   getSkillConfig: () => Promise<SkillConfig>
+  setSkillConfig: (config: SkillConfig) => Promise<void>
   getSkillContent: (skillName: string) => Promise<SkillContentResponse>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   ensureSkillConfig: () => Promise<void>
   openSkillFolder: () => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-start
+  getSkillsByUsage: (usage: string) => Promise<SkillConfigEntry[]>
+  getSkillKeyByName: (skillName: string) => Promise<string | undefined>
   setDesignSystemSkillConfig: (skillName: string) => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
@@ -246,14 +257,14 @@ export type ElectronAPI = {
   setUploadsDir: (dir: string) => Promise<void>
   /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
-  readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  readFileBuffer: (path: string, strict?: boolean) => Promise<ArrayBuffer | null>
   /** 大文件归档:只 stat 不读盘,返回文件大小与修改时间;非普通文件返回 null */
   statFile: (path: string) => Promise<{ size: number; mtimeMs: number } | null>
   /** 轻量存在性预检：只 stat 不读盘，仅当路径是存在的普通文件时返回 true(不存在/目录/无权限均为 false) */
   fileExists: (path: string) => Promise<boolean>
   /** 目录存在性预检：仅当路径是存在的目录时返回 true(与 fileExists 对称) */
   dirExists: (path: string) => Promise<boolean>
-  deleteFile: (path: string) => Promise<void>
+  deleteFile: (path: string, strict?: boolean) => Promise<void>
   /** 原子重命名（同文件系统内 fs.rename）。用于"写临时文件 → rename 到目标"原子落盘模式。 */
   renameFile: (srcPath: string, destPath: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>

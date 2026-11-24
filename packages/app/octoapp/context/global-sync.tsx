@@ -438,6 +438,27 @@ function createGlobalSync() {
     },
   }))
 
+  async function refreshCommands(): Promise<void> {
+    await Promise.all(
+      Object.keys(children.children).map(async (key) => {
+        const existing = children.children[key]
+        if (!existing) return
+        try {
+          const res = await sdkFor(key).command.list()
+          existing[1]("command", res.data ?? [])
+        } catch (err) {
+          console.error("Failed to refresh command store", { directory: key, err })
+        }
+      }),
+    )
+  }
+
+  async function refreshSkills(): Promise<void> {
+    // refresh 响应返回时 server 端 invalidateAll 已完成,后续拉 command 必为新列表
+    await globalSDK.client.app.skills2.refresh()
+    await refreshCommands()
+  }
+
   return {
     data: globalStore,
     set,
@@ -451,6 +472,7 @@ function createGlobalSync() {
     peek: children.peek,
     // bootstrap,
     updateConfig: updateConfigMutation.mutateAsync,
+    refreshSkills,
     replaceProviders: (providers: ProviderListResponse["all"]) => {
       queryClient.setQueriesData<ProviderListResponse>(
         { predicate: (query) => query.queryKey[1] === "providers" },
@@ -472,6 +494,8 @@ const GlobalSyncContext = createContext<ReturnType<typeof createGlobalSync>>()
 
 export function GlobalSyncProvider(props: ParentProps) {
   const value = createGlobalSync()
+  // jk-j60099994-replace-with-60062650-global-sync-4-start
+  // jk-j60099994-replace-with-60062650-global-sync-4-end
   return <GlobalSyncContext.Provider value={value}>{props.children}</GlobalSyncContext.Provider>
 }
 
