@@ -153,6 +153,7 @@ export interface SubtypeHandler {
   ) => Promise<VersionFile[] | undefined>
 
   applyVersionFiles?: (ctx: SubtypeHandlerContext, files: VersionFile[]) => Promise<void>
+  deleteCurrentArtifact?: (ctx: SubtypeHandlerContext) => Promise<void>
 
   /**
    * Model Edit 配置（组件感知属性面板）

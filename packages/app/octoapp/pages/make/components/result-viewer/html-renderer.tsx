@@ -1390,92 +1390,9 @@ createEffect(() => {
     }
   })
 
-  // 3D 场景强制刷新:Chromium 对 local:// 协议做持久化缓存,即使 ?v=N 变化 + about:blank 中转
-  // 也返回旧 HTML。唯一可靠方案:host fetch 主文档 HTML,把预览资源内联,
-  // 创建 blob URL 让 iframe 加载。blob URL 是全新内存对象,绝不被缓存。
-  // 仅对 3D subtype + localUrl 生效。
-  const isScene3d = () => props.subtype === '3d'
-  const [blobUrl, setBlobUrl] = createSignal<string | undefined>(undefined)
-  let prevBlobUrl: string | undefined
-  createEffect(() => {
-    const key = props.refreshKey ?? 0
-    const base = localUrl()
-    if (!isScene3d() || !shouldUseLocalUrl() || !base) { setBlobUrl(undefined); return }
-    void (async () => {
-      try {
-        const resp = await fetch(base, { cache: 'no-cache' })
-        if (!resp.ok) throw new Error('3D preview HTML: HTTP ' + resp.status)
-        let html = await resp.text()
-        const baseDir = props.filePath!.replace(/[\\/][^\\/]+$/, '').replace(/\\/g, '/')
-
-        // 内联同目录及旧版 ./preview/ 下的脚本和样式为 data: URI,完全绕过 Chromium 对 local:// 的缓存。
-        // 用 base64 编码避免 </script> 截断问题(scene.js 2.7MB 含 </script> 字符串)。
-        // 执行顺序:HTML 里 <script> 按出现顺序执行,scene-data.js 在 scene.js 前(原顺序保留)。
-        const scriptRe = /<script\s+src=["'](\.\/(?:preview\/)?[^/"'?#]+\.(?:js|css)(?:\?[^"']*)?)["']\s*><\/script>/gi
-        const linkRe = /<link\s+[^>]*href=["'](\.\/(?:preview\/)?[^/"'?#]+\.(?:js|css)(?:\?[^"']*)?)["'][^>]*>/gi
-        const refs = new Set<string>()
-        for (const m of html.matchAll(scriptRe)) refs.add(m[1])
-        for (const m of html.matchAll(linkRe)) refs.add(m[1])
-        const inlineMap = new Map<string, string>()
-        await Promise.all([...refs].map(async (ref) => {
-          const cleanRef = ref.replace(/^\.\//, '')
-          // 子资源 fetch 必须带 refreshKey cache-buster + cache:no-cache。
-          // 否则 Chromium 对 local:// 的持久化缓存会返回旧 scene-data.js,
-          // 导致 blob 内联了过期内容,预览不更新。
-          const sep = cleanRef.includes('?') ? '&' : '?'
-          const localUrl = `local:///${baseDir}/${cleanRef}${sep}_octo_v=${key}`
-          const r = await fetch(localUrl, { cache: 'no-cache' })
-          if (!r.ok) throw new Error('3D preview resource ' + ref + ': HTTP ' + r.status)
-          const content = await r.text()
-          // base64 编码成 data: URI,避免 </script> 截断
-          const b64 = btoa(unescape(encodeURIComponent(content)))
-          // 判断 MIME 必须先去掉 query string（如 factory-scene.css?v=hash），
-          // 否则 .endsWith('.css') 为 false,CSS 被误判为 text/javascript,
-          // 浏览器拒绝加载 <link> 样式表,导致编辑器 UI 失去布局。
-          const pathWithoutQuery = cleanRef.split('?')[0]
-          const mime = pathWithoutQuery.endsWith('.css') ? 'text/css' : 'text/javascript'
-          inlineMap.set(ref, `data:${mime};base64,${b64}`)
-        }))
-
-        // 替换 <script src="./preview/xxx"> 为 <script src="data:...">
-        html = html.replace(scriptRe, (_m, ref) => {
-          const data = inlineMap.get(ref)
-          return data ? `<script src="${data}"></script>` : _m
-        })
-        // 替换 <link href="./preview/xxx"> 为 <link href="data:...">
-        html = html.replace(linkRe, (_m, ref) => {
-          const data = inlineMap.get(ref)
-          return data ? `<link rel="stylesheet" href="${data}">` : _m
-        })
-
-        const blob = new Blob([html], { type: 'text/html' })
-        const url = URL.createObjectURL(blob)
-        if (prevBlobUrl) URL.revokeObjectURL(prevBlobUrl)
-        prevBlobUrl = url
-        setBlobUrl(url)
-      } catch (e) {
-        console.warn('[scene3d] blobRefresh: fetch failed', e)
-        setBlobUrl(undefined)
-      }
-    })()
-  })
-
-  // 实际渲染的 iframe src:
-  // - 编辑态(scene3dEditing):用 local:// URL + ?edit=1(编辑器需要 entry.ts 分流,srcdoc/blob 的 location.search 不可靠)
-  // - 预览态(非编辑):用 blob URL 绕过 Chromium 对 local:// 的持久化缓存
-  // - 非 3D:用 iframeSrc(原逻辑)
-  const effectiveIframeSrc = createMemo(() => {
-    if (!isScene3d()) return iframeSrc()
-    // 编辑态优先用 local:// URL(保证 ?edit=1 生效)
-    if (props.scene3dEditing) return iframeSrc()
-    // 预览态用 blob URL 绕缓存
-    if (blobUrl()) return blobUrl()
-    return iframeSrc()
-  })
-
   const iframeSandbox = () => {
-    const previewUrl = blobUrl()
-    if (previewUrl && effectiveIframeSrc() === previewUrl) return "allow-scripts"
+    // Keep desktop 3D previews isolated while loading their relative assets through local://.
+    if (props.subtype === '3d' && !props.scene3dEditing && shouldUseLocalUrl()) return "allow-scripts"
     return shouldUseExternalUrl()
       ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
       : "allow-same-origin allow-scripts"
@@ -2410,7 +2327,7 @@ return (
               */}
               <iframe
                 ref={iframeRef}
-                src={effectiveIframeSrc()}
+                src={iframeSrc()}
                 {...(iframeSrc() === undefined ? { srcdoc: srcdoc() } : {})}
                 sandbox={iframeSandbox()}
                 style={{
@@ -2430,7 +2347,7 @@ return (
               */}
               <iframe
                 ref={iframeRef}
-                src={effectiveIframeSrc()}
+                src={iframeSrc()}
                 {...(iframeSrc() === undefined ? { srcdoc: srcdoc() } : {})}
                 sandbox={iframeSandbox()}
                 class="w-full h-full border-0"

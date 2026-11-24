@@ -1,5 +1,5 @@
 import type { SubtypeHandler, Scene3dEditConfig, SubtypeHandlerContext, HistoryTriggerEvent } from './types'
-import type { VersionFile } from '../utils/history-store'
+import { resolveRelativePath, type VersionFile } from '../utils/history-store'
 import defaultHandler from './default'
 import { getDesktopApi } from '../lib/electron-api'
 
@@ -11,14 +11,14 @@ async function readArtifact(filePath: string, api = getDesktopApi(), strict = fa
   const buffer = await api?.readFileBuffer?.(filePath, strict)
   if (!buffer) return
   const json = new TextDecoder().decode(buffer)
-    .match(/<script type="application\/json" id="octo-design-artifact">([^<]+)<\/script>/)?.[1]
-  if (!json) return
+    .match(/<script type="application\/json" id="octo-design-artifact">([^<]*)<\/script>/)?.[1]
+  if (json === undefined) return
 
   const artifact = JSON.parse(json)
   const relativePath = (value: unknown): value is string =>
     typeof value === 'string' && value.split('/').every((part) =>
       /^[\w.-]+$/.test(part) && part !== '.' && part !== '..')
-  if (artifact.version !== 1 || artifact.skill !== 'generate-3d-scene' ||
+  if (!artifact || artifact.version !== 1 || artifact.skill !== 'generate-3d-scene' ||
       !relativePath(artifact.source) || !artifact.source.startsWith('source/') ||
       !Array.isArray(artifact.history) || !artifact.history.every(relativePath)) {
     throw new Error('Invalid Design artifact metadata')
@@ -62,7 +62,11 @@ const scene3dHandler: SubtypeHandler = {
     const api = getDesktopApi()
     if (!tab.filePath) return null
     const dir = tab.filePath.replace(/[\\/][^\\/]+$/, '')
-    const artifact = await readArtifact(tab.filePath, api)
+    const artifact = await readArtifact(tab.filePath, api, true).catch((error) => {
+      console.warn('[scene3d] 无法读取历史记录所需的场景元数据', tab.filePath, error)
+      return null
+    })
+    if (artifact === null) return []
     const relsToCapture = artifact
       ? [...new Set(['.', artifact.source, ...artifact.history])]
       : ['.', ...legacyHistory]
@@ -73,16 +77,33 @@ const scene3dHandler: SubtypeHandler = {
         return api.statFile!(abs).then(() => true).catch(() => false)
       }),
     )
+    if (artifact && exists.includes(false)) return []
     const rels = relsToCapture.filter((_, i) => exists[i])
     // 至少保留 '.'（index.3d.html 必然存在），保证 recordVersion copied>0 能落版本
     return rels.length > 0 ? rels : ['.']
+  },
+
+  async deleteCurrentArtifact({ tab, getDesktopApi }) {
+    const api = getDesktopApi()
+    const filePath = tab.filePath
+    if (!api?.deleteFile || !filePath) throw new Error('当前环境不支持删除场景产物')
+
+    const artifact = await readArtifact(filePath, api, true)
+    if (!artifact) throw new Error('无法确认当前场景文件清单')
+    const paths = new Set([...artifact.history, artifact.source])
+    for (const path of paths) {
+      const absolutePath = resolveRelativePath(path, filePath)
+      if (absolutePath !== filePath) await api.deleteFile(absolutePath, true)
+    }
+    // Keep the entry manifest available if deleting an attached file fails and must be retried.
+    await api.deleteFile(filePath, true)
   },
 
   async resolveVersionFiles(ctx, load) {
     const [entry] = await load(['.'])
     if (!entry) throw new Error('缺少历史场景入口')
     const artifact = await readArtifact(entry.filePath, ctx.getDesktopApi(), true)
-    if (!artifact) return
+    if (!artifact) throw new Error('历史场景缺少新版产物元数据')
     const paths = [...new Set(['.', artifact.source, ...artifact.history])]
     const files = await load(paths)
     if (files.length !== paths.length) throw new Error('历史场景快照不完整')
@@ -95,10 +116,7 @@ const scene3dHandler: SubtypeHandler = {
     if (!api?.copyFileTo || !tab.filePath) return
 
     const baseline = files.find((file) => file.relativePath === '.scene3d-preview-baseline.json')
-    if (!baseline) {
-      for (const file of files) await api.copyFileTo(file.filePath, file.originalPath).catch(() => {})
-      return
-    }
+    if (!baseline) throw new Error('历史场景缺少发布基线')
     if (!api.readFileBuffer || !api.writeFileBuffer || !api.deleteFile) {
       throw new Error('当前环境不支持恢复场景构建产物')
     }
