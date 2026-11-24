@@ -73,20 +73,19 @@ export function OctoSidebar() {
         if (insightApi) {
           const result = await insightApi.sessions.list({ directory: dir, limit: lim })
           if (result.data) {
-            const rows = (result.data.items ?? []) as Session[]
-            const items = rows.filter((session) => !session.parentID)
+            const items = (result.data.items ?? []) as Session[]
             const rawTotal = result.data.total
-            const total = typeof rawTotal === "number" ? rawTotal - (rows.length - items.length) : items.length
+            const total = typeof rawTotal === "number" ? rawTotal : items.length
             setInsightFetchedDir(dir)
             return { items, total }
           }
         }
         // 过渡回退:后端端点未部署 / 旧 SDK → 通用 session.list + 前端过滤(旧「先 limit 再筛」路径,仅兼容用)。
         console.warn("[shell:sidebar] /insight/sessions unavailable, falling back to session.list")
-        const legacy = await client.session.list({ roots: true })
+        const legacy = await client.session.list()
         const filtered = ((legacy.data ?? []) as Array<Session & { agent?: string }>)
           .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-          .filter(s => s.agent === INSIGHT_AGENT && !s.parentID)
+          .filter(s => s.agent === INSIGHT_AGENT)
         setInsightFetchedDir(dir)
         return { items: filtered, total: filtered.length }
       } catch (err) {

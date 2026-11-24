@@ -252,18 +252,10 @@ function InsightCrashFallback(props: { error: unknown }) {
 
 function InsightContent() {
   useSharedSessionImportContext("insight")
-  const routeParams = useParams<{ id?: string }>()
+  const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sdk = useSDK()
   const sync = useSync()
-  const routeSession = createMemo(() => (routeParams.id ? sync.session.get(routeParams.id) : undefined))
-  const isChildSession = createMemo(() => !!routeSession()?.parentID)
-  const activeSessionID = createMemo(() => (isChildSession() ? undefined : routeSession()?.id))
-  const params = {
-    get id() {
-      return activeSessionID()
-    },
-  }
   const local = useLocal()
   useTabModel("insight")
   const language = useLanguage()
@@ -337,14 +329,9 @@ function InsightContent() {
   const prevInsightDir = lastInsightDir
   lastInsightDir = sdk.directory
   onMount(() => {
-    if (prevInsightDir === undefined || prevInsightDir === sdk.directory || !routeParams.id) return
-    console.log("[octo:sync] dir-switched", { from: prevInsightDir, to: sdk.directory, staleSessionID: routeParams.id })
+    if (prevInsightDir === undefined || prevInsightDir === sdk.directory || !params.id) return
+    console.log("[octo:sync] dir-switched", { from: prevInsightDir, to: sdk.directory, staleSessionID: params.id })
     navigate("/insight", { replace: true })
-  })
-
-  // 直接访问或从 Cowork 页签恢复 URL 时，等会话元数据就绪后才激活对话。
-  createEffect(() => {
-    if (isChildSession()) navigate("/insight", { replace: true })
   })
 
   // ── 刷新保路由 ─────────────────────────────────────────────
@@ -355,7 +342,7 @@ function InsightContent() {
     didBootRestore = true
     // 仅当本次整页加载落在"无 id 首页态"且上次确实在某对话时才尝试恢复。
     // 若上次就在新建空态(id 为空串)→ 不跳,保持空态(浏览器式原地刷新)。
-    if (routeParams.id || !bootSaved?.id || layout.lastSessionPerTab.newConversation("cowork")) return
+    if (params.id || !bootSaved?.id || layout.lastSessionPerTab.newConversation("cowork")) return
     const dir = projectDir() // InsightContent 仅在 sdk.directory 就绪后挂载,理论恒有值
     if (!dir) return
     // 目录不符不恢复:上次对话属于别的目录(如在其他页面切过目录后整页重载),
@@ -366,7 +353,6 @@ function InsightContent() {
     void sdk.client.session
       .get({ sessionID: bootSaved.id })
       .then((r: { data?: unknown }) => {
-        if (routeParams.id) return
         const session = r?.data as Session | undefined
         // parentID 有值 = task 子会话:不恢复(SPEC-INS-021 §1 追加)。导航拦截之外的兜底——
         // 历史遗留记录 / 直接 URL 仍可能把子会话写进 LAST_SESSION_KEY,恢复进去就是"没有记录的对话"。
@@ -377,7 +363,6 @@ function InsightContent() {
   })
   // 记录当前所在对话(id 空 = 新建空态)及其所属目录,供下次整页加载恢复。
   createEffect(() => {
-    if (routeParams.id && !params.id) return
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify({ dir: projectDir(), id: params.id ?? "" }))
   })
 
@@ -385,7 +370,6 @@ function InsightContent() {
   // 与 studio/make/chat 各 tab 一致(它们都调用 setStudio/setMake/setChat)。
   createEffect(() => {
     const id = params.id
-    if (routeParams.id && !id) return
     if (id) {
       layout.lastSessionPerTab.setCowork(id)
       layout.lastSessionPerTab.setNewConversation("cowork", false)
@@ -397,17 +381,16 @@ function InsightContent() {
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
   //
-  // 依赖同时取路由 ID 和「会话元数据或消息是否缺失」：
+  // 依赖同时取 params.id 和「message[id] 是否缺失」：
   // - 切到新 id → message[id] 为 undefined → 触发 sync
   // - 放置一段时间后 sync 缓存被清（连接重置/驱逐），message[id] 变回 undefined 但 id 未变
   //   → 这里仍会重新触发 sync，避免中间聊天区永久空白（白屏 bug）。
   //   sync.session.sync 自带 inflight 去重，重复调用安全；加载完 message[id] 有值后不再触发。
-  const needsSessionSync = createMemo(() => !routeSession() || sync.data.message[routeParams.id ?? ""] === undefined)
   createEffect(
     on(
-      () => [routeParams.id, needsSessionSync(), isChildSession()] as const,
-      ([id, missing, child]) => {
-        if (!id || !missing || child) return
+      () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
+      ([id, missing]) => {
+        if (!id || !missing) return
         console.log("[octo:sync] session.sync", { sessionID: id })
         void sync.session.sync(id)
       },
@@ -518,7 +501,7 @@ function InsightContent() {
   // 无 id(全新/首页)视作已加载,正常显示首页空态。
   const sessionMessagesLoaded = createMemo(() => {
     const id = params.id
-    return !routeParams.id || (!!id && sync.data.message[id] !== undefined)
+    return !id || sync.data.message[id] !== undefined
   })
 
   // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──

@@ -1,5 +1,5 @@
 import { Database } from "@/storage/db"
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, asc, desc, eq, sql } from "drizzle-orm"
 import * as Log from "@opencode-ai/core/util/log"
 import { SessionTable } from "./session.sql"
 import { fromRow, type Info } from "./session"
@@ -11,7 +11,7 @@ const log = Log.create({ service: "session-insight-query" })
 // 服务端**先按 agent 过滤再分页**,修「会话超 100 条后最早 insight 对话看不到」——
 // 根因是共享 session.list「先 limit 100 再前端筛 agent」的顺序错。硬编码 agent,
 // 不暴露入参,不碰 session 组。作用域 = project_id(instance) + directory(query),
-// 侧栏只列根会话，历史 task 子会话可能沿用 octo_insight 标记。
+// 不加 roots 过滤(保留 task 子会话可见,见 session-agent-attribution §B-1)。
 //
 // SPEC-INS-030 §6:这里**只列 octo_insight**,chat 历史(agent=octo_ai)不做「读时合并」。
 // 曾试过把过滤放宽成 agent IN (octo_insight, octo_ai),但那只解了 agent 一半:chat 列表当年是
@@ -31,7 +31,6 @@ export function listInsightSessions(input: {
     eq(SessionTable.project_id, input.projectID),
     eq(SessionTable.directory, input.directory),
     eq(SessionTable.agent, INSIGHT_AGENT),
-    isNull(SessionTable.parent_id),
   ]
 
   return Database.use((db) => {
