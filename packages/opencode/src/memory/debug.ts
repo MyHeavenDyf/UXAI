@@ -58,6 +58,23 @@ const redact = (value: string) =>
     value,
   )
 
+// 二进制数据降级为占位符,避免把音频/图片原始字节写进 dump
+const binaryReplacer = (_key: string, value: unknown) =>
+  value instanceof Uint8Array
+    ? `<Uint8Array ${value.byteLength} bytes>`
+    : value instanceof ArrayBuffer
+      ? `<ArrayBuffer ${value.byteLength} bytes>`
+      : value
+
+// 安全序列化:循环引用等无法序列化的内容降级为字符串表示,dump 构建绝不抛异常
+const stringify = (value: unknown) => {
+  try {
+    return JSON.stringify(value, binaryReplacer, 2)
+  } catch {
+    return JSON.stringify(String(value))
+  }
+}
+
 const isPosix = process.platform !== "win32"
 
 const write = Effect.fnUntraced(function* (sessionID: string, kind: "extract" | "inject", content: string) {
@@ -111,9 +128,16 @@ const cleanup = Effect.fnUntraced(function* () {
 
 const separator = "=".repeat(80)
 
-const dump = Effect.fn("MemoryDebug.dump")(function* (kind: "extract" | "inject", sessionID: string, content: string) {
+// 开关判断在序列化之前(build 是惰性闭包,关闭时零序列化开销);内容构建与写入
+// 全部在 exit 隔离区内,任何序列化/IO 异常只 warn,绝不影响 Agent 主流程。
+const dump = Effect.fn("MemoryDebug.dump")(function* (
+  kind: "extract" | "inject",
+  sessionID: string,
+  build: () => string,
+) {
   if (!Flag.OCTO_MEMORY_DEBUG) return
   const exit = yield* Effect.gen(function* () {
+    const content = yield* Effect.try({ try: build, catch: (error) => new Error(String(error)) })
     yield* cleanup()
     yield* write(sessionID, kind, content)
   }).pipe(Effect.exit)
@@ -130,31 +154,33 @@ export const dumpExtract = Effect.fn("MemoryDebug.dumpExtract")(function* (input
   rawOutput: string
   actions: Parsed[]
 }) {
-  yield* dump("extract", input.sessionID, [
-    separator,
-    `memory extract dump`,
-    separator,
-    `session:         ${input.sessionID}`,
-    `project:         ${input.projectID}`,
-    `time:            ${new Date().toISOString()}`,
-    `model:           ${input.model}`,
-    `actions parsed:  ${input.actions.length}`,
-    `actions tokens:  ${Token.estimateValue(input.actions)}`,
-    separator,
-    "",
-    "===== MEMORY INDEX BEFORE EXTRACTION =====",
-    input.indexBefore,
-    "",
-    "===== PROMPT SENT TO EXTRACTOR =====",
-    JSON.stringify(input.prompt, null, 2),
-    "",
-    "===== RAW MODEL OUTPUT =====",
-    input.rawOutput,
-    "",
-    "===== PARSED ACTIONS =====",
-    JSON.stringify(input.actions, null, 2),
-    "",
-  ].join("\n"))
+  yield* dump("extract", input.sessionID, () =>
+    [
+      separator,
+      `memory extract dump`,
+      separator,
+      `session:         ${input.sessionID}`,
+      `project:         ${input.projectID}`,
+      `time:            ${new Date().toISOString()}`,
+      `model:           ${input.model}`,
+      `actions parsed:  ${input.actions.length}`,
+      `actions tokens:  ${Token.estimateValue(input.actions)}`,
+      separator,
+      "",
+      "===== MEMORY INDEX BEFORE EXTRACTION =====",
+      input.indexBefore,
+      "",
+      "===== PROMPT SENT TO EXTRACTOR =====",
+      stringify(input.prompt),
+      "",
+      "===== RAW MODEL OUTPUT =====",
+      input.rawOutput,
+      "",
+      "===== PARSED ACTIONS =====",
+      stringify(input.actions),
+      "",
+    ].join("\n"),
+  )
 })
 
 // 注入埋点:记忆带进 prompt 时,记录全部上下文(system + tools + messages)
@@ -165,31 +191,33 @@ export const dumpInject = Effect.fn("MemoryDebug.dumpInject")(function* (input: 
   modelMsgs: unknown[]
   activeTools: Record<string, unknown>
 }) {
-  yield* dump("inject", input.sessionID, [
-    separator,
-    `memory inject dump`,
-    separator,
-    `session:         ${input.sessionID}`,
-    `time:            ${new Date().toISOString()}`,
-    `model:           ${input.model}`,
-    `tool count:      ${Object.keys(input.activeTools).length}`,
-    `message count:   ${input.modelMsgs.length}`,
-    `tokens system:   ${Token.estimateValue(input.system)}`,
-    `tokens messages: ${Token.estimateValue(input.modelMsgs)}`,
-    `tokens tools:    ${Token.estimateValue(input.activeTools)}`,
-    `tokens total:    ${Token.estimateValue([input.system, input.modelMsgs, input.activeTools])}`,
-    separator,
-    "",
-    "===== SYSTEM PROMPT =====",
-    input.system.join("\n\n"),
-    "",
-    "===== TOOLS =====",
-    JSON.stringify(input.activeTools, null, 2),
-    "",
-    "===== MESSAGES PREPARED FOR THE AI =====",
-    JSON.stringify(input.modelMsgs, null, 2),
-    "",
-  ].join("\n"))
+  yield* dump("inject", input.sessionID, () =>
+    [
+      separator,
+      `memory inject dump`,
+      separator,
+      `session:         ${input.sessionID}`,
+      `time:            ${new Date().toISOString()}`,
+      `model:           ${input.model}`,
+      `tool count:      ${Object.keys(input.activeTools).length}`,
+      `message count:   ${input.modelMsgs.length}`,
+      `tokens system:   ${Token.estimateValue(input.system)}`,
+      `tokens messages: ${Token.estimateValue(input.modelMsgs)}`,
+      `tokens tools:    ${Token.estimateValue(input.activeTools)}`,
+      `tokens total:    ${Token.estimateValue([input.system, input.modelMsgs, input.activeTools])}`,
+      separator,
+      "",
+      "===== SYSTEM PROMPT =====",
+      input.system.join("\n\n"),
+      "",
+      "===== TOOLS =====",
+      stringify(input.activeTools),
+      "",
+      "===== MESSAGES PREPARED FOR THE AI =====",
+      stringify(input.modelMsgs),
+      "",
+    ].join("\n"),
+  )
 })
 
 export * as MemoryDebug from "./debug"

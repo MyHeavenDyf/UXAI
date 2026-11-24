@@ -34,7 +34,11 @@ const isRealUser = (message: MessageV2.WithParts) =>
 
 const TOPIC_RE = new RegExp(`^[a-z][a-z0-9_]{0,${MAX_TOPIC_CHARS - 1}}$`)
 
-export function parseActions(text: string): Parsed[] {
+// 解析结果必须区分"非法 JSON"(valid=false,重试)与"合法空数组"(valid=true,已处理),
+// 否则模型偶发吐垃圾会导致该批消息永久丢失。
+export type ParseResult = { valid: boolean; actions: Parsed[] }
+
+export function parseResult(text: string): ParseResult {
   const stripped = text
     .trim()
     .replace(/^```[a-zA-Z]*\s*/i, "")
@@ -42,14 +46,14 @@ export function parseActions(text: string): Parsed[] {
     .trim()
   const start = stripped.indexOf("[")
   const end = stripped.lastIndexOf("]")
-  if (start === -1 || end === -1 || end < start) return []
+  if (start === -1 || end === -1 || end < start) return { valid: false, actions: [] }
   let parsed: unknown
   try {
     parsed = JSON.parse(stripped.slice(start, end + 1))
   } catch {
-    return []
+    return { valid: false, actions: [] }
   }
-  if (!Array.isArray(parsed)) return []
+  if (!Array.isArray(parsed)) return { valid: false, actions: [] }
   const creates: Parsed[] = []
   const deletes: Parsed[] = []
   for (const item of parsed) {
@@ -77,7 +81,11 @@ export function parseActions(text: string): Parsed[] {
     if (creates.length < MAX_CREATES_PER_BATCH)
       creates.push({ action: "create", type: data.type as MemoryType, topic, content, summary })
   }
-  return [...deletes, ...creates]
+  return { valid: true, actions: [...deletes, ...creates] }
+}
+
+export function parseActions(text: string): Parsed[] {
+  return parseResult(text).actions
 }
 
 // 服务实例由调用方(prompt 层闭包)传入,避免模块级 yield* 把 requirements 泄漏进 runLoop 类型。
@@ -162,7 +170,7 @@ export const extract = Effect.fn("MemoryExtract.extract")(function* (input: {
       Stream.mkString,
     )
 
-  const actions = parseActions(text)
+  const result = parseResult(text)
   yield* MemoryDebug.dumpExtract({
     sessionID: input.session.id,
     projectID: input.session.projectID,
@@ -170,19 +178,39 @@ export const extract = Effect.fn("MemoryExtract.extract")(function* (input: {
     prompt: messages,
     indexBefore: index,
     rawOutput: text,
-    actions,
+    actions: result.actions,
   })
-  // 模型正常返回即推进游标(解析为空也算已处理,避免重复发送同样内容);
-  // 异常路径不推进,未处理回合由下次触发按游标补偿。
-  cursors.set(input.session.id, lastRealUser.info.id)
-  if (actions.length === 0) return
-  MemoryStore.write({
+  // 非法 JSON:本批未处理,游标回退到切片起点前,由下次触发按游标重试补偿
+  if (!result.valid) {
+    retreat(input.session.id, input.history, start)
+    return
+  }
+  // 合法空数组 = 模型已看过这批内容且无可记,直接推进游标
+  if (result.actions.length === 0) {
+    cursors.set(input.session.id, lastRealUser.info.id)
+    return
+  }
+  const written = MemoryStore.write({
     projectID: input.session.projectID,
     sourceSessionID: input.session.id,
-    actions,
+    actions: result.actions,
     budget: cfg?.budget_tokens,
     version,
   })
+  // 数据库写入失败:游标不得推进,下次触发重试本批,避免记忆永久丢失
+  if (!written) {
+    retreat(input.session.id, input.history, start)
+    return
+  }
+  cursors.set(input.session.id, lastRealUser.info.id)
 })
+
+// 游标回退到切片起点的前一条消息:下次触发会从切片起点重新补偿,消息不丢。
+// 切片从首条历史消息开始时无前驱,清掉游标走"最后回合"兜底。
+const retreat = (sessionID: string, history: MessageV2.WithParts[], start: number) => {
+  const prev = history[start - 1]
+  if (prev) cursors.set(sessionID, prev.info.id)
+  else cursors.delete(sessionID)
+}
 
 export * as MemoryExtract from "./extract"

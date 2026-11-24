@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import * as Stream from "effect/Stream"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import type { ModelMessage } from "ai"
 import { MemoryStore } from "@/memory/store"
 import { MemoryExtract, parseActions } from "@/memory/extract"
+import { MemoryDebug } from "@/memory/debug"
+import { MemoryTombstoneTable } from "@/memory/tombstone.sql"
+import type { MemoryType } from "@/memory/memory.sql"
 import { Database } from "@/storage/db"
 import { ProjectTable } from "@/project/project.sql"
 import type { ProjectID } from "@/project/schema"
@@ -31,6 +37,7 @@ beforeEach(() => {
   )
   MemoryStore.clear(projectID)
   MemoryStore.clear(otherID)
+  Database.use((db) => db.delete(MemoryTombstoneTable).run())
 })
 
 afterEach(() => {
@@ -284,7 +291,8 @@ describe("MemoryExtract cursor and throttle", () => {
       parts: [{ type: "text", text, synthetic: false }],
     }) as unknown as MessageV2.WithParts
 
-  const session = (id: string) => ({ id, projectID, parentID: undefined }) as unknown as Session.Info
+  const session = (id: string, proj: ProjectID = projectID) =>
+    ({ id, projectID: proj, parentID: undefined }) as unknown as Session.Info
 
   const fakeConfig = (memory?: ConfigMemory.Info) =>
     ({ get: () => Effect.succeed({ memory }) }) as unknown as Config.Interface
@@ -317,14 +325,22 @@ describe("MemoryExtract cursor and throttle", () => {
     return { llm, calls }
   }
 
-  const run = (opts: { sessionId: string; history: MessageV2.WithParts[]; llm: LLM.Interface; interval?: number }) =>
+  const run = (opts: {
+    sessionId: string
+    history: MessageV2.WithParts[]
+    llm: LLM.Interface
+    interval?: number
+    project?: ProjectID
+  }) =>
     Effect.runPromise(
       MemoryExtract.extract({
-        config: fakeConfig(opts.interval === undefined ? undefined : ({ extraction_interval_seconds: opts.interval } as ConfigMemory.Info)),
+        config: fakeConfig(
+          opts.interval === undefined ? undefined : ({ extraction_interval_seconds: opts.interval } as ConfigMemory.Info),
+        ),
         agents: fakeAgents(),
         provider: fakeProvider(),
         llm: opts.llm,
-        session: session(opts.sessionId),
+        session: session(opts.sessionId, opts.project),
         history: opts.history,
         lastUser: opts.history[0].info as MessageV2.User,
       }),
@@ -408,6 +424,50 @@ describe("MemoryExtract cursor and throttle", () => {
     })
     expect(calls).toHaveLength(1)
   })
+
+  test("invalid model output does not advance the cursor: failed turns are retried", async () => {
+    const { llm, calls } = fakeLLM([reply, "这不是JSON", reply])
+    const first = [msg("u1", "user", "第一个回合"), msg("a1", "assistant", "好的")]
+    const second = [msg("u2", "user", "第二个回合"), msg("a2", "assistant", "收到")]
+    await run({ sessionId: "ses_g", history: first, llm })
+    // 非法 JSON:本批游标必须回退,不允许把该批消息标记为已处理
+    await run({ sessionId: "ses_g", interval: 0, history: [...first, ...second], llm })
+    expect(calls).toHaveLength(2)
+    await run({
+      sessionId: "ses_g",
+      interval: 0,
+      history: [...first, ...second, msg("u3", "user", "第三个回合"), msg("a3", "assistant", "好")],
+      llm,
+    })
+    expect(calls).toHaveLength(3)
+    const retried = JSON.stringify(calls[2].messages)
+    expect(retried).toContain("第二个回合")
+    expect(retried).not.toContain("第一个回合")
+  })
+
+  test("failed write does not advance the cursor: turns are retried", async () => {
+    // FK 缺失的 project:提取内容合法但写入必失败,游标不得推进
+    const fkProject = "mem_fk_project" as ProjectID
+    const { llm, calls } = fakeLLM([reply, reply])
+    const history = [
+      msg("u0", "user", "第零个回合"),
+      msg("a0", "assistant", "嗯"),
+      msg("u1", "user", "第一个回合"),
+      msg("a1", "assistant", "好的"),
+    ]
+    await run({ sessionId: "ses_h", history, llm, project: fkProject })
+    expect(calls).toHaveLength(1)
+    await run({
+      sessionId: "ses_h",
+      interval: 0,
+      history: [...history, msg("u2", "user", "第二个回合"), msg("a2", "assistant", "收到")],
+      llm,
+      project: fkProject,
+    })
+    expect(calls).toHaveLength(2)
+    const retried = JSON.stringify(calls[1].messages)
+    expect(retried).toContain("第一个回合")
+  })
 })
 
 describe("containsSecret", () => {
@@ -416,5 +476,140 @@ describe("containsSecret", () => {
     expect(MemoryStore.containsSecret("Bearer eyJhbGciOiJIUzI1NiJ9")).toBe(true)
     expect(MemoryStore.containsSecret("api_key = abc123xyz789")).toBe(true)
     expect(MemoryStore.containsSecret("the user prefers pnpm in this repo")).toBe(false)
+  })
+})
+
+describe("cursor ordering: advance only after successful write", () => {
+  const entry = (topic: string) => ({
+    action: "create" as const,
+    type: "project" as MemoryType,
+    topic,
+    content: "c",
+    summary: "s",
+  })
+
+  test("parseResult distinguishes invalid JSON from valid empty array", () => {
+    expect(MemoryExtract.parseResult("这不是 JSON")).toEqual({ valid: false, actions: [] })
+    expect(MemoryExtract.parseResult("[broken json")).toEqual({ valid: false, actions: [] })
+    expect(MemoryExtract.parseResult("null")).toEqual({ valid: false, actions: [] })
+    expect(MemoryExtract.parseResult("[]")).toEqual({ valid: true, actions: [] })
+    const result = MemoryExtract.parseResult(
+      `[{"action":"create","type":"feedback","topic":"t","content":"c","summary":"s"}]`,
+    )
+    expect(result.valid).toBe(true)
+    expect(result.actions).toHaveLength(1)
+  })
+
+  test("write returns false while disabled and true on success", () => {
+    process.env.OCTO_DISABLE_MEMORY = "1"
+    expect(MemoryStore.write({ projectID, actions: [entry("blocked")], budget })).toBe(false)
+    delete process.env.OCTO_DISABLE_MEMORY
+    expect(MemoryStore.write({ projectID, actions: [entry("allowed")], budget })).toBe(true)
+  })
+
+  test("write returns false on database constraint failure", () => {
+    // 未播种的 project 触发 FK 约束,事务回滚,safe 降级后必须返回 false
+    expect(
+      MemoryStore.write({ projectID: "mem_fk_project" as ProjectID, actions: [entry("x")], budget }),
+    ).toBe(false)
+  })
+})
+
+describe("memory tombstone", () => {
+  const entry = (topic: string) => ({
+    action: "create" as const,
+    type: "project" as MemoryType,
+    topic,
+    content: "c",
+    summary: "s",
+  })
+  const tombstones = () => Database.use((db) => db.select().from(MemoryTombstoneTable).all())
+
+  test("old delete cannot delete newer memory", () => {
+    MemoryStore.write({ projectID, actions: [entry("t")], budget, version: 1000 })
+    expect(MemoryStore.write({ projectID, actions: [{ action: "delete", topic: "t" }], budget, version: 500 })).toBe(true)
+    expect(MemoryStore.list(projectID).some((row) => row.topic === "t")).toBe(true)
+  })
+
+  test("deleted memory cannot be resurrected by older batch; newer batch can revive", () => {
+    MemoryStore.write({ projectID, actions: [entry("t")], budget, version: 1000 })
+    expect(MemoryStore.write({ projectID, actions: [{ action: "delete", topic: "t" }], budget, version: 2000 })).toBe(true)
+    expect(MemoryStore.list(projectID)).toHaveLength(0)
+    // 墓碑 2000:旧批次(1500)的 create 不得复活
+    expect(MemoryStore.write({ projectID, actions: [entry("t")], budget, version: 1500 })).toBe(true)
+    expect(MemoryStore.list(projectID)).toHaveLength(0)
+    // 更新批次(3000)合法复活,墓碑清理
+    expect(MemoryStore.write({ projectID, actions: [entry("t")], budget, version: 3000 })).toBe(true)
+    expect(MemoryStore.list(projectID).some((row) => row.topic === "t")).toBe(true)
+    expect(tombstones().filter((row) => row.topic === "t")).toHaveLength(0)
+  })
+
+  test("old delete cannot overwrite a newer tombstone", () => {
+    MemoryStore.write({ projectID, actions: [{ action: "delete", topic: "gone" }], budget, version: 2000 })
+    MemoryStore.write({ projectID, actions: [{ action: "delete", topic: "gone" }], budget, version: 900 })
+    expect(tombstones().find((row) => row.topic === "gone")?.time_deleted).toBe(2000)
+  })
+
+  test("tombstone from deleting an absent topic blocks older creates", () => {
+    MemoryStore.write({ projectID, actions: [{ action: "delete", topic: "ghost" }], budget, version: 2000 })
+    expect(MemoryStore.write({ projectID, actions: [entry("ghost")], budget, version: 1500 })).toBe(true)
+    expect(MemoryStore.list(projectID)).toHaveLength(0)
+    expect(MemoryStore.write({ projectID, actions: [entry("ghost")], budget, version: 2500 })).toBe(true)
+    expect(MemoryStore.list(projectID).some((row) => row.topic === "ghost")).toBe(true)
+  })
+})
+
+describe("memory debug isolation", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "memory-dbg-test-"))
+  const dumps = () =>
+    fs.existsSync(dir) ? fs.readdirSync(dir).flatMap((s) => fs.readdirSync(path.join(dir, s))) : []
+  const readDump = (name: string) => {
+    for (const s of fs.readdirSync(dir)) return fs.readFileSync(path.join(dir, s, name), "utf8")
+    return ""
+  }
+
+  beforeEach(() => {
+    process.env.OCTO_MEMORY_DEBUG = "1"
+    process.env.OCTO_MEMORY_DEBUG_DIR = dir
+  })
+  afterEach(() => {
+    process.env.OCTO_MEMORY_DEBUG = "0"
+    delete process.env.OCTO_MEMORY_DEBUG_DIR
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  const circular = () => {
+    const value: Record<string, unknown> = {}
+    value.self = value
+    return value
+  }
+  const input = (prompt: unknown[]) => ({
+    sessionID: "ses_dbg",
+    projectID: "p",
+    model: "t/m",
+    prompt,
+    indexBefore: "",
+    rawOutput: "ok",
+    actions: [],
+  })
+
+  test("flag off performs no serialization and writes nothing", async () => {
+    process.env.OCTO_MEMORY_DEBUG = "0"
+    // 循环引用若被序列化会抛 TypeError;开关关闭时必须连序列化都不发生
+    await Effect.runPromise(MemoryDebug.dumpExtract(input([circular()])))
+    expect(dumps()).toHaveLength(0)
+  })
+
+  test("circular input never throws and falls back to a string representation", async () => {
+    await Effect.runPromise(MemoryDebug.dumpExtract(input([circular()])))
+    expect(dumps()).toHaveLength(1)
+  })
+
+  test("binary data is replaced with a placeholder", async () => {
+    await Effect.runPromise(MemoryDebug.dumpExtract(input([new Uint8Array([1, 2, 3]), new ArrayBuffer(16)])))
+    const name = dumps()[0]
+    const content = readDump(name)
+    expect(content).toContain("<Uint8Array 3 bytes>")
+    expect(content).toContain("<ArrayBuffer 16 bytes>")
   })
 })

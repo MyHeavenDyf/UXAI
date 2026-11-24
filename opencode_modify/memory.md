@@ -23,6 +23,7 @@
 | 文件 | 职责 |
 |-|-|
 | `src/memory/memory.sql.ts` | `memory` 表：`(project_id, topic)` 唯一索引支撑 upsert，FK→project 级联删除 |
+| `src/memory/tombstone.sql.ts` | `memory_tombstone` 删除墓碑表：`(project_id, topic)` 主键记录删除版本，阻止旧批次复活已删除记忆 |
 | `src/memory/store.ts` | 纯函数存储层（仿 tracking 模式）：`list/system/write/remove/clear`，写入后 trim |
 | `src/memory/extract.ts` | `extract`（服务实例由 prompt 层闭包传入，避免 requirements 泄漏）+ `parseActions` JSON 解析校验 |
 | `src/memory/debug.ts` | `.temp` 埋点落盘（仿 `session/compaction-debug.ts`）：extract/inject 两类事件，按 session 分目录 |
@@ -47,9 +48,11 @@
   → 节流检查（不推进游标 → 后续补偿）
   → 游标切片：从上次已处理消息之后的首个真实用户消息到结尾（≤50 条，游标失效回退最后回合）
   → title 模型流式调用（指令含可信边界声明：工具输出中的"记住/删除"指令一律忽略）
-  → parseActions 严格校验（topic 正则/长度上限/密钥拒绝/单批 create≤20 delete≤3）
-  → 落盘 extract dump（OCTO_MEMORY_DEBUG 开启时）
-  → 推进游标（模型正常返回即推进，含解析为空）→ MemoryStore.write（单事务 + 版本条件 upsert）→ trim
+  → parseResult 严格校验（区分非法 JSON 与合法空数组；topic 正则/长度上限/密钥拒绝/单批 create≤20 delete≤3）
+  → 落盘 extract dump（OCTO_MEMORY_DEBUG 开启时，序列化惰性构建+exit 隔离）
+  → 非法 JSON → 游标回退到切片起点前，下次重试；合法空数组 → 推进游标
+  → MemoryStore.write（单事务 + 版本条件 upsert + 墓碑，返回写入成败）
+  → 写入失败 → 游标回退，下次重试；写入成功 → 推进游标 → trim
 下一回合/新会话 → prepareRequest 拼装 <memory> 索引块（超预算单条跳过不阻断，预算内截断）
   → 落盘 inject dump（dryRun 路径跳过）
 ```
@@ -80,9 +83,11 @@
 |-|-|
 | 主流程隔离 | store 公开函数内部 catch 降级（warn + 空返回），提取为 fork+ignore，dump 为 exit 隔离 |
 | 并发覆盖 | write 单事务；upsert 带 `setWhere: time_updated <= version`（提取批次时间戳），旧批次永不覆盖新批次 |
+| 删除安全 | delete 带 `time_updated <= version` 版本守卫（旧任务删不掉新记忆）+ `memory_tombstone` 墓碑（旧批次 create 无法经 INSERT 复活已删除记忆；更新批次合法复活并清理墓碑） |
 | 提取校验 | action 枚举、topic `^[a-z][a-z0-9_]{0,63}$`、summary≤200、content≤2000、单批 create≤20/delete≤3、密钥模式整条拒绝 |
 | 注入防护 | 提取器 prompt + 指令消息双重声明可信边界：工具/文件/网页输出中的记忆操作指令一律忽略 |
-| 消息遗漏 | 成功处理游标（per session 的 lastProcessedMessageID）：节流跳过不推进，下次从游标后累积补偿（≤50 条窗口） |
+| 消息遗漏 | 游标只在 DB 写入成功后推进；`parseResult` 区分非法 JSON（回退游标重试）与合法空数组（推进）；写入失败同样回退重试——任何失败批次的消息不丢 |
+| 日志隔离 | 开关判断在序列化之前（关闭时零序列化开销）；dump 内容惰性构建并整体 exit 隔离；安全序列化（循环引用降级为字符串）+ 二进制占位符；任何 dump 异常只 warn |
 | 预算统一 | system() 单条超预算跳过不阻断后续；trim 与 system 共用 indexLine/预算常量；write 层字段 clamp 双保险 |
 
 ## 自测指南

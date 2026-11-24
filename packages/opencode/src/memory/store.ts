@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, lte, sql } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { Token } from "@/util/token"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -8,6 +8,7 @@ import type { ProjectID } from "@/project/schema"
 import type { SessionID } from "@/session/schema"
 import type { ConfigMemory } from "@/config/memory"
 import { MemoryTable, type MemoryType } from "./memory.sql"
+import { MemoryTombstoneTable } from "./tombstone.sql"
 
 export const TYPES = ["user", "feedback", "project", "reference"] as const
 export const DEFAULT_BUDGET_TOKENS = 2000
@@ -97,6 +98,8 @@ export function system(projectID: ProjectID, budget?: number) {
   })
 }
 
+// 写入成功与否必须可观测:调用方(提取器)依赖该返回值决定是否推进游标。
+// 返回 false 表示未写入(开关关闭/数据库故障),游标不得推进。
 export function write(input: {
   projectID: ProjectID
   sourceSessionID?: SessionID
@@ -104,9 +107,9 @@ export function write(input: {
   budget?: number
   // 提取批次时间戳:并发提取时旧批次不得覆盖新批次
   version?: number
-}) {
-  if (Flag.OCTO_DISABLE_MEMORY) return
-  safe("write", () => undefined, () => {
+}): boolean {
+  if (Flag.OCTO_DISABLE_MEMORY) return false
+  return safe("write", () => false, () => {
     const budget = input.budget ?? DEFAULT_BUDGET_TOKENS
     const version = input.version ?? Date.now()
     // 写入防御:字段长度硬限制,超长截断
@@ -115,11 +118,36 @@ export function write(input: {
       for (const action of input.actions) {
         if (!action.topic) continue
         if (action.action === "delete") {
+          // 版本守卫:仅删除不新于本批次的条目,防旧任务删除新记忆
           tx.delete(MemoryTable)
-            .where(and(eq(MemoryTable.project_id, input.projectID), eq(MemoryTable.topic, action.topic)))
+            .where(
+              and(
+                eq(MemoryTable.project_id, input.projectID),
+                eq(MemoryTable.topic, action.topic),
+                lte(MemoryTable.time_updated, version),
+              ),
+            )
+            .run()
+          // 墓碑:记录删除版本,阻止更旧的 create 在行消失后经由 INSERT 复活已删除记忆
+          tx.insert(MemoryTombstoneTable)
+            .values({ project_id: input.projectID, topic: action.topic, time_deleted: version })
+            .onConflictDoUpdate({
+              target: [MemoryTombstoneTable.project_id, MemoryTombstoneTable.topic],
+              set: { time_deleted: version },
+              setWhere: sql`${MemoryTombstoneTable.time_deleted} <= ${version}`,
+            })
             .run()
           continue
         }
+        const tombstone = tx
+          .select()
+          .from(MemoryTombstoneTable)
+          .where(
+            and(eq(MemoryTombstoneTable.project_id, input.projectID), eq(MemoryTombstoneTable.topic, action.topic)),
+          )
+          .get()
+        // 墓碑晚于本批次:该 topic 已被更新的批次删除,本批次不得复活它
+        if (tombstone && tombstone.time_deleted > version) continue
         tx.insert(MemoryTable)
           .values({
             id: randomUUID(),
@@ -144,9 +172,20 @@ export function write(input: {
             setWhere: sql`${MemoryTable.time_updated} <= ${version}`,
           })
           .run()
+        // 新批次合法复活了该 topic,清掉墓碑
+        if (tombstone)
+          tx.delete(MemoryTombstoneTable)
+            .where(
+              and(
+                eq(MemoryTombstoneTable.project_id, input.projectID),
+                eq(MemoryTombstoneTable.topic, action.topic),
+              ),
+            )
+            .run()
       }
       trim(tx, input.projectID, budget)
     })
+    return true
   })
 }
 
