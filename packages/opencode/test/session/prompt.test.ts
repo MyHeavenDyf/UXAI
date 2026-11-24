@@ -2,6 +2,7 @@ import { NodeFileSystem } from "@effect/platform-node"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
+import { dynamicTool, jsonSchema } from "ai"
 import path from "path"
 import { fileURLToPath } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -134,6 +135,44 @@ const mcp = Layer.succeed(
   }),
 )
 
+// MCP defer 测试用的 stub:暴露一个假的用户 MCP 工具(名称遵循 sanitize 前缀约定)。
+const fixtureMcpTool = () =>
+  dynamicTool({
+    description: "Fixture probe tool for MCP defer testing",
+    inputSchema: jsonSchema({
+      type: "object",
+      properties: { mode: { type: "string" } },
+      required: ["mode"],
+      additionalProperties: false,
+    }),
+    execute: async (args: any) => ({
+      content: [{ type: "text" as const, text: `fixture result: ${args?.mode ?? "none"}` }],
+    }),
+  })
+const mcpWithTools = Layer.succeed(
+  MCP.Service,
+  MCP.Service.of({
+    status: () => Effect.succeed({}),
+    clients: () => Effect.succeed({}),
+    tools: () => Effect.succeed({ testfixture_probe: fixtureMcpTool() }),
+    toolsForAgent: () => Effect.succeed({ testfixture_probe: fixtureMcpTool() }),
+    prompts: () => Effect.succeed({}),
+    resources: () => Effect.succeed({}),
+    add: () => Effect.succeed({ status: { status: "disabled" as const } }),
+    connect: () => Effect.void,
+    disconnect: () => Effect.void,
+    getPrompt: () => Effect.succeed(undefined),
+    readResource: () => Effect.succeed(undefined),
+    startAuth: () => Effect.die("unexpected MCP auth in prompt-effect tests"),
+    authenticate: () => Effect.die("unexpected MCP auth in prompt-effect tests"),
+    finishAuth: () => Effect.die("unexpected MCP auth in prompt-effect tests"),
+    removeAuth: () => Effect.void,
+    supportsOAuth: () => Effect.succeed(false),
+    hasStoredTokens: () => Effect.succeed(false),
+    getAuthStatus: () => Effect.succeed("not_authenticated" as const),
+  }),
+)
+
 const lsp = Layer.succeed(
   LSP.Service,
   LSP.Service.of({
@@ -157,7 +196,7 @@ const lsp = Layer.succeed(
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
-function makeHttp() {
+function makeHttp(mcpLayer: Layer.Layer<MCP.Service> = mcp) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -170,7 +209,7 @@ function makeHttp() {
     Config.defaultLayer,
     ProviderSvc.defaultLayer,
     lsp,
-    mcp,
+    mcpLayer,
     AppFileSystem.defaultLayer,
     status,
   ).pipe(Layer.provideMerge(infra))
@@ -207,6 +246,7 @@ function makeHttp() {
 }
 
 const it = testEffect(makeHttp())
+const itMcp = testEffect(makeHttp(mcpWithTools))
 const unix = process.platform !== "win32" ? it.live : it.live.skip
 
 // Config that registers a custom "test" provider with a "test-model" model
@@ -2540,6 +2580,242 @@ it.live(
           expect(compactedPart(msgs)).toBeUndefined()
           expect(summaryMsg(msgs)).toBeUndefined()
         }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+// 工具渐进式披露(OCTO_TOOL_SEARCH):octo_make 配了 defer: ["bash", "fetch"],
+// 以下测试走完整两步链路。与同文件 loop 测试同范式,依赖 TestLLMServer。
+
+const withToolSearch = <A, E, R>(self: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const previous = process.env["OCTO_TOOL_SEARCH"]
+    process.env["OCTO_TOOL_SEARCH"] = "1"
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (previous === undefined) delete process.env["OCTO_TOOL_SEARCH"]
+        else process.env["OCTO_TOOL_SEARCH"] = previous
+      }),
+    )
+    return yield* self
+  })
+
+it.live(
+  "tool search defers listed tools and announces the deferred pool",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        yield* withToolSearch(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const chat = yield* sessions.create({
+              title: "Tool search",
+              permission: [{ permission: "*", pattern: "*", action: "allow" }],
+            })
+            yield* prompt.prompt({
+              sessionID: chat.id,
+              agent: "octo_make",
+              model: ref,
+              noReply: true,
+              parts: [{ type: "text", text: "run a shell command" }],
+            })
+            yield* llm.text("ok")
+
+            const result = yield* prompt.loop({ sessionID: chat.id })
+            expect(result.info.role).toBe("assistant")
+
+            const inputs = yield* llm.inputs
+            const request: Record<string, unknown> = inputs[0] ?? {}
+            const names = ((request["tools"] ?? []) as any[]).map((entry) =>
+              String(entry?.function?.name ?? entry?.name ?? ""),
+            )
+            expect(names).not.toContain("bash")
+            expect(names).not.toContain("webfetch")
+            expect(names).toContain("search_tools")
+            expect(names).toContain("execute_tool")
+            expect(names).toContain("read")
+
+            const system = JSON.stringify(
+              ((request["messages"] ?? []) as any[]).find((message) => message?.role === "system"),
+            )
+            expect(system).toContain("<available-deferred-tools>")
+            expect(system).toContain("- bash")
+            expect(system).toContain("- webfetch")
+          }),
+        )
+      }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+it.live(
+  "tool search two-step workflow executes a deferred bash tool",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        yield* withToolSearch(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const chat = yield* sessions.create({
+              title: "Tool search exec",
+              permission: [{ permission: "*", pattern: "*", action: "allow" }],
+            })
+            yield* prompt.prompt({
+              sessionID: chat.id,
+              agent: "octo_make",
+              model: ref,
+              noReply: true,
+              parts: [{ type: "text", text: "run echo" }],
+            })
+            yield* llm.tool("search_tools", { query: "select:bash" })
+            yield* llm.tool("execute_tool", {
+              tool_name: "bash",
+              params: { command: "echo octo-tool-search", description: "echo test value" },
+            })
+            yield* llm.text("done")
+
+            const result = yield* prompt.loop({ sessionID: chat.id })
+            expect(yield* llm.calls).toBe(3)
+            expect(result.info.role).toBe("assistant")
+
+            const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+            const parts = msgs.flatMap((msg) => msg.parts)
+            const search = parts.find(
+              (part): part is CompletedToolPart =>
+                part.type === "tool" && part.tool === "search_tools" && part.state.status === "completed",
+            )
+            expect(search?.state.output).toContain("### bash")
+            expect(search?.state.output).toContain("Parameters (JSON Schema)")
+
+            const execute = parts.find(
+              (part): part is CompletedToolPart =>
+                part.type === "tool" && part.tool === "execute_tool" && part.state.status === "completed",
+            )
+            expect(execute?.state.output).toContain("octo-tool-search")
+            expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
+          }),
+        )
+      }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+it.live(
+  "tool search cannot reach tools denied by session permission",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        yield* withToolSearch(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const chat = yield* sessions.create({
+              title: "Tool search deny",
+              permission: [
+                { permission: "*", pattern: "*", action: "allow" },
+                { permission: "bash", pattern: "*", action: "deny" },
+              ],
+            })
+            yield* prompt.prompt({
+              sessionID: chat.id,
+              agent: "octo_make",
+              model: ref,
+              noReply: true,
+              parts: [{ type: "text", text: "run a shell command" }],
+            })
+            yield* llm.tool("search_tools", { query: "select:bash" })
+            yield* llm.text("done")
+
+            const result = yield* prompt.loop({ sessionID: chat.id })
+            expect(result.info.role).toBe("assistant")
+
+            const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+            const search = msgs
+              .flatMap((msg) => msg.parts)
+              .find(
+                (part): part is CompletedToolPart =>
+                  part.type === "tool" && part.tool === "search_tools" && part.state.status === "completed",
+              )
+            // deny 的工具在进桶前已剔除:search 不可见、select 报未找到
+            expect(search?.state.output).toContain('No deferred tool named "bash"')
+            expect(search?.state.output).not.toContain("### bash")
+          }),
+        )
+      }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+// MCP defer:flag on 时用户 MCP 工具不进 tools 数组,走 search/execute 两步链路,
+// 且旧的 <available_user_mcp_tools> 名单公告不再注入(其派生源 activeTools 已无 MCP 工具)。
+itMcp.live(
+  "tool search defers MCP tools and executes them through execute_tool",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        yield* withToolSearch(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const chat = yield* sessions.create({
+              title: "Tool search MCP",
+              permission: [{ permission: "*", pattern: "*", action: "allow" }],
+            })
+            yield* prompt.prompt({
+              sessionID: chat.id,
+              agent: "build",
+              model: ref,
+              noReply: true,
+              parts: [{ type: "text", text: "use the fixture tool" }],
+            })
+            yield* llm.tool("search_tools", { query: "select:testfixture_probe" })
+            yield* llm.tool("execute_tool", { tool_name: "testfixture_probe", params: { mode: "success" } })
+            yield* llm.text("done")
+
+            const result = yield* prompt.loop({ sessionID: chat.id })
+            expect(yield* llm.calls).toBe(3)
+            expect(result.info.role).toBe("assistant")
+
+            const inputs = yield* llm.inputs
+            const request: Record<string, unknown> = inputs[0] ?? {}
+            const names = ((request["tools"] ?? []) as any[]).map((entry) =>
+              String(entry?.function?.name ?? entry?.name ?? ""),
+            )
+            expect(names).not.toContain("testfixture_probe")
+            expect(names).toContain("search_tools")
+            expect(names).toContain("execute_tool")
+
+            const system = JSON.stringify(
+              ((request["messages"] ?? []) as any[]).find((message) => message?.role === "system"),
+            )
+            expect(system).toContain("<available-deferred-tools>")
+            expect(system).toContain("- testfixture_probe")
+            expect(system).not.toContain("<available_user_mcp_tools>")
+
+            const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+            const parts = msgs.flatMap((msg) => msg.parts)
+            const search = parts.find(
+              (part): part is CompletedToolPart =>
+                part.type === "tool" && part.tool === "search_tools" && part.state.status === "completed",
+            )
+            expect(search?.state.output).toContain("### testfixture_probe")
+            expect(search?.state.output).toContain("Parameters (JSON Schema)")
+
+            const execute = parts.find(
+              (part): part is CompletedToolPart =>
+                part.type === "tool" && part.tool === "execute_tool" && part.state.status === "completed",
+            )
+            expect(execute?.state.output).toContain("fixture result: success")
+            expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
+          }),
+        )
+      }),
       { git: true, config: providerCfg },
     ),
   30_000,
