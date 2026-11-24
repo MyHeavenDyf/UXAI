@@ -12,6 +12,8 @@ import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
+import { AssetPickPopup } from "./asset-pick-popup"
+import type { AssetUploadRequest } from "./asset-upload-dialog"
 import { ModelEditPanel } from "./model-edit-panel"
 import { ModelEditAreaDialog } from "./model-edit-area-dialog"
 import type { ModelEditElement, ModelEditConfig, ConfigGroup, ModelEditContext, ModelEditModeContext } from "../model-edit-items/types"
@@ -172,8 +174,15 @@ export function HtmlRenderer(props: {
   palette?: PaletteId | null
   inspecting?: boolean
   editing?: boolean
+  /** 「保存到资产库(局部)」元素选择模式（复用 od:edit-mode 选择态） */
+  assetPicking?: boolean
+  /** 小弹窗确认后上报「保存到资产库(局部)」上传请求（result-viewer 打开上传弹窗） */
+  onAssetUploadRequest?: (req: AssetUploadRequest) => void
   modelEditing?: boolean
   modelEditConfig?: ModelEditConfig
+  scene3dEditing?: boolean
+  /** iframe 内置 3D 编辑器保存时触发(payload 为 scene3d-changes 文本);host 包装 prompt 发 AI */
+  onScene3dSave?: (payload: string) => void
   onModelEditSave?: (element: ModelEditElement, prev: Record<string, any>, current: Record<string, any>, ctx: ModelEditContext) => Promise<boolean | void>
   onModelEditDelete?: (element: ModelEditElement, ctx: ModelEditContext) => Promise<boolean | void>
   drawing?: boolean
@@ -257,6 +266,7 @@ export function HtmlRenderer(props: {
   )
   const [editStyleVersion, setEditStyleVersion] = createSignal(0)
   const [editPanelPosition, setEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [assetPickTarget, setAssetPickTarget] = createSignal<ManualEditTarget | null>(null)
   const [modelEditTarget, setModelEditTarget] = createSignal<ModelEditElement | null>(null)
   const [modelEditPanelConfig, setModelEditPanelConfig] = createSignal<ConfigGroup[]>([])
   const [modelEditPanelData, setModelEditPanelData] = createSignal<Record<string, string>>({})
@@ -851,6 +861,48 @@ createEffect(() => {
   }
 })
 
+/** Request selected element outerHTML from iframe bridge (od:get-element-html → od:element-html) */
+const requestElementHtml = (id: string): Promise<string | null> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener("message", onMsg)
+      resolve(null)
+    }, 3000)
+    const onMsg = (e: MessageEvent) => {
+      if (e.source !== iframeRef?.contentWindow) return
+      const d = e.data
+      if (!d || d.type !== "od:element-html" || d.id !== id) return
+      clearTimeout(timer)
+      window.removeEventListener("message", onMsg)
+      resolve(typeof d.html === "string" ? d.html : null)
+    }
+    window.addEventListener("message", onMsg)
+    iframeRef?.contentWindow?.postMessage({ type: "od:get-element-html", id }, "*")
+  })
+
+/** 小弹窗确认：上报「保存到资产库(局部)」上传请求，ZIP 在上传弹窗确认时才构建 */
+const requestAssetUpload = (target: ManualEditTarget, name: string) => {
+  props.onAssetUploadRequest?.({
+    variant: "partial",
+    title: "保存到资产库(局部)",
+    name: `${name}.zip`,
+    buildZip: async () => {
+      tracker.interaction({ module: "design", name: "save-to-asset-partial" })
+      // 并行拉取：元素 outerHTML + 完整页面快照（live DOM，含运行时注入的样式）
+      const [html, snapshot] = await Promise.all([requestElementHtml(target.id), getIframeSnapshot()])
+      if (!html) throw new Error("无法读取选中元素内容")
+      const { createPartialAssetsZip } = await import("../../utils/html-assets-zip")
+      return await createPartialAssetsZip({
+        fragmentHtml: html,
+        // 快照失败（超时/无 iframe）回退 props.content 提取的源 HTML，样式尽力而为
+        pageHtml: snapshot || extractHtmlContent(props.content),
+        htmlFilePath: props.filePath || "",
+        fileNameInZip: `${name}.html`,
+      })
+    },
+  })
+}
+
 // Initialize floating position on first comment
 createEffect(() => {
   if (props.commenting && commentTarget() && !commentPanelPosition()) {
@@ -1322,6 +1374,30 @@ createEffect(() => {
     return getArtifactServeUrl(props.sdkUrl!, props.sdkDirectory, props.sessionId!, artifactInfo.relativePath)
   })
 
+  // 3D 场景编辑态:?edit=1 让 index.3d.html 的 entry.ts 分流到 edit-main.ts,挂载内置编辑面板。
+  // 仅对走真实 URL 的产物生效(localUrl/externalUrl/serveUrl);srcdoc 不支持。
+  const iframeSrc = createMemo(() => {
+    const base = shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))
+    if (!base) return undefined
+    if (!props.scene3dEditing) return base
+    try {
+      const u = new URL(base)
+      u.searchParams.set('edit', '1')
+      return u.toString()
+    } catch (e) {
+      console.warn('[scene3d] iframeSrc URL parse failed:', e, base)
+      return base
+    }
+  })
+
+  const iframeSandbox = () => {
+    // Keep desktop 3D previews isolated while loading their relative assets through local://.
+    if (props.subtype === '3d' && !props.scene3dEditing && shouldUseLocalUrl()) return "allow-scripts"
+    return shouldUseExternalUrl()
+      ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+      : "allow-same-origin allow-scripts"
+  }
+
   const [serveKey, setServeKey] = createSignal(0)
 
   createEffect(on(() => props.mode, async (mode) => {
@@ -1389,7 +1465,7 @@ const handleMessage = (e: MessageEvent) => {
 // Listen to edit messages from iframe
 createEffect(() => {
   const iframe = iframeRef
-  if (!iframe || !props.editing) return
+  if (!iframe || (!props.editing && !props.assetPicking)) return
 
   const handleMessage = (e: MessageEvent) => {
     if (e.source !== iframe.contentWindow) return
@@ -1450,7 +1526,14 @@ createEffect(() => {
       }
       window.dispatchEvent(new CustomEvent("design:element-selected"))
       const target: ManualEditTarget = d.target
-      
+
+      // 资产库局部选择：只记录目标并弹「保存到资产库(局部)」弹窗，不走 ManualEdit 草稿逻辑
+      if (props.assetPicking) {
+        setAssetPickTarget(target)
+        iframe.contentWindow?.postMessage({ type: "od:edit-selected-target", id: target.id }, "*")
+        return
+      }
+
       // Save previous element's pending changes before switching
       const prevId = editTarget()?.id
       if (prevId && prevId !== target.id) {
@@ -1495,7 +1578,23 @@ createEffect(() => {
   onCleanup(() => window.removeEventListener("message", handleMessage))
 })
 
-// Listen to model-edit messages from iframe
+// Listen to 3D editor save messages from iframe (scene3d edit mode)
+createEffect(() => {
+  const iframe = iframeRef
+  if (!iframe || !props.scene3dEditing || !props.onScene3dSave) return
+
+  const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
+    if (d.type === "od:scene3d-save" && typeof d.payload === "string") {
+      props.onScene3dSave!(d.payload)
+    }
+  }
+
+  window.addEventListener("message", handleMessage)
+  onCleanup(() => window.removeEventListener("message", handleMessage))
+})
 createEffect(() => {
   const iframe = iframeRef
   if (!iframe || !props.modelEditing) return
@@ -1721,15 +1820,19 @@ createEffect(() => {
     }, '*')
   }
 
-  // Send edit-mode toggle to iframe
+  // Send edit-mode toggle to iframe (局部修改 / 资产库局部选择共用选择态)
   createEffect(() => {
     if (iframeRef && props.mode === "preview") {
+      const enabled = !!props.editing || !!props.assetPicking
       iframeRef.contentWindow?.postMessage(
-        { type: "od:edit-mode", enabled: !!props.editing },
+        { type: "od:edit-mode", enabled, svgRoot: !!props.assetPicking },
         "*"
       )
       if (!props.editing) {
         setEditTarget(null)
+      }
+      if (!props.assetPicking) {
+        setAssetPickTarget(null)
       }
     }
   })
@@ -1963,10 +2066,10 @@ createEffect(() => {
     if (!iframe || props.mode !== "preview") return
     
     const handleLoad = () => {
-      // Re-send edit mode if still editing
-      if (props.editing) {
+      // Re-send edit mode if still editing or asset-picking
+      if (props.editing || props.assetPicking) {
         iframe.contentWindow?.postMessage(
-          { type: "od:edit-mode", enabled: true },
+          { type: "od:edit-mode", enabled: true, svgRoot: !!props.assetPicking },
           "*"
         )
       }
@@ -2116,12 +2219,18 @@ return (
           <Show
             when={fastui().phase === "error" ? (fastui() as FastuiPreviewError) : undefined}
             fallback={
-              <>
+              <Show
+                when={fastui().phase !== "preparing"}
+                fallback={
+                  // 分享导入的工程在本机接手(octo-agent SPEC-DES-009 §3.5);首装可能要几分钟,不沿用「通常十几秒」
+                  <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>首次在本机打开，正在准备预览环境…</div>
+                }
+              >
                 <div style={{ "font-size": "13px", color: "var(--octo-text-primary)" }}>正在编译预览…</div>
                 <div style={{ "font-size": "12px", color: "var(--octo-text-secondary, #8a8a8a)", "text-align": "center", "max-width": "320px" }}>
                   首次打开需要启动本地服务，通常十几秒，请稍候。
                 </div>
-              </>
+              </Show>
             }
           >
             {(err) => (
@@ -2218,9 +2327,9 @@ return (
               */}
               <iframe
                 ref={iframeRef}
-                src={shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))}
-                {...(!shouldUseExternalUrl() && !shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
+                src={iframeSrc()}
+                {...(iframeSrc() === undefined ? { srcdoc: srcdoc() } : {})}
+                sandbox={iframeSandbox()}
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
@@ -2238,9 +2347,9 @@ return (
               */}
               <iframe
                 ref={iframeRef}
-                src={shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))}
-                {...(!shouldUseExternalUrl() && !shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
+                src={iframeSrc()}
+                {...(iframeSrc() === undefined ? { srcdoc: srcdoc() } : {})}
+                sandbox={iframeSandbox()}
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
                 onLoad={handleIframeLoad}
@@ -2461,6 +2570,19 @@ onExit={() => {
 onFloatingPositionChange={setEditPanelPosition}
                 />
               </Show>
+          <Show when={props.assetPicking && assetPickTarget()}>
+            <AssetPickPopup
+              element={assetPickTarget()!}
+              iframeRef={iframeRef}
+              viewportScale={isResponsive() ? viewportTransform().scale : 1}
+              pageName={(props.tabTitle || "").replace(/\.html$/i, "")}
+              onCancel={() => {
+                iframeRef?.contentWindow?.postMessage({ type: "od:edit-deselect" }, "*")
+                setAssetPickTarget(null)
+              }}
+              onConfirm={(name) => requestAssetUpload(assetPickTarget()!, name)}
+            />
+          </Show>
           <Show when={props.editing && editTarget()}>
             <ModelEditAreaDialog
               element={editTarget()}

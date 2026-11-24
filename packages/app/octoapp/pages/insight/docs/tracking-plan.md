@@ -229,6 +229,10 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 
 ## 七、维护闭环
 
+### 2026-11-17 产物文件名称
+
+artifact-file-write/edit、artifact-mcp-return 的 extend.files 元素新增 fileName、extension。write/edit/Shell 从核验路径取末段；MCP 从资源 name 取末段，缺失或为 URL 时省略两字段，不从签名 URI 猜测。extension 为最后扩展名的小写、不带点，无扩展名为空串。保留文件名大小写及中文，不上报目录，不改变事件名、identity 或去重键；首次入队的名称保留，历史已入队数据不回填。
+
 ### 2026-10-15 按需项补齐
 
 - files-delete-start/result：确认删除后执行，单个/批量共用；mode、count、deletedCount，按接口结果区分 success/partial/failure；不上传文件路径。

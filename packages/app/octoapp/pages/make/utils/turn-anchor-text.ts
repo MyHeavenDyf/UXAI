@@ -1,4 +1,4 @@
-import { isCompactionInjectedMessage } from "./visible-message"
+import { isHiddenCompactionTurn } from "./visible-message"
 
 /**
  * 锚点 hover 气泡文案提取,与 InsightTurn userText 的取词逻辑对齐:
@@ -29,7 +29,7 @@ function toSingleLine(text: string): string {
 export function turnAnchorText(parts: AnchorPart[] | undefined): string {
   const list = parts ?? []
   // 自动压缩续跑注入(overflow 回放 / "Continue..." 提示):无锚点
-  if (isCompactionInjectedMessage(list)) return ""
+  if (isHiddenCompactionTurn(list)) return ""
   const textParts = list.filter((p): p is AnchorPart & { type: "text"; text: string } => p.type === "text" && typeof p.text === "string")
 
   const display = textParts

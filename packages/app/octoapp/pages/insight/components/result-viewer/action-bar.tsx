@@ -447,7 +447,6 @@ export function ActionBar(props: {
           <Tooltip
             placement="top"
             value={archiveTitle()}
-            inactive={!archiveDisabled()}
             contentStyle={{ "white-space": "nowrap", "max-width": "none", "z-index": "60" }}
             class="shrink-0"
           >
@@ -475,49 +474,54 @@ export function ActionBar(props: {
       <div class="octo-action-bar shrink-0">
         <div class="octo-action-bar-left">
           <Show when={props.onRefresh}>
-            <button type="button" class="octo-action-btn octo-action-btn-refresh" onClick={props.onRefresh} title="刷新预览">
-              <IconRefresh size={16} />
-            </button>
+            <Tooltip value="刷新预览" placement="top">
+              <button type="button" class="octo-action-btn octo-action-btn-refresh" onClick={props.onRefresh} aria-label="刷新预览">
+                <IconRefresh size={16} />
+              </button>
+            </Tooltip>
           </Show>
         </div>
         <div class="octo-action-bar-right">
           <div class="octo-action-bar-fixed">
             <HtmlReviewActions tab={props.tab} working={props.working} loadState={props.canvasLoadState} />
-            <button
-              type="button"
-              class="octo-action-btn octo-action-btn-download"
-              onClick={() => {
-                trackInsight("result-download", { source: "attachment", tabType: props.tab.type })
-                void handleAttachmentDownload()
-              }}
-              title="下载"
-            >
-              <IconActionDownload size={16} />
-              <span>下载</span>
-            </button>
-            <Show when={props.onFocusModeToggle}>
+            <Tooltip value="下载" placement="top">
               <button
                 type="button"
-                class="octo-action-btn"
-                onClick={props.onFocusModeToggle}
-                title={props.focusMode ? "退出全屏" : "全屏"}
+                class="octo-action-btn octo-action-btn-download"
+                onClick={() => {
+                  trackInsight("result-download", { source: "attachment", tabType: props.tab.type })
+                  void handleAttachmentDownload()
+                }}
               >
-                <Show when={props.focusMode} fallback={
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                }>
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M6 2h2M6 2v2" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M8 2h2M10 2v2" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M6 14h2M6 14v-2" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M8 14h2M10 14v-2" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </Show>
+                <IconActionDownload size={16} />
+                <span>下载</span>
               </button>
+            </Tooltip>
+            <Show when={props.onFocusModeToggle}>
+              <Tooltip value={props.focusMode ? "退出全屏" : "全屏"} placement="top">
+                <button
+                  type="button"
+                  class="octo-action-btn"
+                  onClick={props.onFocusModeToggle}
+                  aria-label={props.focusMode ? "退出全屏" : "全屏"}
+                >
+                  <Show when={props.focusMode} fallback={
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  }>
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M6 2h2M6 2v2" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M8 2h2M10 2v2" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M6 14h2M6 14v-2" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M8 14h2M10 14v-2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </Show>
+                </button>
+              </Tooltip>
             </Show>
           </div>
         </div>
@@ -636,14 +640,17 @@ function ActionBtn(props: {
   disabled?: boolean
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      disabled={props.disabled}
-      class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
-    >
-      {props.icon}
-      <span>{props.label}</span>
-    </button>
+    <Tooltip value={props.label} placement="top">
+      <button
+        type="button"
+        onClick={props.onClick}
+        disabled={props.disabled}
+        aria-label={props.label}
+        class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {props.icon}
+        <span>{props.label}</span>
+      </button>
+    </Tooltip>
   )
 }

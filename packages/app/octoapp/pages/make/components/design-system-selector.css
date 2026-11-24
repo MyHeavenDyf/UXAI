@@ -1,0 +1,5 @@
+/* 设计系统下拉列表滚动（ScrollView） */
+.ds-options-scroll .scroll-view__viewport {
+  max-height: 260px;
+  padding-right: 12px;
+}

@@ -1,8 +1,14 @@
-import type { Agent, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import type { Agent, Config, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 export { pathKey as directoryKey, type PathKey as DirectoryKey } from "@/utils/path-key"
 
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
+
+export function replaceProviderConfig(current: Config | undefined, saved: Config, providerID: string): Config {
+  const provider = saved.provider?.[providerID]
+  if (!provider) throw new Error("Provider configuration missing from save response")
+  return { ...current, provider: { ...current?.provider, [providerID]: provider } }
+}
 
 function isAgent(input: unknown): input is Agent {
   if (!input || typeof input !== "object") return false
@@ -33,7 +39,13 @@ export function normalizeProviderList(input: ProviderListResponse): ProviderList
 }
 
 export function replaceProviderList(current: ProviderListResponse, incoming: Provider[]): ProviderListResponse {
-  const remote = incoming.filter((provider) => !REMOVED_PROVIDER_IDS.has(provider.id))
+  const remote = incoming
+    .filter((provider) => !REMOVED_PROVIDER_IDS.has(provider.id))
+    .map((provider) => {
+      const existing = current.all.find((item) => item.id === provider.id)
+      if (provider.options.requires_api_key !== true || existing?.options.api_key_configured !== true) return provider
+      return { ...provider, options: { ...provider.options, api_key_configured: true } }
+    })
   const remoteIDs = new Set(remote.map((provider) => provider.id))
   const custom = current.all.filter(
     (provider) => provider.source === "config" && !remoteIDs.has(provider.id) && !REMOVED_PROVIDER_IDS.has(provider.id),

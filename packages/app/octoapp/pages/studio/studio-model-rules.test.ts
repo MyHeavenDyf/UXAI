@@ -3,18 +3,21 @@ import {
   STUDIO_ASPECT_RATIOS,
   STUDIO_STYLE_MODELS,
   isSeedreamStyleModel,
+  isStyleModelAvailable,
   referenceImageLimit,
   styleModelId,
   styleModelLabel,
   styleModelRequiresSeedreamPermission,
 } from "./data"
-import { getDefaultDimensions, getStudioImageAreaLimits, getStudioImageDimensionRange, isStudioCustomSizeValid } from "./studio-shared"
+import { getDefaultDimensions, getStudioImageAreaLimits, getStudioImageDimensionRange, isStudioCustomSizeValid, studioGenerationModelUnavailableMessage } from "./studio-shared"
 import { styleTemplateTargetModel } from "./studio-style-template-utils"
 
 describe("Seedream model capabilities", () => {
-  test("places Pro before Lite and shares its icon and permission", () => {
-    expect(STUDIO_STYLE_MODELS.slice(0, 3).map((model) => model.id)).toEqual(["seedream-5-pro", "seedream-5-lite", "qwen"])
-    expect(STUDIO_STYLE_MODELS[0].icon).toBe(STUDIO_STYLE_MODELS[1].icon)
+  test("offers Pro before Qwen and keeps Lite metadata for history", () => {
+    expect(STUDIO_STYLE_MODELS.filter((model) => isStyleModelAvailable(model.id)).slice(0, 2).map((model) => model.id)).toEqual(["seedream-5-pro", "qwen"])
+    expect(styleModelLabel("seedream-5-lite")).toBe("Seedream 5.0 Lite")
+    expect(isStyleModelAvailable("Seedream 5.0 Lite")).toBe(false)
+    expect(STUDIO_STYLE_MODELS.some((model) => model.id === "seedream-5-lite")).toBe(false)
     expect(STUDIO_STYLE_MODELS.filter((model) => model.requiresSeedreamPermission !== true).some((model) => isSeedreamStyleModel(model.id))).toBe(false)
   })
 
@@ -91,15 +94,62 @@ describe("Studio custom dimensions", () => {
 })
 
 describe("Studio style template model selection", () => {
-  test.each(["seedream-5-pro", "Seedream 5.0 Pro", "seedream-5-lite", "Seedream 5.0 Lite"])("preserves %s only with permission", (model) => {
+  test.each(["seedream-5-pro", "Seedream 5.0 Pro"])("preserves %s only with permission", (model) => {
     expect(styleTemplateTargetModel(true, model)).toBe(styleModelId(model)!)
     expect(styleTemplateTargetModel(false, model)).toBe("qwen")
   })
 
-  test("preserves Qwen and the existing default choice", () => {
+  test.each(["seedream-5-lite", "Seedream 5.0 Lite", "removed-style"])("does not silently replace unavailable %s for templates", (model) => {
+    expect(styleTemplateTargetModel(true, model)).toBeUndefined()
+    expect(styleTemplateTargetModel(false, model)).toBeUndefined()
+  })
+
+  test("preserves Qwen and defaults new templates to Pro with permission", () => {
     expect(styleTemplateTargetModel(true, "qwen")).toBe("qwen")
     expect(styleTemplateTargetModel(false, "千问")).toBe("qwen")
-    expect(styleTemplateTargetModel(true, "bd-icon")).toBe("seedream-5-lite")
+    expect(styleTemplateTargetModel(true, "bd-icon")).toBe("seedream-5-pro")
     expect(styleTemplateTargetModel(false, "bd-icon")).toBe("qwen")
+  })
+})
+
+describe("Studio retired task models", () => {
+  test.each([
+    { model: "internel", styleModel: "seedream-5-lite" },
+    { model: "Seedream 5.0 Lite" },
+    { model: "internel", request: { input: { styleModel: "seedream-5-lite" } } },
+    { model: " SEEDREAM-5-LITE " },
+  ])("blocks historical model fields without changing the task: %j", (result) => {
+    const before = structuredClone(result)
+    expect(studioGenerationModelUnavailableMessage({ ...result, capability: "image.generate" })).toBe("Seedream 5.0 Lite 模型已下架或不可用，请选择其他模型。")
+    expect(result).toEqual(before)
+  })
+
+  test.each(["seedream-5-pro", "Seedream 5.0 Pro", "qwen", "t2v_seedance"])("leaves %s available", (model) => {
+    expect(studioGenerationModelUnavailableMessage({ model, capability: model === "t2v_seedance" ? "video.generate" : "image.generate" })).toBeUndefined()
+  })
+
+  test("recognizes Lite provider tasks without a saved styleModel", () => {
+    expect(studioGenerationModelUnavailableMessage({
+      capability: "image.generate", model: "txt2img_jimeng",
+      request: { input: { prompt: "旧任务" }, task: { request: { task_type: "txt2img_jimeng" } } },
+    })).toContain("模型已下架或不可用")
+  })
+
+  test("blocks any unconfigured style instead of restoring it as the current model", () => {
+    expect(studioGenerationModelUnavailableMessage({
+      capability: "image.generate", model: "txt2img_v2_performance", styleModel: "removed-style",
+    })).toContain("模型已下架或不可用")
+  })
+
+  test("does not fall back to the current model when a historical image model is unknown", () => {
+    expect(studioGenerationModelUnavailableMessage({
+      capability: "image.generate", model: "internel", request: { input: { prompt: "风格模型：Seedream 5.0 Lite" } },
+    })).toContain("无法确认该历史任务使用的模型")
+  })
+
+  test.each(["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"] as const)("does not retire %s based on unused style metadata", (capability) => {
+    expect(studioGenerationModelUnavailableMessage({
+      capability, model: "magnify", request: { input: { styleModel: "seedream-5-lite" } },
+    })).toBeUndefined()
   })
 })

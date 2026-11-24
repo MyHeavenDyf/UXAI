@@ -33,6 +33,51 @@ const runSession = <A>(fn: (service: Session.Interface) => Effect.Effect<A, unkn
 const runTodo = <A>(fn: (service: Todo.Interface) => Effect.Effect<A>) => AppRuntime.runPromise(Todo.Service.use(fn))
 
 describe("portable session", () => {
+  test("clamps negative token counts from legacy archives", async () => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((service) => service.create({ title: "Legacy token counts" }))
+      const user = await runSession((service) => service.updateMessage({
+        id: MessageID.ascending(), sessionID: session.id, role: "user", agent: "octo_make",
+        time: { created: 1 }, model: { modelID: ModelID.make("test"), providerID: ProviderID.make("test") },
+      }))
+      const assistant = await runSession((service) => service.updateMessage({
+        id: MessageID.ascending(), sessionID: session.id, role: "assistant", parentID: user.id,
+        agent: "octo_make", mode: "octo_make", modelID: ModelID.make("test"), providerID: ProviderID.make("test"),
+        time: { created: 2, completed: 3 }, path: { cwd: source.path, root: source.path }, cost: 0,
+        tokens: { input: 10, output: 20, reasoning: 30, cache: { read: 40, write: 50 } },
+      }))
+      await runSession((service) => service.updatePart({
+        id: PartID.ascending(), messageID: assistant.id, sessionID: session.id, type: "step-finish",
+        reason: "stop", cost: 0,
+        tokens: { input: 10, output: 20, reasoning: 30, cache: { read: 40, write: 50 } },
+      }))
+      return AppRuntime.runPromise(
+        exportPortableSession({ sessionID: session.id, output: path.join(source.path, "legacy-tokens.zip") }),
+      )
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+    manifest.sessions[0].messages[1].info.tokens.input = -504
+    manifest.sessions[0].messages[1].info.tokens.cache.write = -12
+    manifest.sessions[0].messages[1].parts[0].tokens.output = -3
+    zip.file("manifest.json", JSON.stringify(manifest))
+    await Bun.write(exported.output, await zip.generateAsync({ type: "uint8array" }))
+
+    await provideTestInstance({ directory: target.path, fn: async () => {
+      const result = await AppRuntime.runPromise(importPortableSession(exported.output))
+      const messages = await runSession((service) => service.messages({ sessionID: result.sessionID }))
+      expect(messages[1].info.role).toBe("assistant")
+      if (messages[1].info.role !== "assistant") return
+      expect(messages[1].info.tokens).toEqual({ input: 0, output: 20, reasoning: 30, cache: { read: 40, write: 0 } })
+      expect(messages[1].parts[0]).toMatchObject({
+        type: "step-finish",
+        tokens: { input: 10, output: 0, reasoning: 30, cache: { read: 40, write: 50 } },
+      })
+    } })
+  })
+
   test.each([
     ["octo_studio", 0],
     ["octo_make", 9],
@@ -182,6 +227,34 @@ describe("portable session", () => {
       else process.env.OCTO_PORTABLE_BLACKLIST_URL = previous
       server.stop(true)
     }
+  })
+
+  // octo-agent SPEC-DES-009:fastui / chart 工程标记要随包走(接收方靠它在本机接手),运行时目录不走
+  test.each([undefined, "project"] as const)("carries the fastui project marker but not its runtime directory (scope: %s)", async (scope) => {
+    await using source = await tmpdir({ git: true })
+    await using target = await tmpdir({ git: true })
+    const exported = await provideTestInstance({ directory: source.path, fn: async () => {
+      const session = await runSession((svc) => svc.create({ title: "fastui marker" }))
+      const project = scope === "project" ? path.join(source.path, "alpha") : path.join(source.path, ".octo", session.id, "outputs", "alpha")
+      await Bun.write(path.join(project, ".octo-fastui.json"), JSON.stringify({ schema: 1, name: "alpha" }))
+      await Bun.write(path.join(project, ".octo-fastui", "devserver.json"), JSON.stringify({ pid: 4242, port: 8090 }))
+      await Bun.write(path.join(project, ".octo-fastui", "octo-fastui.log"), "log")
+      await Bun.write(path.join(project, "package.json"), "{}")
+      if (scope === "project") await Bun.write(path.join(project, ".env"), "SECRET=1")
+      return AppRuntime.runPromise(exportPortableSession({ sessionID: session.id, output: path.join(source.path, "bundle.zip"), scope }))
+    } })
+    const zip = await JSZip.loadAsync(await Bun.file(exported.output).arrayBuffer())
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string")) as { files: { path: string }[] }
+    const prefix = scope === "project" ? "alpha" : "outputs/alpha"
+    expect(manifest.files.map((file) => file.path).filter((file) => file.includes("alpha")).sort()).toEqual([
+      `${prefix}/.octo-fastui.json`,
+      `${prefix}/package.json`,
+    ])
+    const imported = await provideTestInstance({ directory: target.path, fn: () => AppRuntime.runPromise(importPortableSession(exported.output, scope)) })
+    const marker = scope === "project"
+      ? path.join(target.path, "alpha", ".octo-fastui.json")
+      : path.join(target.path, ".octo", imported.sessionID, "outputs", "alpha", ".octo-fastui.json")
+    expect(await Bun.file(marker).exists()).toBe(true)
   })
 
   test.each(["session", "project"] as const)(
@@ -827,6 +900,53 @@ describe("portable session", () => {
       expect(output).not.toContain("secret-cookie-value")
     } finally {
       logging.mockRestore()
+      server.stop(true)
+      if (previousUpload === undefined) delete process.env.OCTO_SHARE_API_URL
+      else process.env.OCTO_SHARE_API_URL = previousUpload
+      if (previousPage === undefined) delete process.env.OCTO_SHARE_PAGE_URL
+      else process.env.OCTO_SHARE_PAGE_URL = previousPage
+    }
+  })
+
+  test("limits uploaded ZIP names without truncating session titles or splitting Unicode characters", async () => {
+    const uploads: { name: string; description: string; title: string }[] = []
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const form = await request.formData()
+        const file = form.get("file")
+        if (!(file instanceof File)) return new Response("file is required", { status: 400 })
+        const zip = await JSZip.loadAsync(await file.arrayBuffer())
+        const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"))
+        uploads.push({
+          name: file.name,
+          description: String(form.get("description") ?? ""),
+          title: manifest.sessions[0].info.title,
+        })
+        return Response.json({ content: { uniqueId: "short-name" }, success: true })
+      },
+    })
+    const previousUpload = process.env.OCTO_SHARE_API_URL
+    const previousPage = process.env.OCTO_SHARE_PAGE_URL
+    process.env.OCTO_SHARE_API_URL = `http://127.0.0.1:${server.port}/upload`
+    process.env.OCTO_SHARE_PAGE_URL = "https://share.example/session"
+    try {
+      await using source = await tmpdir({ git: true })
+      await provideTestInstance({ directory: source.path, fn: async () => {
+        for (const agent of ["octo_insight", "octo_make", "octo_studio"]) {
+          for (const title of ["分享标题".repeat(30), "a".repeat(9) + "😀后续内容", "短标题", "  "]) {
+            const session = await runSession((service) => service.create({ title, agent }))
+            await AppRuntime.runPromise(sharePortableSession({ sessionID: session.id }))
+          }
+          expect(uploads.splice(0)).toEqual([
+            { name: "分享标题".repeat(2) + "分享.zip", description: "分享标题".repeat(2) + "分享", title: "分享标题".repeat(30) },
+            { name: "a".repeat(9) + "😀.zip", description: "a".repeat(9) + "😀", title: "a".repeat(9) + "😀后续内容" },
+            { name: "短标题.zip", description: "短标题", title: "短标题" },
+            { name: "session.zip", description: "  ", title: "  " },
+          ])
+        }
+      } })
+    } finally {
       server.stop(true)
       if (previousUpload === undefined) delete process.env.OCTO_SHARE_API_URL
       else process.env.OCTO_SHARE_API_URL = previousUpload

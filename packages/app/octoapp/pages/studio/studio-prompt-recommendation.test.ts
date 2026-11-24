@@ -2,6 +2,8 @@ import { expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createPromptRecommendation } from "./studio-prompt-recommendation"
+import { createRecommendationSwitch } from "./studio-recommendation-mode"
+import { mountRecommendation } from "./studio-prompt-recommendation.fixture"
 
 const guide = {
   sessionID: "session",
@@ -11,39 +13,172 @@ const guide = {
   status: "armed",
 }
 
-test("failed initial state reads allow ordinary sending without inventing a recommendation", async () => {
+test.each(["armed", "running", "cancelling", "completed"])(
+  "returning to Studio restores %s without reopening recommendation mode or releasing its guide",
+  async (status) => {
+    const mode = createRecommendationSwitch()
+    const calls: { path: string; body: unknown }[] = []
+    let reloads = 0
+    const page = mountRecommendation({
+      scope: () => "returning-studio",
+      mode,
+      request: async (path, body) => {
+        calls.push({ path, body })
+        return Response.json({ stateToken: "token", recommendation: { ...guide, status } })
+      },
+      reload: async () => { reloads++ },
+    })
+    try {
+      await Bun.sleep(0)
+      expect(mode.enabled(JSON.stringify(["returning-studio", "session"]))).toBe(false)
+      expect(page.api.state()?.state?.recommendation?.status).toBe(status)
+      expect(page.api.busy()).toBe(status === "running" || status === "cancelling")
+      expect(page.api.ready()).toBe(true)
+      expect(calls).toHaveLength(1)
+      expect(calls[0].body).toBeUndefined()
+      expect(reloads).toBe(0)
+      if (status !== "armed") return
+      await page.api.initialize()
+      expect(mode.enabled(JSON.stringify(["returning-studio", "session"]))).toBe(true)
+      expect(page.api.armed()).toBe(true)
+      expect(calls.every((call) => call.body === undefined)).toBe(true)
+    } finally { page.dispose() }
+  },
+)
+
+test("an expansion survives closing recommendation and remounting Studio until completion", async () => {
   const scope = crypto.randomUUID()
-  const requests: { path: string; timeout?: number }[] = []
-  let dispose = () => {}
-  const api = createRoot((cleanup) => {
-    dispose = cleanup
-    return createPromptRecommendation({
+  const [server, setServer] = createStore({ status: "running", revision: "1" })
+  const calls: string[] = []
+  const mount = () => createRoot((dispose) => {
+    const mode = createRecommendationSwitch()
+    const api = createPromptRecommendation({
       scope: () => scope,
       sessionID: () => "session",
-      revision: () => "",
-      request: async (path, _body, timeout) => {
-        requests.push({ path, timeout })
-        throw new Error("state unavailable")
+      revision: () => server.revision,
+      mode,
+      request: async (path, body) => {
+        if (body !== undefined) calls.push(path)
+        return Response.json({ stateToken: server.revision, recommendation: {
+          ...guide, status: server.status, assistantMessageID: "expansion", resultRevision: Number(server.revision),
+        } })
       },
-      uploadImage: async () => ({ path: "/uploaded/image.webp" }),
+      uploadImage: async () => ({ path: "/uploaded" }),
       reload: async () => {},
       navigate: () => {},
       notice: () => {},
     })
+    return { mode, api, dispose }
+  })
+  const first = mount()
+  await Bun.sleep(0)
+  first.mode.save(JSON.stringify([scope, "session"]), true)
+  await first.api.exit()
+  expect(first.api.busy()).toBe(true)
+  first.dispose()
+  const returning = mount()
+  try {
+    await Bun.sleep(0)
+    expect(returning.mode.enabled(JSON.stringify([scope, "session"]))).toBe(false)
+    expect(returning.api.busy()).toBe(true)
+    setServer({ status: "completed", revision: "2" })
+    await Bun.sleep(0)
+    expect(returning.api.busy()).toBe(false)
+    expect(returning.api.state()?.state?.recommendation?.status).toBe("completed")
+    expect(calls).toEqual([])
+  } finally { returning.dispose() }
+})
+
+test.each(["running", "cancelling", "completed", undefined])(
+  "loaded messages preserve task occupancy while the state request waits (status=%s)",
+  async (status) => {
+    const scope = crypto.randomUUID()
+    const gate = Promise.withResolvers<void>()
+    const [snapshot, setSnapshot] = createStore({ status, revision: 2 })
+    const page = mountRecommendation({
+      scope: () => scope,
+      snapshotReady: () => true,
+      activity: () => snapshot.status ? { sessionID: "session", guidePartID: "guide",
+        assistantMessageID: "expansion", resultRevision: snapshot.revision, status: snapshot.status } : undefined,
+      mode: createRecommendationSwitch(),
+      request: async () => {
+        await gate.promise
+        return Response.json({ stateToken: "token", recommendation: null })
+      },
+    })
+    try {
+      await Bun.sleep(0)
+      expect(page.api.ready()).toBe(true)
+      expect(page.api.busy()).toBe(status === "running" || status === "cancelling")
+      if (!status) return
+      setSnapshot({ status: "completed", revision: 3 })
+      expect(page.api.busy()).toBe(false)
+    } finally {
+      page.dispose()
+      gate.resolve()
+    }
+  },
+)
+
+test("a task restored from messages can be cancelled before its initial state response", async () => {
+  const gate = Promise.withResolvers<void>()
+  const scope = crypto.randomUUID()
+  const calls: string[] = []
+  let reads = 0
+  let cancelled = false
+  const page = mountRecommendation({
+    scope: () => scope,
+    snapshotReady: () => true,
+    activity: () => ({ sessionID: "session", guidePartID: "guide", assistantMessageID: "expansion",
+      resultRevision: 1, status: "running" }),
+    mode: createRecommendationSwitch(),
+    request: async (path, body) => {
+      if (body === undefined && ++reads === 1) await gate.promise
+      if (path.endsWith("/cancel")) { calls.push(path); cancelled = true }
+      const state = { ...guide, assistantMessageID: "expansion", resultRevision: cancelled ? 2 : 1,
+        status: cancelled ? "cancelled" : "running" }
+      return Response.json(body === undefined ? { stateToken: "token", recommendation: state } : { ...state, stateToken: "token" })
+    },
   })
   try {
     await Bun.sleep(0)
-    expect(api.ready()).toBe(true)
-    expect(api.armed()).toBe(false)
-    expect(api.busy()).toBe(false)
-    expect(api.state()?.unknown).toBe(false)
-    await api.initialize()
-    expect(api.ready()).toBe(true)
-    expect(api.state()?.unknown).toBe(false)
+    expect(page.api.busy()).toBe(true)
+    await page.api.cancel()
+    expect(calls).toEqual(["/studio/sessions/session/prompt-expansions/expansion/cancel"])
+    expect(page.api.busy()).toBe(false)
+    gate.resolve()
+    await Bun.sleep(0)
+    expect(page.api.state()?.state?.recommendation?.status).toBe("cancelled")
+  } finally { page.dispose(); gate.resolve() }
+})
+
+test("failed initial state reads allow ordinary sending without inventing a recommendation", async () => {
+  const scope = crypto.randomUUID()
+  const requests: { path: string; timeout?: number }[] = []
+  const notices: string[] = []
+  const page = mountRecommendation({
+    scope: () => scope,
+    request: async (path, _body, timeout) => {
+      requests.push({ path, timeout })
+      throw new Error("state unavailable")
+    },
+    uploadImage: async () => ({ path: "/uploaded/image.webp" }),
+    notice: (message) => notices.push(message),
+  })
+  try {
+    await Bun.sleep(0)
+    expect(page.api.ready()).toBe(true)
+    expect(page.api.armed()).toBe(false)
+    expect(page.api.busy()).toBe(false)
+    expect(page.api.state()?.unknown).toBe(false)
+    expect(notices).toEqual([])
+    await page.api.initialize()
+    expect(page.api.ready()).toBe(true)
+    expect(page.api.state()?.unknown).toBe(false)
     expect(requests.every((request) => request.timeout === 5_000)).toBe(true)
     expect(requests.every((request) => request.path.includes("/prompt-recommendation"))).toBe(true)
   } finally {
-    dispose()
+    page.dispose()
   }
 })
 
@@ -52,29 +187,20 @@ test("failed recovery preserves a pending submission instead of falling back to 
   const storageKey = `studio.prompt-recommendation.pending:${JSON.stringify([scope, "session"])}`
   const saved = JSON.stringify({ kind: "submit", requestID: "request", sessionID: "session", guidePartID: "guide" })
   sessionStorage.setItem(storageKey, saved)
-  let dispose = () => {}
-  const api = createRoot((cleanup) => {
-    dispose = cleanup
-    return createPromptRecommendation({
-      scope: () => scope,
-      sessionID: () => "session",
-      revision: () => "",
-      request: async () => {
-        throw new Error("state unavailable")
-      },
-      uploadImage: async () => ({ path: "/uploaded/image.webp" }),
-      reload: async () => {},
-      navigate: () => {},
-      notice: () => {},
-    })
+  const page = mountRecommendation({
+    scope: () => scope,
+    request: async () => {
+      throw new Error("state unavailable")
+    },
+    uploadImage: async () => ({ path: "/uploaded/image.webp" }),
   })
   try {
     await Bun.sleep(0)
-    expect(api.ready()).toBe(false)
-    expect(api.state()?.unknown).toBe(true)
+    expect(page.api.ready()).toBe(false)
+    expect(page.api.state()?.unknown).toBe(true)
     expect(sessionStorage.getItem(storageKey)).toBe(saved)
   } finally {
-    dispose()
+    page.dispose()
     sessionStorage.removeItem(storageKey)
   }
 })
@@ -118,36 +244,29 @@ test("initialization waits for persistence, navigates and clears its pending req
   const scope = crypto.randomUUID()
   const requests: unknown[] = []
   let navigated = ""
-  let dispose = () => {}
-  const api = createRoot((cleanup) => {
-    dispose = cleanup
-    return createPromptRecommendation({
-      scope: () => scope,
-      sessionID: () => undefined,
-      revision: () => "",
-      request: async (_path, body, timeout) => {
-        expect(timeout).toBe(35_000)
-        requests.push(body)
-        return Response.json({ ...guide, stateToken: "token" })
-      },
-      uploadImage: async () => ({ path: "/uploaded/image.webp" }),
-      reload: async () => {},
-      navigate: (id) => {
-        navigated = id
-      },
-      notice: () => {},
-    })
+  const page = mountRecommendation({
+    scope: () => scope,
+    sessionID: () => undefined,
+    request: async (_path, body, timeout) => {
+      expect(timeout).toBe(35_000)
+      requests.push(body)
+      return Response.json({ ...guide, stateToken: "token" })
+    },
+    uploadImage: async () => ({ path: "/uploaded/image.webp" }),
+    navigate: (id) => {
+      navigated = id
+    },
   })
   try {
     await Bun.sleep(0)
-    await Promise.all([api.initialize(), api.initialize()])
+    await Promise.all([page.api.initialize(), page.api.initialize()])
     expect(requests).toHaveLength(1)
     expect(navigated).toBe("session")
     expect(
       sessionStorage.getItem(`studio.prompt-recommendation.pending:${JSON.stringify([scope, "blank"])}`),
     ).toBeNull()
   } finally {
-    dispose()
+    page.dispose()
   }
 })
 
@@ -156,29 +275,20 @@ test("replaying a lost response preserves the original payload and a newer draft
   const sent: unknown[] = []
   let draft = "A"
   let uploaded = 0
-  let dispose = () => {}
-  const api = createRoot((cleanup) => {
-    dispose = cleanup
-    return createPromptRecommendation({
-      scope: () => scope,
-      sessionID: () => "session",
-      revision: () => "",
-      request: async (path, body) => {
-        if (path === "/studio/prompt-expansions") {
-          sent.push(body)
-          if (sent.length === 1) throw new Error("response lost")
-          return Response.json({ ...guide, stateToken: "token", status: "running" })
-        }
-        return Response.json({ stateToken: "token", recommendation: guide })
-      },
-      uploadImage: async () => {
-        uploaded++
-        return { path: "/uploaded/image.webp" }
-      },
-      reload: async () => {},
-      navigate: () => {},
-      notice: () => {},
-    })
+  const page = mountRecommendation({
+    scope: () => scope,
+    request: async (path, body) => {
+      if (path === "/studio/prompt-expansions") {
+        sent.push(body)
+        if (sent.length === 1) throw new Error("response lost")
+        return Response.json({ ...guide, stateToken: "token", status: "running" })
+      }
+      return Response.json({ stateToken: "token", recommendation: guide })
+    },
+    uploadImage: async () => {
+      uploaded++
+      return { path: "/uploaded/image.webp" }
+    },
   })
   try {
     await Bun.sleep(0)
@@ -187,11 +297,11 @@ test("replaying a lost response preserves the original payload and a newer draft
       images: [{ mime: "image/png", base64: "image" }],
       availableModels: [{ providerID: "test", modelID: "test" }],
     }
-    await api.submit(request, () => {
+    await page.api.submit(request, () => {
       if (draft === "A") draft = ""
     })
     draft = "B"
-    await api.submit({ ...request, prompt: "B" }, () => {
+    await page.api.submit({ ...request, prompt: "B" }, () => {
       if (draft === "B") draft = ""
     })
     expect(sent).toHaveLength(2)
@@ -201,7 +311,7 @@ test("replaying a lost response preserves the original payload and a newer draft
     expect(sent[0]).toMatchObject({ images: [{ path: "/uploaded/image.webp" }] })
     expect(JSON.stringify(sent[0])).not.toContain("base64")
   } finally {
-    dispose()
+    page.dispose()
   }
 })
 
@@ -211,32 +321,23 @@ test("upload failure keeps the draft and retries only the missing upload", async
   const sent: unknown[] = []
   let fail = true
   let cleared = false
-  let dispose = () => {}
-  const api = createRoot((cleanup) => {
-    dispose = cleanup
-    return createPromptRecommendation({
-      scope: () => scope,
-      sessionID: () => "session",
-      revision: () => "",
-      uploadImage: async (_id, image) => {
-        uploaded.push(image.base64)
-        if (image.base64 === "second" && fail) {
-          fail = false
-          throw new Error("upload failed")
-        }
-        return { path: `/uploaded/${image.base64}.png` }
-      },
-      request: async (path, body) => {
-        if (path === "/studio/prompt-expansions") {
-          sent.push(body)
-          return Response.json({ ...guide, stateToken: "token", status: "running" })
-        }
-        return Response.json({ stateToken: "token", recommendation: guide })
-      },
-      reload: async () => {},
-      navigate: () => {},
-      notice: () => {},
-    })
+  const page = mountRecommendation({
+    scope: () => scope,
+    uploadImage: async (_id, image) => {
+      uploaded.push(image.base64)
+      if (image.base64 === "second" && fail) {
+        fail = false
+        throw new Error("upload failed")
+      }
+      return { path: `/uploaded/${image.base64}.png` }
+    },
+    request: async (path, body) => {
+      if (path === "/studio/prompt-expansions") {
+        sent.push(body)
+        return Response.json({ ...guide, stateToken: "token", status: "running" })
+      }
+      return Response.json({ stateToken: "token", recommendation: guide })
+    },
   })
   try {
     await Bun.sleep(0)
@@ -248,23 +349,23 @@ test("upload failure keeps the draft and retries only the missing upload", async
         { mime: "image/png", base64: "second" },
       ],
     }
-    await api.submit(request, () => {
+    await page.api.submit(request, () => {
       cleared = true
     })
     expect(sent).toHaveLength(0)
     expect(cleared).toBe(false)
-    expect(api.state()?.unknown).toBe(false)
+    expect(page.api.state()?.unknown).toBe(false)
     expect(
       sessionStorage.getItem(`studio.prompt-recommendation.pending:${JSON.stringify([scope, "session"])}`),
     ).toBeNull()
-    await api.submit(request, () => {
+    await page.api.submit(request, () => {
       cleared = true
     })
     expect(uploaded).toEqual(["first", "second", "second"])
     expect(sent).toHaveLength(1)
     expect(cleared).toBe(true)
   } finally {
-    dispose()
+    page.dispose()
   }
 })
 
@@ -278,26 +379,18 @@ test.each([
   const scope = crypto.randomUUID()
   const notices: string[] = []
   let cleared = false
-  let dispose = () => {}
-  const api = createRoot((cleanup) => {
-    dispose = cleanup
-    return createPromptRecommendation({
-      scope: () => scope,
-      sessionID: () => "session",
-      revision: () => "",
-      request: async (path) =>
-        path === "/studio/prompt-expansions"
-          ? Response.json({ data: { code } }, { status })
-          : Response.json({ stateToken: "token", recommendation: guide }),
-      uploadImage: async () => ({ path: "/uploaded/image.webp" }),
-      reload: async () => {},
-      navigate: () => {},
-      notice: (value) => notices.push(value),
-    })
+  const page = mountRecommendation({
+    scope: () => scope,
+    request: async (path) =>
+      path === "/studio/prompt-expansions"
+        ? Response.json({ data: { code } }, { status })
+        : Response.json({ stateToken: "token", recommendation: guide }),
+    uploadImage: async () => ({ path: "/uploaded/image.webp" }),
+    notice: (value) => notices.push(value),
   })
   try {
     await Bun.sleep(0)
-    await api.submit(
+    await page.api.submit(
       { prompt: "参考图", images: [], availableModels: [{ providerID: "test", modelID: "test" }] },
       () => {
         cleared = true
@@ -306,7 +399,7 @@ test.each([
     expect(notices.at(-1)).toContain(message)
     expect(cleared).toBe(false)
   } finally {
-    dispose()
+    page.dispose()
   }
 })
 
@@ -379,59 +472,50 @@ function modeSetup(
     status: options.status ?? "completed",
   }
   let serial = 0
-  let dispose = () => {}
-  const api = createRoot((cleanup) => {
-    dispose = cleanup
-    return createPromptRecommendation({
-      scope: () => scope,
-      sessionID: () => "session",
-      revision: () => "",
-      mode: { ready: () => true, enabled: () => mode.enabled, save: (_key, enabled) => setMode("enabled", enabled) },
-      request: async (path, body) => {
-        calls.push({ path, body })
-        if (path === "/studio/prompt-recommendations") {
-          await options.waitInitialize
-          server = { ...guide, guidePartID: `guide-${++serial}`, status: "armed" }
+  const page = mountRecommendation({
+    scope: () => scope,
+    mode: { ready: () => true, enabled: () => mode.enabled, save: (_key, enabled) => setMode("enabled", enabled) },
+    request: async (path, body) => {
+      calls.push({ path, body })
+      if (path === "/studio/prompt-recommendations") {
+        await options.waitInitialize
+        server = { ...guide, guidePartID: `guide-${++serial}`, status: "armed" }
+      }
+      if (path === "/studio/prompt-expansions") {
+        await options.waitSubmit
+        if (options.loseUnacceptedSubmitResponse) {
+          options.loseUnacceptedSubmitResponse = false
+          throw new Error("request lost before acceptance")
         }
-        if (path === "/studio/prompt-expansions") {
-          await options.waitSubmit
-          if (options.loseUnacceptedSubmitResponse) {
-            options.loseUnacceptedSubmitResponse = false
-            throw new Error("request lost before acceptance")
-          }
-          server = {
-            ...server,
-            status: "completed",
-            submission: { requestID: (body as { requestID: string }).requestID },
-          }
-          if (options.loseSubmitResponse) {
-            options.loseSubmitResponse = false
-            throw new Error("response lost")
-          }
+        server = {
+          ...server,
+          status: "completed",
+          submission: { requestID: (body as { requestID: string }).requestID },
         }
-        if (path.endsWith("/dismiss") && server.status === "armed") {
-          server = { ...server, status: "dismissed", guideRevision: server.guideRevision + 1 }
-          if (options.loseDismissResponse) {
-            options.loseDismissResponse = false
-            throw new Error("dismiss response lost")
-          }
+        if (options.loseSubmitResponse) {
+          options.loseSubmitResponse = false
+          throw new Error("response lost")
         }
-        return Response.json(
-          body === undefined
-            ? { stateToken: `token-${serial}`, recommendation: server }
-            : { ...server, stateToken: `token-${serial}` },
-        )
-      },
-      uploadImage: async () => {
-        await options.waitUpload
-        return { path: "/uploaded/image.webp" }
-      },
-      reload: async () => {},
-      navigate: () => {},
-      notice: () => {},
-    })
+      }
+      if (path.endsWith("/dismiss") && server.status === "armed") {
+        server = { ...server, status: "dismissed", guideRevision: server.guideRevision + 1 }
+        if (options.loseDismissResponse) {
+          options.loseDismissResponse = false
+          throw new Error("dismiss response lost")
+        }
+      }
+      return Response.json(
+        body === undefined
+          ? { stateToken: `token-${serial}`, recommendation: server }
+          : { ...server, stateToken: `token-${serial}` },
+      )
+    },
+    uploadImage: async () => {
+      await options.waitUpload
+      return { path: "/uploaded/image.webp" }
+    },
   })
-  return { api, mode, setMode, calls, dispose }
+  return { ...page, mode, setMode, calls }
 }
 
 const expansionInput = {
@@ -702,49 +786,41 @@ test("closing while the first blank-page initialization is pending migrates the 
   const [state, setState] = createStore<{ id?: string; modes: Record<string, boolean> }>({ modes: {} })
   const gate = Promise.withResolvers<void>()
   let status = "armed"
-  let dispose = () => {}
-  const api = createRoot((cleanup) => {
-    dispose = cleanup
-    return createPromptRecommendation({
-      scope: () => scope,
-      sessionID: () => state.id,
-      revision: () => "",
-      mode: {
-        ready: () => true,
-        enabled: (key) => state.modes[key],
-        save: (key, enabled) => setState("modes", key, enabled),
-      },
-      request: async (path, body) => {
-        if (path === "/studio/prompt-recommendations") await gate.promise
-        if (path.endsWith("/dismiss")) status = "dismissed"
-        return Response.json(
-          body === undefined
-            ? { stateToken: "token", recommendation: { ...guide, status } }
-            : { ...guide, status, stateToken: "token" },
-        )
-      },
-      uploadImage: async () => ({ path: "/uploaded" }),
-      reload: async () => {},
-      navigate: (id) => setState("id", id),
-      notice: () => {},
-    })
+  const page = mountRecommendation({
+    scope: () => scope,
+    sessionID: () => state.id,
+    mode: {
+      ready: () => true,
+      enabled: (key) => state.modes[key],
+      save: (key, enabled) => setState("modes", key, enabled),
+    },
+    request: async (path, body) => {
+      if (path === "/studio/prompt-recommendations") await gate.promise
+      if (path.endsWith("/dismiss")) status = "dismissed"
+      return Response.json(
+        body === undefined
+          ? { stateToken: "token", recommendation: { ...guide, status } }
+          : { ...guide, status, stateToken: "token" },
+      )
+    },
+    navigate: (id) => setState("id", id),
   })
   try {
     await Bun.sleep(0)
-    const initializing = api.initialize()
+    const initializing = page.api.initialize()
     await Bun.sleep(0)
-    await api.exit()
+    await page.api.exit()
     gate.resolve()
     await initializing
     await Bun.sleep(0)
     expect(state.id).toBe("session")
     expect(state.modes[session]).toBe(false)
     expect(state.modes[blank]).toBe(false)
-    expect(api.armed()).toBe(false)
+    expect(page.api.armed()).toBe(false)
     expect(status).toBe("dismissed")
   } finally {
     gate.resolve()
-    dispose()
+    page.dispose()
   }
 })
 
@@ -759,52 +835,45 @@ test.each([false, true])(
     let assets = ["reference"]
     let cleared = 0
     let preserved = false
-    let dispose = () => {}
-    const api = createRoot((cleanup) => {
-      dispose = cleanup
-      return createPromptRecommendation({
-        scope: () => scope,
-        sessionID: () => state.id,
-        revision: () => "",
-        mode: {
-          ready: () => true,
-          enabled: (key) => state.modes[key],
-          save: (key, enabled) => setState("modes", key, enabled),
-        },
-        request: async (path, body) => {
-          calls.push({ path, body })
-          if (path === "/studio/prompt-recommendations" && ++initializations === 1)
-            return Response.json({ data: { code: "PREPARATION_TIMEOUT" } }, { status: 503 })
-          if (path === "/studio/prompt-expansions" && reject)
-            return Response.json({ data: { code: "INVALID_INPUT" } }, { status: 400 })
-          return Response.json(
-            body === undefined
-              ? { stateToken: "token", recommendation: guide }
-              : { ...guide, stateToken: "token", status: path === "/studio/prompt-expansions" ? "running" : "armed" },
-          )
-        },
-        uploadImage: async (id) => {
-          expect(id).toBe("session")
-          return { path: "/uploaded/reference.png" }
-        },
-        reload: async () => {},
-        navigate: (id, preserveDraft) => {
-          // Mirror the page's session-change draft reset.
-          preserved = preserveDraft === true
-          if (!preserveDraft) {
-            draft = ""
-            assets = []
-          }
-          setState("id", id)
-        },
-        notice: () => {},
-      })
+    const page = mountRecommendation({
+      scope: () => scope,
+      sessionID: () => state.id,
+      mode: {
+        ready: () => true,
+        enabled: (key) => state.modes[key],
+        save: (key, enabled) => setState("modes", key, enabled),
+      },
+      request: async (path, body) => {
+        calls.push({ path, body })
+        if (path === "/studio/prompt-recommendations" && ++initializations === 1)
+          return Response.json({ data: { code: "PREPARATION_TIMEOUT" } }, { status: 503 })
+        if (path === "/studio/prompt-expansions" && reject)
+          return Response.json({ data: { code: "INVALID_INPUT" } }, { status: 400 })
+        return Response.json(
+          body === undefined
+            ? { stateToken: "token", recommendation: guide }
+            : { ...guide, stateToken: "token", status: path === "/studio/prompt-expansions" ? "running" : "armed" },
+        )
+      },
+      uploadImage: async (id) => {
+        expect(id).toBe("session")
+        return { path: "/uploaded/reference.png" }
+      },
+      navigate: (id, preserveDraft) => {
+        // Mirror the page's session-change draft reset.
+        preserved = preserveDraft === true
+        if (!preserveDraft) {
+          draft = ""
+          assets = []
+        }
+        setState("id", id)
+      },
     })
     try {
       await Bun.sleep(0)
-      await api.initialize()
+      await page.api.initialize()
       expect(state.id).toBeUndefined()
-      await api.expand(
+      await page.api.expand(
         { ...expansionInput, images: [{ mime: "image/png", base64: "reference" }] },
         (acceptedSession) => {
           expect(acceptedSession).toBe("session")
@@ -829,9 +898,9 @@ test.each([false, true])(
       expect(draft).toBe(reject ? "城市" : "")
       expect(assets).toEqual(reject ? ["reference"] : [])
       expect(state.modes[JSON.stringify([scope, "session"])]).toBe(true)
-      expect(api.busy()).toBe(false)
+      expect(page.api.busy()).toBe(false)
     } finally {
-      dispose()
+      page.dispose()
     }
   },
 )
@@ -846,88 +915,79 @@ test.each(["accepted-with-events", "accepted-without-events", "not-accepted", "n
     let cancels = 0
     let submissions = 0
     let failRead = false
-    let dispose = () => {}
-    const api = createRoot((cleanup) => {
-      dispose = cleanup
-      return createPromptRecommendation({
-        scope: () => scope,
-        sessionID: () => "session",
-        revision: () => mode.revision,
-        mode: { ready: () => true, enabled: () => mode.enabled, save: (_key, enabled) => setMode("enabled", enabled) },
-        request: async (path, body) => {
-          if (body === undefined && failRead) {
-            failRead = false
-            throw new Error("state unavailable")
-          }
-          if (path === "/studio/prompt-expansions") {
-            submissions++
-            await gate.promise
-            if (scenario !== "not-accepted")
-              server = {
-                ...server,
-                status: "running",
-                assistantMessageID: "expansion",
-                submission: { requestID: (body as { requestID: string }).requestID },
-              }
-            if (scenario === "accepted-with-events") {
-              setMode("revision", "running")
-              await Bun.sleep(0)
+    const page = mountRecommendation({
+      scope: () => scope,
+      revision: () => mode.revision,
+      mode: { ready: () => true, enabled: () => mode.enabled, save: (_key, enabled) => setMode("enabled", enabled) },
+      request: async (path, body) => {
+        if (body === undefined && failRead) {
+          failRead = false
+          throw new Error("state unavailable")
+        }
+        if (path === "/studio/prompt-expansions") {
+          submissions++
+          await gate.promise
+          if (scenario !== "not-accepted")
+            server = {
+              ...server,
+              status: "running",
+              assistantMessageID: "expansion",
+              submission: { requestID: (body as { requestID: string }).requestID },
             }
-            throw new Error("response lost")
+          if (scenario === "accepted-with-events") {
+            setMode("revision", "running")
+            await Bun.sleep(0)
           }
-          if (scenario === "new-task-after-recovery" && body === undefined && server.submission) {
-            const recommendation = path.includes("guidePartID=")
-              ? { ...server, status: "completed" }
-              : {
-                  ...server,
-                  guidePartID: "next-guide",
-                  assistantMessageID: "next-expansion",
-                  status: "running",
-                  submission: { requestID: "next-request" },
-                }
-            return Response.json({ stateToken: "next-token", recommendation })
-          }
-          if (path.endsWith("/cancel")) {
-            cancels++
-            server = { ...server, status: "cancelled" }
-          }
-          if (path.endsWith("/dismiss")) server = { ...server, status: "dismissed" }
-          return Response.json(
-            body === undefined ? { stateToken: "token", recommendation: server } : { ...server, stateToken: "token" },
-          )
-        },
-        uploadImage: async () => ({ path: "/uploaded" }),
-        reload: async () => {},
-        navigate: () => {},
-        notice: () => {},
-      })
+          throw new Error("response lost")
+        }
+        if (scenario === "new-task-after-recovery" && body === undefined && server.submission) {
+          const recommendation = path.includes("guidePartID=")
+            ? { ...server, status: "completed" }
+            : {
+                ...server,
+                guidePartID: "next-guide",
+                assistantMessageID: "next-expansion",
+                status: "running",
+                submission: { requestID: "next-request" },
+              }
+          return Response.json({ stateToken: "next-token", recommendation })
+        }
+        if (path.endsWith("/cancel")) {
+          cancels++
+          server = { ...server, status: "cancelled" }
+        }
+        if (path.endsWith("/dismiss")) server = { ...server, status: "dismissed" }
+        return Response.json(
+          body === undefined ? { stateToken: "token", recommendation: server } : { ...server, stateToken: "token" },
+        )
+      },
     })
     try {
       await Bun.sleep(0)
-      const submission = api.expand(expansionInput, () => {})
+      const submission = page.api.expand(expansionInput, () => {})
       await Bun.sleep(0)
-      await api.cancel()
+      await page.api.cancel()
       gate.resolve()
       await submission
       await Bun.sleep(0)
       if (scenario === "accepted-without-events") {
         failRead = true
-        await expect(api.recover()).rejects.toThrow("state unavailable")
-        expect(api.state()?.cancelRequested).toBe(true)
+        await expect(page.api.recover()).rejects.toThrow("state unavailable")
+        expect(page.api.state()?.cancelRequested).toBe(true)
         expect(cancels).toBe(0)
       }
-      await api.recover()
+      await page.api.recover()
       await Bun.sleep(0)
       expect(cancels).toBe(scenario === "not-accepted" || scenario === "new-task-after-recovery" ? 0 : 1)
       expect(submissions).toBe(1)
-      expect(api.state()?.cancelRequested).toBe(false)
-      expect(api.state()?.state?.recommendation?.status).toBe(
+      expect(page.api.state()?.cancelRequested).toBe(false)
+      expect(page.api.state()?.state?.recommendation?.status).toBe(
         scenario === "not-accepted" ? "dismissed" : scenario === "new-task-after-recovery" ? "running" : "cancelled",
       )
       expect(mode.enabled).toBe(true)
     } finally {
       gate.resolve()
-      dispose()
+      page.dispose()
     }
   },
 )

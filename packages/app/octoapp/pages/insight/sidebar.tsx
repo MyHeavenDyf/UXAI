@@ -59,7 +59,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
       return { sessions: items, nextCursor: nextOffset < total ? String(nextOffset) : undefined }
     }
     const client = globalSDK.createClient({ directory: dir })
-    const result = await client.experimental.session.list({ directory: dir, limit: PAGE_SIZE, cursor })
+    const result = await client.experimental.session.list({ directory: dir, roots: true, limit: PAGE_SIZE, cursor })
     const items = ((result.data ?? []) as Session[]) as Session[]
     const next = result.response.headers.get("x-next-cursor")
     return { sessions: items, nextCursor: next ?? undefined }
@@ -70,6 +70,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
     const result = await client.experimental.session.list({
       directory: dir,
       pinned: true,
+      roots: true,
       agent: "octo_insight",
     })
     return (result.data ?? []) as Session[]
@@ -80,6 +81,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
     const result = await client.experimental.session.list({
       directory: dir,
       grouped: "true",
+      roots: true,
       agent: "octo_insight",
       limit: 9999,
     })
@@ -102,6 +104,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         namespace="insight"
         routePrefix="/insight"
         agentFilter="octo_insight"
+        rootSessionsOnly
         fetchSessionPage={fetchSessionPage}
         fetchPinnedSessions={fetchPinnedSessions}
         fetchGroupSessions={fetchGroupSessions}
@@ -112,6 +115,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
         sectionTitle="最近"
         newButtonText="新建对话"
         trackerModule="insight"
+        trackLoadMoreRequest={false}
         onLoadMore={(limit) => tracker.interaction({
           module: "insight",
           name: "session-load-more",

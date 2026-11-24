@@ -16,8 +16,6 @@ export function isVisibleUserMessage(message: Message, parts: Part[] | undefined
   return true
 }
 
-type TextLikePart = { type: string; synthetic?: boolean; metadata?: Record<string, unknown> }
-
 /** make 页隐藏用户气泡的 task 子代理(路由派发的子会话) */
 const TASK_CHILD_AGENTS = new Set(["octo_design", "octo_code", "plan"])
 
@@ -33,19 +31,25 @@ export function isHiddenTaskPromptMessage(message: Message, mainSessionID: strin
 }
 
 /**
- * 自动压缩续跑注入消息(无 compaction part):overflow 回放(compaction_replay)与
- * "Continue if you have next steps..."(compaction_continue),均为 synthetic text。
- * turn 必须保留渲染(否则续跑 assistant 输出丢失),但用户气泡/锚点不显示。
+ * 自动压缩回填消息判定（服务端 compaction.ts replay 路径）。
+ *
+ * 上下文超限时自动压缩把 pending 用户消息折叠进摘要后,会以新 user message 回填原文续跑:
+ * text part 带 metadata.compaction_replay（非 synthetic,与共享 UI UserMessageDisplay 同判定）。
+ * 无 replay 时的续跑合成消息带 synthetic + metadata.compaction_continue。
+ * 这两类消息不显示用户气泡（InsightTurn 渲染分割线提示）,但必须保留在 userMessages 里 ——
+ * 续跑的 assistant 回复挂在该轮之下,过滤掉整轮会让续跑内容消失。
  */
-export function isCompactionInjectedMessage(parts: Array<TextLikePart> | undefined): boolean {
-  const list = parts ?? []
-  if (list.length === 0) return false
-  const injected = list.some((part) => part.type === "text" && isCompactionInjectedPart(part))
-  return injected && !list.some((part) => part.type === "text" && !part.synthetic)
+export type PartLike = { type: string; synthetic?: boolean; metadata?: unknown; [key: string]: unknown }
+
+function hasMarker(metadata: unknown, key: string): boolean {
+  return typeof metadata === "object" && metadata !== null && (metadata as Record<string, unknown>)[key] === true
 }
 
-function isCompactionInjectedPart(part: TextLikePart): boolean {
-  if (part.type !== "text") return false
-  const metadata = part.metadata
-  return metadata?.compaction_replay === true || metadata?.compaction_continue === true
+export function isHiddenCompactionTurn(parts: readonly PartLike[] | undefined): boolean {
+  const list = parts ?? []
+  if (list.some((part) => part.type === "text" && hasMarker(part.metadata, "compaction_replay"))) return true
+  if (list.some((part) => part.type === "compaction")) return false
+  return list.some(
+    (part) => part.type === "text" && part.synthetic === true && hasMarker(part.metadata, "compaction_continue"),
+  )
 }

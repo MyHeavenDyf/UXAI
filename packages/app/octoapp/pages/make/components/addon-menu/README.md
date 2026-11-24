@@ -2,7 +2,7 @@
 
 ## Insight 接入补充（2026-09-24）
 
-Insight 使用本组件的 `items={["skills", "productAssets", "designFiles", "addAttachment", "insightMcp"]}`，
+Insight 使用本组件的 `items={["skills", "assetLibrary", "addAttachment", "insightMcp"]}`，与 Design 共用「平台资产 / 产品资产」弹窗，
 页面包装器位于 `pages/insight/components/insight-addon-menu.tsx`。`insightMcp` 是页面定义的 slot，公共组件不处理 MCP 协议。
 
 `slots.render` 在原 `closeMenu` 外提供 `active(): boolean` 和 `togglePanel(): void`，
@@ -11,10 +11,10 @@ Insight 使用本组件的 `items={["skills", "productAssets", "designFiles", "a
 可选接入参数（缺省保持原行为）：
 
 - `controlledFiles`：文件勾选从 `selections` 派生，而不是本轮临时勾选。
-- `transactionalFiles`：配合 `controlledFiles` 使用；取消时仅撤销本次改动并恢复已取消勾选的引用，确认或选择其他菜单功能时保留改动。Insight 启用，Design 缺省保持原行为。
+- `transactionalFiles`：配合 `controlledFiles` 使用；取消时仅撤销本次改动并恢复已取消勾选的引用，确认或选择其他菜单功能时保留改动。
 - `skillsLoading` / `filesLoading`：空列表加载文案。
 - `cancelOnDispose`：输入实例卸载时中止菜单导入任务；Insight 启用，Design 缺省不改变生命周期行为。
-- `productAssetsDisabledReason`：资产入口不可用原因。
+- `assetLibraryDisabledReason`：双标签资产库入口不可用原因。
 - `onAssetSelect` / `onAssetDeselect`：资产选择单独交给宿主，缺省回退 `onSelect/onDeselect`。Insight 在本地暂存选择，下载成功后才批量写入编辑器，避免占位 ID 进入消息。
 - `onAssetDownloadError`：处理逐项失败；提供此回调时保留成功项并继续后续项，宿主负责重试/移除及发送校验。
 - `trackerModule` 同时透传产品资产弹窗，缺省仍为 `design`。

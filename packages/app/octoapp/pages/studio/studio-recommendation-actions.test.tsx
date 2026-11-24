@@ -56,7 +56,7 @@ function setup(model = "seedream-5-lite") {
           get customWidth() { return state.customWidth },
           get customHeight() { return state.customHeight },
           get isCustom() { return state.isCustom },
-          assets: [], videoFrames: {}, videoDuration: "5", videoQualityMode: "480", videoMode: "all-reference",
+          assets: [], videoFrames: {}, videoDuration: "5", videoQualityMode: "480", videoMode: "all-reference", videoInputMode: "first-last-frame",
           status: "idle", busy: false, canSubmit: true, actionsBlocked: false,
           styleTemplateEditorOpen: false, recipeMainPrompt: "", recipeExtraPrompt: "",
           onPrompt: noop, onCapability: mode.select, onStyleModel: (value) => setState("model", value),
@@ -65,7 +65,7 @@ function setup(model = "seedream-5-lite") {
           onCustomWidth: (value) => setState("customWidth", value),
           onCustomHeight: (value) => setState("customHeight", value),
           onIsCustom: (value) => setState("isCustom", value),
-          onVideoDuration: noop, onVideoQualityMode: noop, onVideoMode: noop,
+          onVideoDuration: noop, onVideoQualityMode: noop, onVideoMode: noop, onVideoInputMode: noop,
           onStyleTemplateEditorOpen: noop, onStyleTemplateDescription: noop, onRestoreStyleTemplateDescription: noop,
           onRecipeMainPrompt: noop, onRecipeExtraPrompt: noop,
           onSubmit: () => setState("submitted", (value) => value + 1), onKeyDown: noop,
@@ -128,12 +128,13 @@ test.each(["seedream-5-lite", "seedream-5-pro"])("recommendation leaves %s selec
   } finally { value.dispose() }
 })
 
-test("the model menu shows Pro before Lite and filters both with the same permission", () => {
+test("the model menu hides retired Lite and filters Pro by permission", () => {
   const value = setup("seedream-5-pro")
   try {
     value.setState("menu", "style")
-    expect(Array.from(value.container.querySelectorAll(".studio-style-option")).slice(0, 3).map((node) => node.getAttribute("title")))
-      .toEqual(["Seedream 5.0 Pro", "Seedream 5.0 Lite", "千问"])
+    expect(Array.from(value.container.querySelectorAll(".studio-style-option")).slice(0, 2).map((node) => node.getAttribute("title")))
+      .toEqual(["Seedream 5.0 Pro", "千问"])
+    expect(value.container.querySelector('[title="Seedream 5.0 Lite"].studio-style-option')).toBeNull()
     value.setState("seedream", false)
     expect(value.container.querySelector('[title="Seedream 5.0 Pro"].studio-style-option')).toBeNull()
     expect(value.container.querySelector('[title="Seedream 5.0 Lite"].studio-style-option')).toBeNull()

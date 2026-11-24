@@ -12,6 +12,7 @@ import type {
 } from "@/studio/image-provider"
 import { Instance } from "@/project/instance"
 import * as Log from "@opencode-ai/core/util/log"
+import { historicalStudioModelUnavailableMessage, studioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
 
 const METHOD = "POST"
 const DEFAULT_USER_IDX = ""
@@ -582,6 +583,12 @@ function remoteImageUrl(value: unknown) {
 function imageUrlFromRefImage(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
   return remoteImageUrl((value as JsonRecord).image_base64)
+}
+
+function imageUrlFromVideoListImage(value: unknown) {
+  if (typeof value === "string") return remoteImageUrl(value)
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  return remoteImageUrl((value as JsonRecord).image) ?? imageUrlFromRefImage(value)
 }
 
 function isRenderableImageUrl(url: string) {
@@ -1228,60 +1235,14 @@ export function getInternalStyleConfig(styleModel?: string): InternalStyleConfig
   )
 }
 
-function extractStudioToolSettings(prompt: string): JsonRecord {
-  const match = prompt.match(/工具参数JSON：(\{[^\n]+\})/)
-  if (!match) return {}
-
-  try {
-    return JSON.parse(match[1]!) as JsonRecord
-  } catch {
-    return {}
-  }
-}
-
 function getStudioAspectRatio(input: ImageGenerateInput): StudioAspectRatio | undefined {
-  const settings = extractStudioToolSettings(input.prompt)
-  const value =
-    input.aspectRatio ??
-    (typeof settings.aspectRatio === "string" ? settings.aspectRatio : undefined) ??
-    input.prompt.match(/画幅比例：([0-9]+:[0-9]+)/)?.[1]
+  const value = input.aspectRatio
   if (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9", "21:9"].includes(value ?? "")) return value as StudioAspectRatio
   return undefined
 }
 
-function getStudioStyleModel(input: ImageGenerateInput) {
-  const settings = extractStudioToolSettings(input.prompt)
-  return (
-    input.styleModel ??
-    (typeof settings.styleModel === "string" ? settings.styleModel : undefined) ??
-    input.prompt.match(/风格模型：([^\n]+)/)?.[1]?.trim()
-  )
-}
-
-function getStudioCapability(input: ImageGenerateInput): StudioCapability {
-  const settings = extractStudioToolSettings(input.prompt)
-  const value =
-    (typeof settings.capability === "string" ? settings.capability : undefined) ??
-    input.prompt.match(/能力：([^\n]+)/)?.[1]?.trim() ??
-    input.capability
-  if (
-    value === "image.generate" ||
-    value === "video.generate" ||
-    value === "image.upscale" ||
-    value === "image.cutout" ||
-    value === "image.inpaint" ||
-    value === "image.outpaint" ||
-    value === "image.fusion"
-  ) return value
-  return "image.generate"
-}
-
 function getStudioCount(input: ImageGenerateInput) {
-  const settings = extractStudioToolSettings(input.prompt)
-  const value =
-    input.count ??
-    (typeof settings.count === "number" ? settings.count : undefined) ??
-    Number(input.prompt.match(/生成数量：([1-4])/)?.[1])
+  const value = input.count
   if (value === 1 || value === 2 || value === 3 || value === 4) return value
   return 1
 }
@@ -1318,9 +1279,6 @@ function buildPrompt(input: ImageGenerateInput) {
   return [
     input.prompt,
     conversationContext ? `上一轮生成摘要：\n${conversationContext}` : undefined,
-    input.styleModel ? `风格模型：${input.styleModel}` : undefined,
-    input.aspectRatio ? `画幅比例：${input.aspectRatio}` : undefined,
-    input.count ? `生成数量：${input.count}` : undefined,
   ]
     .filter((item): item is string => Boolean(item))
     .join("\n")
@@ -1403,11 +1361,7 @@ async function resolveImageInputDataUrl(value: string) {
 }
 
 async function getSourceImageDataUrl(input: ImageGenerateInput) {
-  const settings = extractStudioToolSettings(input.prompt)
-  const sourceImage =
-    input.sourceImage ??
-    input.referenceImages?.[0] ??
-    (typeof settings.sourceImage === "string" ? settings.sourceImage : undefined)
+  const sourceImage = input.sourceImage ?? input.referenceImages?.[0]
   if (!sourceImage) throw new Error("This Studio action requires a source image.")
   return resolveImageInputDataUrl(sourceImage)
 }
@@ -1509,10 +1463,18 @@ function getVideoAspectRatio(input: ImageGenerateInput) {
   return "16:9"
 }
 
-async function getVideoFrames(input: ImageGenerateInput) {
-  const referenceImages = (await Promise.all(
+function getVideoInputMode(input: ImageGenerateInput) {
+  return extraString(input, "videoInputMode") === "multi-reference" ? "multi-reference" : "first-last-frame"
+}
+
+async function getVideoReferenceImages(input: ImageGenerateInput) {
+  return (await Promise.all(
     (input.referenceImages ?? []).map((item) => resolveImageInputDataUrl(item).catch(() => undefined)),
   )).filter((item): item is string => Boolean(item))
+}
+
+async function getVideoFrames(input: ImageGenerateInput) {
+  const referenceImages = await getVideoReferenceImages(input)
   const firstFrame = extraString(input, "firstFrame")
   const lastFrame = extraString(input, "lastFrame")
   const resolvedFirstFrame = firstFrame ? await resolveImageInputDataUrl(firstFrame) : undefined
@@ -1524,7 +1486,6 @@ async function getVideoFrames(input: ImageGenerateInput) {
 }
 
 async function buildVideoRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
-  const frames = await getVideoFrames(input)
   const baseArgs = {
     prompt: input.prompt,
     aspect_ratio: getVideoAspectRatio(input),
@@ -1533,6 +1494,22 @@ async function buildVideoRequestBody(input: ImageGenerateInput, context: Interna
     mode: getVideoMode(input),
     resolution: getVideoResolution(input),
   }
+  if (getVideoInputMode(input) === "multi-reference") {
+    const images = await getVideoReferenceImages(input)
+    if (images.length > 0) {
+      return {
+        user: { idx: context.userIdx },
+        task_type: "multi-i2v_seedance",
+        args: {
+          tag_name: "图生视频",
+          ...baseArgs,
+          image_list: images.map((item) => ({ image: dataUrlToBase64(item) })),
+        },
+      }
+    }
+  }
+  // 多图参考无图时回退为文生视频
+  const frames = await getVideoFrames(input)
   if (extraString(input, "videoMode") === "first_last_frame" && !frames.firstFrame) {
     throw new Error("Image-to-video generation requires a first frame.")
   }
@@ -1597,7 +1574,7 @@ async function buildOutpaintRequestBody(input: ImageGenerateInput, context: Inte
 }
 
 async function buildInternalRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
-  const capability = getStudioCapability(input)
+  const capability = input.capability
   if (capability === "video.generate") return buildVideoRequestBody(input, context)
   if (capability === "image.upscale") return buildUpscaleRequestBody(input, context)
   if (capability === "image.cutout") return buildCutoutRequestBody(input, context)
@@ -1621,6 +1598,16 @@ function compactInputWithHistory(input: ImageGenerateInput, historyArgs?: JsonRe
     }
   }
   if (input.capability === "video.generate") {
+    if (getVideoInputMode(input) === "multi-reference") {
+      const imageList = Array.isArray(historyArgs.image_list) ? historyArgs.image_list : []
+      const referenceImages = imageList
+        .map((item: unknown) => imageUrlFromVideoListImage(item))
+        .filter((item): item is string => Boolean(item))
+      return {
+        ...input,
+        referenceImages: referenceImages.length > 0 ? referenceImages : input.referenceImages,
+      }
+    }
     const firstFrame = remoteImageUrl(historyArgs.image)
     const lastFrame = remoteImageUrl(historyArgs.image_tail)
     return {
@@ -1683,6 +1670,16 @@ function compactRequestWithHistory(requestBody: JsonRecord, capability: StudioCa
     return next
   }
   if (capability === "video.generate") {
+    if (Array.isArray((args as JsonRecord).image_list)) {
+      const historyImageList = Array.isArray(historyArgs.image_list) ? historyArgs.image_list : []
+      const current = (args as JsonRecord).image_list as unknown[]
+      ;(args as JsonRecord).image_list = current.map((item: unknown, index: number) => {
+        const url = imageUrlFromVideoListImage(historyImageList[index])
+        if (!url || !item || typeof item !== "object" || Array.isArray(item)) return item
+        return { ...(item as JsonRecord), image: url }
+      })
+      return next
+    }
     const firstFrame = remoteImageUrl(historyArgs.image)
     const lastFrame = remoteImageUrl(historyArgs.image_tail)
     if (firstFrame) (args as JsonRecord).image = firstFrame
@@ -1721,6 +1718,15 @@ function compactRequestWithInputMedia(requestBody: JsonRecord, input: ImageGener
     return next
   }
   if (capability === "video.generate") {
+    if (Array.isArray((args as JsonRecord).image_list)) {
+      const current = (args as JsonRecord).image_list as unknown[]
+      ;(args as JsonRecord).image_list = current.map((item: unknown, index: number) => {
+        const replacement = input.referenceImages?.[index]
+        if (!replacement || replacement.startsWith("data:image/") || !item || typeof item !== "object" || Array.isArray(item)) return item
+        return { ...(item as JsonRecord), image: replacement }
+      })
+      return next
+    }
     const firstFrame = typeof input.extra?.firstFrame === "string" ? input.extra.firstFrame : input.referenceImages?.[0]
     const lastFrame = typeof input.extra?.lastFrame === "string" ? input.extra.lastFrame : input.referenceImages?.[1]
     if (firstFrame && !firstFrame.startsWith("data:image/")) (args as JsonRecord).image = firstFrame
@@ -1752,14 +1758,16 @@ function compactRequestWithInputMedia(requestBody: JsonRecord, input: ImageGener
 }
 
 export async function createInternalGeneration(input: ImageGenerateInput): Promise<ImageGenerationTask> {
-  const capability = getStudioCapability(input)
+  const capability = input.capability
+  const unavailableModelMessage = capability === "image.generate" && studioModelUnavailableMessage(input.styleModel ?? "qwen")
+  if (unavailableModelMessage) throw new Error(unavailableModelMessage)
   const toolAction = toolActionForCapability(capability)
   const createTaskUrl = env("IMAGE_CREATE_TASK_URL") ?? DEFAULT_CREATE_TASK_URL
   const historyUrl = env("IMAGE_GET_HISTORY_URL") ?? DEFAULT_GET_HISTORY
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
   const ignoredReferenceImages = resolveReferenceImages(input)
   const generationMode: InternalTaskType = "txt2img"
-  const styleModel = getStudioStyleModel(input)
+  const styleModel = input.styleModel
   const styleConfig = getInternalStyleConfig(styleModel)
   const configuredTargetSize = getInternalTargetSize(styleModel, getStudioAspectRatio(input))
 
@@ -1779,6 +1787,8 @@ export async function createInternalGeneration(input: ImageGenerateInput): Promi
     targetSize,
     taskType,
   })
+  const unavailableTaskMessage = historicalStudioModelUnavailableMessage({ capability, request: requestBody })
+  if (unavailableTaskMessage) throw new Error(unavailableTaskMessage)
   const requestTaskType = typeof requestBody.task_type === "string" ? requestBody.task_type : taskType
   const debugRequest = {
     url: createTaskUrl,

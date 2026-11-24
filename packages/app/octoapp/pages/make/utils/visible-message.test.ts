@@ -1,11 +1,13 @@
 /**
- * InsightTurn 可见 user 消息判定(供 userMessages 过滤 / Fix 8 发送后自愈 / Fix 9 切换校验共用)。
+ * InsightTurn 可见 user 消息判定(供 userMessages 过滤 / Fix 8 发送后自愈 / Fix 9 切换校验共用)
+ * + 自动压缩回填轮判定(isHiddenCompactionTurn)
+ * + task 子会话隐藏 prompt 判定(isHiddenTaskPromptMessage)。
  *
  * 运行: bun test --preload ./happydom.ts ./octoapp/pages/make/utils/visible-message.test.ts(在 packages/app 下)
  */
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { isCompactionInjectedMessage, isHiddenTaskPromptMessage, isVisibleUserMessage } from "./visible-message"
+import { isHiddenCompactionTurn, isHiddenTaskPromptMessage, isVisibleUserMessage } from "./visible-message"
 
 const sessionID = "ses_1"
 
@@ -90,50 +92,54 @@ describe("isVisibleUserMessage", () => {
   })
 })
 
-describe("isCompactionInjectedMessage", () => {
-  const injectedTextPart = (id: string, metadata: Record<string, unknown>): Part => ({
-    id,
-    sessionID,
-    messageID: "msg_1",
-    type: "text",
-    text: "Continue if you have next steps...",
-    synthetic: true,
-    metadata,
-  })
-
-  test("Continue 提示注入消息(compaction_continue)判定为注入", () => {
-    expect(isCompactionInjectedMessage([injectedTextPart("prt_1", { compaction_continue: true })])).toBe(true)
-  })
-
-  test("overflow 回放消息(compaction_replay)判定为注入", () => {
-    expect(isCompactionInjectedMessage([injectedTextPart("prt_1", { compaction_replay: true })])).toBe(true)
-  })
-
-  test("[附件] synthetic 清单(无注入标记)不是注入消息", () => {
-    const part: Part = {
-      id: "prt_1",
-      sessionID,
-      messageID: "msg_1",
-      type: "text",
-      text: "[附件]\nfile a.png",
-      synthetic: true,
-    }
-    expect(isCompactionInjectedMessage([part])).toBe(false)
-  })
-
-  test("普通用户消息不是注入消息", () => {
-    expect(isCompactionInjectedMessage([textPart("prt_1", "msg_1")])).toBe(false)
-  })
-
-  test("真实 text 与注入标记 part 并存时不是注入消息", () => {
+describe("isHiddenCompactionTurn", () => {
+  test("replay: text part 带 metadata.compaction_replay 判定为隐藏轮", () => {
     expect(
-      isCompactionInjectedMessage([injectedTextPart("prt_1", { compaction_continue: true }), textPart("prt_2", "msg_1")]),
+      isHiddenCompactionTurn([{ type: "text", text: "做个落地页", metadata: { compaction_replay: true } }]),
+    ).toBe(true)
+  })
+
+  test("replay 轮同时带附件占位 part 也判定为隐藏轮", () => {
+    expect(
+      isHiddenCompactionTurn([
+        { type: "text", text: "做个落地页", metadata: { compaction_replay: true } },
+        { type: "text", text: "[Attached image/png: a.png]", synthetic: true, metadata: { compaction_replay: true } },
+      ]),
+    ).toBe(true)
+  })
+
+  test("continue: synthetic text 带 metadata.compaction_continue 判定为隐藏轮", () => {
+    expect(
+      isHiddenCompactionTurn([
+        { type: "text", text: "Continue if you have next steps", synthetic: true, metadata: { compaction_continue: true } },
+      ]),
+    ).toBe(true)
+  })
+
+  test("普通消息不为隐藏轮", () => {
+    expect(isHiddenCompactionTurn([{ type: "text", text: "hi" }])).toBe(false)
+    expect(isHiddenCompactionTurn(undefined)).toBe(false)
+    expect(isHiddenCompactionTurn([])).toBe(false)
+  })
+
+  test("含 compaction part 的消息优先走压缩 turn 逻辑,不在此隐藏", () => {
+    expect(
+      isHiddenCompactionTurn([
+        { type: "compaction", auto: false },
+        { type: "text", text: "/compact", synthetic: true, metadata: { compaction_continue: true } },
+      ]),
     ).toBe(false)
   })
 
-  test("undefined / 空数组不是注入消息", () => {
-    expect(isCompactionInjectedMessage(undefined)).toBe(false)
-    expect(isCompactionInjectedMessage([])).toBe(false)
+  test("synthetic 但无 compaction_continue 标记不为隐藏轮(手动 /compact 回显等)", () => {
+    expect(isHiddenCompactionTurn([{ type: "text", text: "/compact", synthetic: true }])).toBe(false)
+  })
+
+  test("metadata 非对象或标记非 true 不判定为隐藏轮", () => {
+    expect(isHiddenCompactionTurn([{ type: "text", text: "hi", metadata: null }])).toBe(false)
+    expect(
+      isHiddenCompactionTurn([{ type: "text", text: "hi", metadata: { compaction_replay: "true" } }]),
+    ).toBe(false)
   })
 })
 

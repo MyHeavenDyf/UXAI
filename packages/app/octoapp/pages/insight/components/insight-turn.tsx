@@ -23,6 +23,7 @@ import { fileTypeIconUrl } from "../icons/illustrations"
 import { tracker } from "@/utils/tracker"
 import type { OutputCardType } from "../utils/output-type"
 import { isSuccessfulCompaction } from "../utils/context-usage"
+import { MakeErrorNotice } from "../../make/components/insight-turn"
 
 // OutputCardType 的定义已收进 utils/output-type.ts(SPEC-INS-026 §4.2:类型与判定同源)。
 export type { OutputCardType } from "../utils/output-type"
@@ -106,8 +107,9 @@ function withInsightToolTitles(outer: UiI18n): UiI18n {
   }
 }
 
-function InsightCompactionTurn(props: { sessionID: string; messageID: string }) {
+function InsightCompactionTurn(props: { sessionID: string; messageID: string; active: boolean }) {
   const data = useData()
+  const i18n = useI18n()
   const parts = createMemo(
     () => (data.store.part as Record<string, Array<{ type: string; text?: string }>>)?.[props.messageID] ?? [],
   )
@@ -118,8 +120,11 @@ function InsightCompactionTurn(props: { sessionID: string; messageID: string }) 
   )
   const text = createMemo(() => parts().find((part) => part.type === "text")?.text?.trim() || "/compact")
   const compacted = createMemo(() => messages().some(isSuccessfulCompaction))
-  const aborted = createMemo(() => messages().some((message) => message.error?.name === "MessageAbortedError"))
-  const failed = createMemo(() => messages().some((message) => message.error && message.error.name !== "MessageAbortedError"))
+  const failure = createMemo(() => compacted() ? undefined : messages().find((message) => message.error)?.error)
+  const failureMessage = createMemo(() => {
+    const message = failure()?.data?.message
+    return typeof message === "string" ? message : undefined
+  })
 
   return (
     <>
@@ -134,20 +139,27 @@ function InsightCompactionTurn(props: { sessionID: string; messageID: string }) 
           {text()}
         </div>
       </div>
-      <Show when={!compacted() && !aborted() && !failed()}>
+      <Show when={!compacted() && !failure() && props.active}>
         <div class="mx-3 px-4 py-2 flex items-center gap-2 insight-compaction-status">
           <span class="w-1.5 h-1.5 rounded-full animate-pulse" />
           <span>正在压缩上下文…</span>
         </div>
       </Show>
       <Show when={compacted()}>
-        <div data-slot="session-turn-compaction"><MessageDivider label="会话已压缩" /></div>
+        <div data-slot="session-turn-compaction"><MessageDivider label={i18n.t("ui.messagePart.compaction")} /></div>
       </Show>
-      <Show when={aborted()}>
-        <div class="mx-3 px-4 py-2 insight-compaction-status">上下文压缩已停止</div>
+      <Show when={failure()}>
+        <MakeErrorNotice class="mx-3" title="上下文压缩失败">
+          <Show when={failureMessage()}><div class="select-text">{failureMessage()}</div></Show>
+        </MakeErrorNotice>
       </Show>
-      <Show when={failed()}>
-        <div class="mx-3 px-4 py-2 insight-compaction-status insight-compaction-status-error">上下文压缩失败</div>
+      <Show when={!compacted() && !failure() && !props.active}>
+        <div class="mx-3 px-4 py-2 text-sm" style={{
+          "border-radius": "var(--octo-radius-md)",
+          border: "1px solid rgba(234, 179, 8, 0.3)",
+          background: "rgba(255, 247, 224, 1)",
+          color: "#7a4f00",
+        }}>上下文压缩未完成（可能已超时或中断）</div>
       </Show>
     </>
   )
@@ -159,6 +171,8 @@ export function InsightTurn(props: {
   messageID: string
   status: SessionStatus
   active: boolean
+  compactDisabled?: boolean
+  onCompact?: () => void
   onOpenResult: (card: OutputCard) => void
   /** 锚点 = 本 turn 的 user message 下挂着的长任务卡片(每个 task_id 一张)。spec: task-card.md §3.3 */
   taskCards: TaskCardEntry[]
@@ -634,6 +648,12 @@ export function InsightTurn(props: {
             status={props.status}
             active={props.active || (props.status.type === "retry" && isLatestTurn())}
             classes={{ root: "px-3" }}
+            renderContextOverflow={() => <MakeErrorNotice title="上下文超出提示">
+              <div class="select-text">系统的单次处理能力已满。</div>
+              <div>
+                请进行“<button type="button" class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60" style={{ color: "#0a59f7", font: "inherit" }} disabled={props.compactDisabled} onClick={props.onCompact}>上下文压缩</button>”，或新建对话。
+              </div>
+            </MakeErrorNotice>}
           />
         </I18nProvider>
       </DataProvider>
@@ -688,7 +708,7 @@ export function InsightTurn(props: {
         </For>
       </Show>
       </>}>
-        <InsightCompactionTurn sessionID={props.sessionID} messageID={props.messageID} />
+        <InsightCompactionTurn sessionID={props.sessionID} messageID={props.messageID} active={props.status.type !== "idle" && isLatestTurn()} />
       </Show>
     </div>
   )

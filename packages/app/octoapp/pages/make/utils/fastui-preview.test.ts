@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test"
 import {
   createFastuiPreviewController,
   type FastuiOpenResult,
+  type FastuiPrepareResult,
   type FastuiPreviewApi,
   type FastuiPreviewState,
 } from "./fastui-preview"
@@ -18,7 +19,7 @@ import { parseFastuiPreview } from "./fastui-export"
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
 
-function setup(opts: { openTimeoutMs?: number; loadTimeoutMs?: number } = {}) {
+function setup(opts: { openTimeoutMs?: number; loadTimeoutMs?: number; prepareTimeoutMs?: number } = {}) {
   const states: FastuiPreviewState[] = []
   const ctl = createFastuiPreviewController({ onState: (s) => states.push(s), ...opts })
   return { ctl, states, phases: () => states.map((s) => s.phase) }
@@ -177,6 +178,91 @@ describe("fastui 预览状态机", () => {
     await flush()
     expect(a.calls[0].name).toBeUndefined()
     expect(ctl.state.phase).toBe("error")
+    ctl.dispose()
+  })
+})
+
+/** 接手(octo-agent SPEC-DES-009):open / restart 返回 needsPrepare → 接手 → 再 open */
+describe("fastui 预览状态机:分享导入的工程在本机接手", () => {
+  const NEEDS: FastuiOpenResult = { ok: false, needsPrepare: true, error: "需要先在本机准备预览环境" }
+  function withPrepare(opens: Array<FastuiOpenResult | Promise<FastuiOpenResult>>, prepares: Array<FastuiPrepareResult | Promise<FastuiPrepareResult>>) {
+    const a = api(opens)
+    const kinds: string[] = []
+    const impl: FastuiPreviewApi = {
+      fastuiPreviewOpen: (t) => (kinds.push("open"), a.impl.fastuiPreviewOpen!(t)),
+      fastuiPreviewRestart: (t) => (kinds.push("restart"), a.impl.fastuiPreviewRestart!(t)),
+      fastuiPreviewPrepare: (t) => {
+        kinds.push("prepare")
+        expect(t).toEqual({ workspaceDir: "/w", sessionId: "s", name: "alpha" })
+        const r = prepares.shift()
+        return r instanceof Promise ? r : Promise.resolve(r ?? { ok: false as const, error: "no more results" })
+      },
+    }
+    return { impl, kinds }
+  }
+
+  test("需要接手:编译中 → 准备环境 → 编译中 → 加载,接手后只再 open 一次", async () => {
+    const { ctl, phases } = setup()
+    const a = withPrepare([NEEDS, { ok: true, port: 8085 }], [{ ok: true, adopted: true }])
+    ctl.request({ api: a.impl, workspaceDir: "/w", sessionId: "s", name: "alpha" })
+    await flush()
+    await flush()
+    expect(ctl.state).toEqual({ phase: "loading", url: "http://127.0.0.1:8085/" })
+    expect(phases()).toEqual(["resolving", "preparing", "resolving", "loading"])
+    expect(a.kinds).toEqual(["open", "prepare", "open"])
+    ctl.dispose()
+  })
+
+  test("接手失败:进错误态,带脚本的原因与日志末尾,不再 open", async () => {
+    const { ctl } = setup()
+    const a = withPrepare([NEEDS], [{ ok: false, error: "预览环境准备失败：共享池安装失败", logTail: "npm ERR!" }])
+    ctl.request({ api: a.impl, workspaceDir: "/w", sessionId: "s", name: "alpha" })
+    await flush()
+    await flush()
+    expect(ctl.state).toEqual({ phase: "error", message: "预览环境准备失败：共享池安装失败", logTail: "npm ERR!" })
+    expect(a.kinds).toEqual(["open", "prepare"])
+    ctl.dispose()
+  })
+
+  test("接手不受取地址超时约束,只受自己的上限", async () => {
+    const { ctl } = setup({ openTimeoutMs: 30, prepareTimeoutMs: 120 })
+    let finish!: (r: FastuiPrepareResult) => void
+    const a = withPrepare([NEEDS, { ok: true, port: 8086 }], [new Promise((r) => (finish = r))])
+    ctl.request({ api: a.impl, workspaceDir: "/w", sessionId: "s", name: "alpha" })
+    await new Promise((r) => setTimeout(r, 70))
+    expect(ctl.state.phase).toBe("preparing")
+    finish({ ok: true, adopted: true })
+    await flush()
+    await flush()
+    expect(ctl.state.phase).toBe("loading")
+    ctl.dispose()
+
+    const slow = setup({ prepareTimeoutMs: 40 })
+    slow.ctl.request({ api: withPrepare([NEEDS], [new Promise(() => {})]).impl, workspaceDir: "/w", sessionId: "s", name: "alpha" })
+    await new Promise((r) => setTimeout(r, 70))
+    expect(slow.ctl.state).toEqual({ phase: "error", message: "预览环境准备超时，请重新编译" })
+    slow.ctl.dispose()
+  })
+
+  test("接手完成后仍报需要接手:进错误态,不循环", async () => {
+    const { ctl } = setup()
+    const a = withPrepare([NEEDS, NEEDS], [{ ok: true, adopted: true }])
+    ctl.request({ api: a.impl, workspaceDir: "/w", sessionId: "s", name: "alpha" })
+    await flush()
+    await flush()
+    expect(ctl.state.phase).toBe("error")
+    expect(a.kinds).toEqual(["open", "prepare", "open"])
+    ctl.dispose()
+  })
+
+  test("「重新编译」返回需要接手:同样进入接手(接手失败后的重试入口)", async () => {
+    const { ctl } = setup()
+    const a = withPrepare([NEEDS, { ok: true, port: 8087 }], [{ ok: true, adopted: true }])
+    ctl.request({ api: a.impl, workspaceDir: "/w", sessionId: "s", name: "alpha", restart: true })
+    await flush()
+    await flush()
+    expect(a.kinds).toEqual(["restart", "prepare", "open"])
+    expect(ctl.state.phase).toBe("loading")
     ctl.dispose()
   })
 })

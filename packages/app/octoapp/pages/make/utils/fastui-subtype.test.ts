@@ -40,6 +40,7 @@ describe("能力表", () => {
       ...URL_FEATURES,
       viewport: true,
       download: true,
+      downloadUI: "legacy",
       archive: { enabled: true, editOnly: true },
     })
   })

@@ -17,6 +17,8 @@ import { ModelID, ProviderID } from "../provider/schema"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
+import { CompactionDebug } from "./compaction-debug"
+import { MessageDebug } from "./message-debug"
 import { Bus } from "../bus"
 import { ProviderTransform } from "@/provider/transform"
 import { SystemPrompt } from "./system"
@@ -68,7 +70,7 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
-import { AUTOMATIC_COMPACTION_ENABLED } from "./overflow"
+import { AUTOMATIC_COMPACTION_ENABLED, usable as usableContext } from "./overflow"
 import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
 import { Token } from "@/util/token"
 
@@ -803,7 +805,74 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         },
         onStructuredOutput: () => {},
       })
-      return Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
+      const system = Token.estimateValue(request.system)
+      const tools = Token.estimateValue(request.activeTools)
+      const msgs = Token.estimateValue(request.modelMsgs)
+      return { total: system + msgs + tools, system, messages: msgs, tools }
+    })
+
+    const dumpCompactionContext = Effect.fn("SessionPrompt.dumpCompactionContext")(function* (input: {
+      sessionID: SessionID
+      session: Session.Info
+      model: Provider.Model
+      phase: "before" | "after"
+      outcome?: "success" | "failed"
+    }) {
+      const exit = yield* Effect.gen(function* () {
+        const modelLabel = `${input.model.providerID}/${input.model.id}`
+        const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
+        const lastUser = messages.findLast((message) => message.info.role === "user")?.info
+        const lastAssistant = messages.findLast((message) => message.info.role === "assistant")?.info
+        const agent = lastUser?.role === "user" ? yield* agents.get(lastUser.agent) : undefined
+        if (!lastUser || lastUser.role !== "user" || !lastAssistant || lastAssistant.role !== "assistant" || !agent) {
+          yield* CompactionDebug.dump({
+            sessionID: input.sessionID,
+            phase: input.phase,
+            outcome: input.outcome,
+            note: `context not assemblable (lastUser=${lastUser?.role ?? "none"}, lastAssistant=${lastAssistant?.role ?? "none"}, agent=${agent?.name ?? "missing"})`,
+            model: modelLabel,
+            system: [],
+            modelMsgs: [],
+            activeTools: {},
+          })
+          return
+        }
+        const request = yield* prepareRequest({
+          messages,
+          lastUser,
+          agent,
+          session: input.session,
+          model: input.model,
+          processor: {
+            message: lastAssistant,
+            updateToolCall: () => Effect.succeed(undefined),
+            completeToolCall: () => Effect.succeed(undefined),
+          },
+          onStructuredOutput: () => {},
+        })
+        yield* CompactionDebug.dump({
+          sessionID: input.sessionID,
+          phase: input.phase,
+          outcome: input.outcome,
+          model: modelLabel,
+          system: [...(agent.prompt ? [agent.prompt] : SystemPrompt.provider(input.model)), ...request.system],
+          modelMsgs: request.modelMsgs,
+          activeTools: request.activeTools,
+        })
+      }).pipe(Effect.exit)
+      if (Exit.isSuccess(exit)) return
+      const error = Cause.squash(exit.cause)
+      yield* elog.warn("compaction debug dump failed", { error })
+      yield* CompactionDebug.dump({
+        sessionID: input.sessionID,
+        phase: input.phase,
+        outcome: input.outcome,
+        note: `request assembly failed: ${error instanceof Error ? error.message : String(error)}`,
+        model: `${input.model.providerID}/${input.model.id}`,
+        system: [],
+        modelMsgs: [],
+        activeTools: {},
+      })
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
@@ -1716,6 +1785,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const slog = elog.with({ sessionID })
         let structured: unknown
         let step = 0
+        // 本轮 loop(单次用户消息/手动 compact 触发)内已执行的压缩次数:preflight 的
+        // 3 次契约计数,超限后续跑一步回灌的场景(巨型 skill 重读)仍可再压,三次用尽
+        // 才诚实拒绝。新一轮用户消息自然重置。
+        let compactionAttempts = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         let estimateAfterAutoCompaction: MessageV2.CompactionPart | undefined
 
@@ -1793,25 +1866,43 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           if (task?.type === "compaction") {
             if (task.auto && !AUTOMATIC_COMPACTION_ENABLED) continue
+            compactionAttempts++
+            yield* dumpCompactionContext({ sessionID, session, model, phase: "before" })
+            // 上下文构成明细(system/tools)供压缩服务做「no-op 跳过」与「地板预检」判定
+            const contextTokens = yield* estimateCompactedContext({ sessionID, session, model }).pipe(
+              Effect.catchCause((cause) =>
+                elog.warn("failed to estimate compacted context", { error: Cause.squash(cause) }).pipe(
+                  Effect.as(undefined),
+                ),
+              ),
+            )
             const result = yield* compaction.process({
               messages: msgs,
               parentID: lastUser.id,
               sessionID,
               auto: task.auto,
               overflow: task.overflow,
+              contextTokens:
+                contextTokens === undefined
+                  ? undefined
+                  : {
+                      system: contextTokens.system,
+                      tools: contextTokens.tools,
+                      usable: usableContext({ cfg: yield* config.get(), model }),
+                    },
+            })
+            yield* dumpCompactionContext({
+              sessionID,
+              session,
+              model,
+              phase: "after",
+              outcome: result === "stop" ? "failed" : "success",
             })
             if (result === "stop") break
             if (!task.auto) {
-              const estimated = yield* estimateCompactedContext({ sessionID, session, model }).pipe(
-                Effect.catchCause((cause) =>
-                  elog.warn("failed to estimate compacted context", { error: Cause.squash(cause) }).pipe(
-                    Effect.as(undefined),
-                  ),
-                ),
-              )
-              if (estimated !== undefined) {
+              if (contextTokens !== undefined) {
                 const limit = model.limit.input ?? model.limit.context
-                task.estimated_tokens = estimated
+                task.estimated_tokens = contextTokens.total
                 task.estimated_limit = limit
                 task.estimated_provider_id = model.providerID
                 task.estimated_model_id = model.id
@@ -1819,7 +1910,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 yield* bus.publish(SessionCompaction.Event.Estimated, {
                   sessionID,
                   messageID: task.messageID,
-                  tokens: estimated,
+                  tokens: contextTokens.total,
                   limit,
                   providerID: model.providerID,
                   modelID: model.id,
@@ -1855,6 +1946,24 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             lastFinished.modelID === model.id &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
+            // 信号失真放行(compaction_noop 续跑)的重复触发防护:一次性生效 —— 全账已
+            // 复核为放得下,紧邻的同证据重复触发跳过一次并消除标记;之后新回灌的内容
+            // (如重读巨型 skill)恢复正常压缩判定,preflight 亦按 3 次契约兜底。
+            const noopUser = msgs.findLast((message) => message.info.role === "user")
+            const noopPart = noopUser?.parts.find(
+              (part) => "metadata" in part && part.metadata?.["compaction_noop"] === true,
+            )
+            if (noopPart && "metadata" in noopPart) {
+              yield* sessions.updatePart({
+                ...noopPart,
+                metadata: { ...noopPart.metadata, compaction_noop: false },
+              })
+              log.warn("loop-overflow-check skipped after no-op recalculated continue", {
+                sessionID,
+                reported: lastFinished.tokens.input + lastFinished.tokens.cache.read + lastFinished.tokens.cache.write,
+              })
+              continue
+            }
             yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
             continue
           }
@@ -1927,6 +2036,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 structured = output
               },
             })
+            yield* MessageDebug.dumpTurn({
+              sessionID,
+              userID: lastUser.id,
+              agent: agent.name,
+              model: `${model.providerID}/${model.id}`,
+              system: [
+                ...(agent.prompt ? [agent.prompt] : SystemPrompt.provider(model)),
+                ...request.system,
+                ...(lastUser.system ? [lastUser.system] : []),
+              ],
+              modelMsgs: request.modelMsgs,
+              activeTools: request.activeTools,
+            })
             if (estimateAfterAutoCompaction) {
               const tokens = Token.estimateValue([request.system, request.modelMsgs, request.activeTools])
               const limit = model.limit.input ?? model.limit.context
@@ -1960,12 +2082,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               model,
               toolChoice:
                 request.format.type === "json_schema" || request.studioImageGeneration ? "required" : undefined,
-              compactionAttempted:
-                lastUserMsg?.parts.some(
-                  (part) =>
-                    "metadata" in part &&
-                    (part.metadata?.["compaction_continue"] === true || part.metadata?.["compaction_replay"] === true),
-                ) ?? false,
+              compactionAttempted: compactionAttempts,
             })
 
             if (structured !== undefined) {
@@ -2002,6 +2119,29 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             if (result === "stop") return "break" as const
             if (result === "compact") {
               if (!AUTOMATIC_COMPACTION_ENABLED) return "break" as const
+              const overflowTokens =
+                handle.message.tokens.input + handle.message.tokens.cache.read + handle.message.tokens.cache.write
+              // 信号失真放行(compaction_noop 续跑)的 post-step 重复触发防护:一次性
+              // 生效 —— 跳过紧邻的同证据触发一次并消除标记,之后新回灌内容恢复压缩
+              // 判定;估算真超限时 preflight 走压缩(3 次契约)。provider 硬拒
+              // (halt-overflow,finish 未落)不在此列,仍走 overflow 压缩。
+              const noopPart =
+                handle.message.finish !== undefined
+                  ? lastUserMsg?.parts.find(
+                      (part) => "metadata" in part && part.metadata?.["compaction_noop"] === true,
+                    )
+                  : undefined
+              if (noopPart && "metadata" in noopPart) {
+                yield* sessions.updatePart({
+                  ...noopPart,
+                  metadata: { ...noopPart.metadata, compaction_noop: false },
+                })
+                yield* slog.warn("post-step auto compaction skipped after no-op recalculated continue", {
+                  sessionID,
+                  reported: overflowTokens,
+                })
+                return "continue" as const
+              }
               yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,

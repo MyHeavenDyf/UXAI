@@ -342,12 +342,12 @@ export function DialogConnectProvider(props: { provider: string }) {
 
     // 先缓存 providerName 再关闭 dialog，避免 close 后 reactive 失效
     const name = providerName()
+    const requiresApiKey = provider()?.options.requires_api_key === true
     dialog.close()
 
-    if (props.provider === "opencode") {
-      // opencode: updateConfig 后端已自动 dispose + SSE 重加载
-      // 只需刷新前端缓存，不需要再次 dispose
-      console.log("[octo:connect] opencode branch: skip dispose (backend auto)", { t: Date.now() })
+    if (props.provider === "opencode" || requiresApiKey) {
+      // 需 Key 的远端提供商会实时读取认证；opencode 配置更新由后端处理重载。
+      // 两者均只刷新列表，避免为远端提供商保存 Key 时重置整个项目。
       globalSync.invalidateProviders()
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
     } else {
