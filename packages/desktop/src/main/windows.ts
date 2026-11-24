@@ -1,3 +1,4 @@
+import log from "electron-log/main.js"
 import windowState from "electron-window-state"
 import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
@@ -24,6 +25,8 @@ import { getBridgeConfigForSubtype } from "./bridge-config"
 import { getCustomBridge } from "./custom-bridge-registry"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
+import { CHANNEL } from "./constants"
+import { dockIcons } from "./dock-icons"
 import { insightDebugLog } from "./logging"
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -67,8 +70,11 @@ export function getBackgroundColor(): string | undefined {
   return backgroundColor
 }
 
+// dev 与打包态都指向"已提交进 git 的渠道图标目录"：打包态由 electron-builder
+// extraResources 把 icons/<channel>/ 落到 Contents/Resources/icons;dev 态直接读源码树。
+// 不再依赖 gitignore 的生成目录 resources/icons。
 function iconsDir() {
-  return app.isPackaged ? join(process.resourcesPath, "icons") : join(root, "../../resources/icons")
+  return app.isPackaged ? join(process.resourcesPath, "icons") : join(root, `../../icons/${CHANNEL}`)
 }
 
 function iconPath() {
@@ -109,10 +115,30 @@ export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
   updateTitlebar(win)
 }
 
+// 系统外观切换后 Dock 进程会异步用 bundle 的 icon.icns 回写图标,单次 setIcon 可能被覆盖
+// (回写时机随 macOS 版本差异大)。切换后按梯度多次重设,保证最终生效。
+const dockIconReapplyDelaysMs = [0, 300, 1000, 2500, 5000, 8000]
+let dockIconTimers: ReturnType<typeof setTimeout>[] = []
+
 export function setDockIcon() {
   if (process.platform !== "darwin") return
-  const icon = nativeImage.createFromPath(join(iconsDir(), "dock.png"))
-  if (!icon.isEmpty()) app.dock?.setIcon(icon)
+  dockIconTimers.forEach(clearTimeout)
+  dockIconTimers = []
+  const apply = () => {
+    const dark = nativeTheme.shouldUseDarkColors
+    const variantPath = join(iconsDir(), `dock-${dark ? "dark" : "light"}.png`)
+    const candidates = [
+      nativeImage.createFromPath(variantPath),
+      nativeImage.createFromDataURL(dark ? dockIcons.dark : dockIcons.light),
+      nativeImage.createFromPath(join(iconsDir(), "dock.png")),
+    ]
+    const icon = candidates.find((image) => !image.isEmpty()) ?? candidates[2]
+    const info = { dark, variantPath, empty: icon.isEmpty(), hasDock: !!app.dock, iconsDir: iconsDir(), packaged: app.isPackaged }
+    console.log("[dock] setDockIcon", JSON.stringify(info))
+    log.info("[dock] setDockIcon", info)
+    if (!icon.isEmpty()) app.dock?.setIcon(icon)
+  }
+  dockIconTimers = dockIconReapplyDelaysMs.map((ms) => setTimeout(apply, ms))
 }
 
 export function createMainWindow() {

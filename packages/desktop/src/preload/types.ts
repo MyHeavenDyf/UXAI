@@ -61,7 +61,7 @@ export type DownloadSavePathInfo = {
 }
 
 // jk-j60099994-replace-with-60062650-preload-types-1-start
-export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+export type SkillConfigEntry = { description?: string; import?: boolean; type?: string; usage?: string }
 // jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
@@ -237,11 +237,14 @@ export type ElectronAPI = {
   /** 设置-MCP 页:写全局配置文件的 mcp 段(jsonc 保留注释,内置名单拒改);生效需随后 global.dispose */
   mcpConfigWrite: (input: McpConfigWriteInput) => Promise<void>
   getSkillConfig: () => Promise<SkillConfig>
+  setSkillConfig: (config: SkillConfig) => Promise<void>
   getSkillContent: (skillName: string) => Promise<SkillContentResponse>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   ensureSkillConfig: () => Promise<void>
   openSkillFolder: () => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-start
+  getSkillsByUsage: (usage: string) => Promise<SkillConfigEntry[]>
+  getSkillKeyByName: (skillName: string) => Promise<string | undefined>
   setDesignSystemSkillConfig: (skillName: string) => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>

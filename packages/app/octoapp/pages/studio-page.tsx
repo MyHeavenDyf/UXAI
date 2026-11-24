@@ -138,9 +138,9 @@ import {
   STUDIO_VIDEO_MODE,
   type StudioVideoQualityMode,
 } from "./studio/studio-shared"
-import { promptMetadata } from "./studio/studio-prompt-state"
+import { promptMetadata, recommendationActivity, recommendationMessagesCurrent } from "./studio/studio-prompt-state"
 import { createRecommendationSettings, type RecommendationImageSettings } from "./studio/studio-recommendation-settings"
-import { createRecommendationMode } from "./studio/studio-recommendation-mode"
+import { createRecommendationMode, createRecommendationSwitch } from "./studio/studio-recommendation-mode"
 import { createStudioDraftCapture, restoreStudioDraft } from "./studio/studio-draft-restore"
 import { createPromptRecommendation } from "./studio/studio-prompt-recommendation"
 import { createExpansionReview, generateExpansion, type ExpansionReviews } from "./studio/studio-prompt-expansion-review"
@@ -461,11 +461,12 @@ function StudioPageContent() {
     createStore<{ entries: Record<string, RecommendationImageSettings> }>({ entries: {} }),
   )
   const imageSettingsReady = () => imageSettingStoreReady() && imageSessionStoreReady() && lastImageSettingsReady()
-  const [recommendationModes, setRecommendationModes, , recommendationModesReady] = persisted(
+  const [recommendationModes, setRecommendationModes] = persisted(
     Persist.sessionGlobal("studio.recommendation.modes"),
-    createStore<{ entries: Record<string, StudioCapability>; settings: Record<string, RecommendationImageSettings>; enabled?: Record<string, boolean> }>({ entries: {}, settings: {}, enabled: {} }),
+    createStore<{ entries: Record<string, StudioCapability>; settings: Record<string, RecommendationImageSettings> }>({ entries: {}, settings: {} }),
   )
-  const recommendationEnabled = () => recommendationModes.enabled?.[recommendationKey()] === true
+  const recommendationSwitch = createRecommendationSwitch()
+  const recommendationEnabled = () => recommendationSwitch.enabled(recommendationKey())
   const recommendationActive = () => recommendationMode.active()
   const capability = () => recommendationMode.capability()
   const setCapability = (v: StudioCapability) => recommendationMode.select(v)
@@ -679,6 +680,9 @@ function StudioPageContent() {
   const recommendation = createPromptRecommendation({
     sessionID: () => params.id,
     scope: recommendationScope,
+    snapshotReady,
+    messagesCurrent: (recommendation) => recommendationMessagesCurrent(recommendation, dataStore.part),
+    activity: () => recommendationActivity(params.id, params.id ? dataStore.message[params.id] ?? [] : [], dataStore.part),
     revision: () => (params.id ? dataStore.message[params.id] ?? [] : []).flatMap((message) =>
       (dataStore.part[message.id] ?? []).flatMap((part) => part.type === "text" &&
         (part.metadata?.studioPromptRecommendation || part.metadata?.studioPromptExpansion)
@@ -715,17 +719,13 @@ function StudioPageContent() {
       navigate(`/${routeSlug()}/studio/${id}`)
     },
     notice: (message) => showFloatingNotice("info", message),
-    mode: {
-      ready: recommendationModesReady,
-      enabled: (key) => recommendationModes.enabled?.[key],
-      save: (key, enabled) => setRecommendationModes("enabled", (entries) => ({ ...entries, [key]: enabled })),
-    },
+    mode: recommendationSwitch,
   })
   const recommendationMode = createRecommendationMode({
     key: recommendationKey,
     enabled: recommendationEnabled,
     busy: () => isActionBusy(),
-    ready: () => recommendation.ready() && !recommendation.exiting() && !recommendation.state()?.unknown,
+    ready: () => recommendation.ready() && !recommendation.exiting() && !recommendation.needsRecovery(),
     entries: () => recommendationModes.entries,
     save: (key, value) => {
       if (params.id) setRecommendationModes("entries", key, value)
@@ -2010,7 +2010,7 @@ function StudioPageContent() {
   }
   const canSubmit = createMemo(() => recommendation.ready() && !recommendation.exiting() && !isActionBusy() && (recommendationActive()
     ? !recommendation.busy() && prompt().trim().length > 0 && [...prompt().trim()].length <= 2000 && assets().length <= 3
-    : !recommendation.state()?.unknown && SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
+    : !recommendation.needsRecovery() && SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
     !selectedCapabilityNeedsImage() &&
     (studioPermissionStatus() !== "loading" || (capability() === "image.generate" && !styleModelRequiresSeedreamPermission(styleModel()))) &&
@@ -4888,7 +4888,7 @@ function StudioPageContent() {
   }
 
   function handleSubmit() {
-    if (recommendation.state()?.unknown && !recommendationActive()) { void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。")); return }
+    if (recommendation.needsRecovery() && !recommendationActive()) { recoverRecommendation(); return }
     if (!canSubmit()) return
     if (recommendationActive()) {
       const submittedPrompt = prompt()
@@ -4916,7 +4916,6 @@ function StudioPageContent() {
       })
       return
     }
-    if (recommendation.state()?.unknown) { void recommendation.recover(); return }
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
     const template = selectedStyleTemplate()
     if (template && capability() === "image.generate") {
@@ -5260,7 +5259,7 @@ function StudioPageContent() {
   const expansionReview = createExpansionReview({
     key: recommendationKey,
     ready: () => reviewPersistence[3]() && sessionDataLoaded() && snapshotReady() &&
-      recommendation.ready() && !recommendation.state()?.unknown,
+      recommendation.ready() && !recommendation.needsRecovery(),
     turns: () => buildStudioTurns({
       messages: params.id ? dataStore.message[params.id] ?? [] : [],
       parts: dataStore.part,
@@ -5271,7 +5270,7 @@ function StudioPageContent() {
     save: (key, id, value) => reviewPersistence[1]("entries", key, (entries) => ({ ...entries, [id]: value })),
   })
   const canGenerateExpansion = () =>
-    recommendation.ready() && !recommendation.state()?.unknown &&
+    recommendation.ready() && !recommendation.needsRecovery() &&
     !recommendationMode.taskBlocked() && imageSettingsReady() &&
     (studioPermissionStatus() !== "loading" || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel()))
@@ -5292,10 +5291,14 @@ function StudioPageContent() {
     void recommendation.exit().catch(() => showFloatingNotice("info", "退出推荐尚未确认，请重新同步。"))
   }
 
+  function recoverRecommendation() {
+    void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))
+  }
+
   function initializeRecommendation() {
     if (!recommendation.ready() || recommendation.busy()) return
-    if (recommendation.state()?.unknown) {
-      void recommendation.recover()
+    if (recommendation.needsRecovery()) {
+      recoverRecommendation()
       return
     }
     if (recommendationEnabled()) return
@@ -5490,9 +5493,9 @@ function StudioPageContent() {
                   busy={isBusy() || recommendation.busy()}
                   onRecommend={initializeRecommendation}
                   recommendationEnabled={recommendationActive()}
-                  recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
+                  recommendationExiting={recommendation.exiting() || recommendation.needsRecovery()}
                   onExitRecommendation={exitRecommendation}
-                  onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
+                  onRecoverRecommendation={recoverRecommendation}
                   actionsBlocked={recommendationMode.taskBlocked()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
@@ -5764,9 +5767,9 @@ function StudioPageContent() {
             busy={isBusy() || recommendation.busy()}
             onRecommend={initializeRecommendation}
             recommendationEnabled={recommendationActive()}
-            recommendationExiting={recommendation.exiting() || Boolean(recommendation.state()?.unknown)}
+            recommendationExiting={recommendation.exiting() || recommendation.needsRecovery()}
             onExitRecommendation={exitRecommendation}
-            onRecoverRecommendation={() => void recommendation.recover().catch(() => showFloatingNotice("info", "推荐状态同步失败，请重试。"))}
+            onRecoverRecommendation={recoverRecommendation}
             actionsBlocked={recommendationMode.taskBlocked()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}

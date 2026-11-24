@@ -1,5 +1,5 @@
 import z from "zod"
-import type { Part } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 
 const base = { version: z.literal(1), revision: z.number().int().positive() }
 const reasoning = z.object({ version: z.literal(1) })
@@ -41,6 +41,38 @@ export function promptMetadata(part?: Part) {
     .union([guide, result])
     .safeParse(part.metadata?.studioPromptRecommendation ?? part.metadata?.studioPromptExpansion)
   return parsed.success ? parsed.data : undefined
+}
+
+export function recommendationActivity(sessionID: string | undefined, messages: Message[], parts: Record<string, Part[]>) {
+  const assistant = messages.findLast((message) => message.role === "assistant")
+  if (!sessionID || !assistant) return
+  const metadata = (parts[assistant.id] ?? []).map(promptMetadata).find((item) => item?.kind === "result")
+  if (metadata?.kind !== "result" || !metadata.guidePartID) return
+  return {
+    sessionID,
+    guidePartID: metadata.guidePartID,
+    assistantMessageID: assistant.id,
+    resultRevision: metadata.revision,
+    status: metadata.status,
+  }
+}
+
+export function recommendationMessagesCurrent(
+  recommendation: {
+    guidePartID: string
+    guideMessageID: string
+    guideRevision: number
+    assistantMessageID?: string
+    resultRevision?: number
+  },
+  parts: Record<string, Part[]>,
+) {
+  const guide = promptMetadata(parts[recommendation.guideMessageID]?.find((part) => part.id === recommendation.guidePartID))
+  if (guide?.kind !== "guide" || guide.revision < recommendation.guideRevision) return false
+  if (recommendation.resultRevision === undefined) return true
+  const result = (parts[recommendation.assistantMessageID ?? ""] ?? []).map(promptMetadata)
+    .find((metadata) => metadata?.kind === "result" && metadata.guidePartID === recommendation.guidePartID)
+  return result?.kind === "result" && result.revision >= recommendation.resultRevision
 }
 
 export function mergePromptPart(previous: Part | undefined, next: Part) {
