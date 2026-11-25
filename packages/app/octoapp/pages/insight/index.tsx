@@ -2752,10 +2752,12 @@ function InsightContent() {
   }
 
   const { request, gate } = useUploadRiskGate({ module: "insight" })
+  const [lastOpenedPopover, setLastOpenedPopover] = createSignal<"addon" | "model">()
   const addonScope = () => JSON.stringify([projectDir(), params.id, projectSelection()?.product?.id])
   const renderAddonMenu = () => (
     <Show when={addonScope()} keyed>{_scope =>
       <InsightAddonMenu
+        closeWhen={lastOpenedPopover() === "model"} onOpen={() => setLastOpenedPopover("addon")}
         directory={projectDir()} sessionId={params.id} productId={projectSelection()?.product?.id}
         editor={() => pmRefWelcome?.isAlive() ? pmRefWelcome : pmRefConv?.isAlive() ? pmRefConv : undefined}
         skills={insightSkills()} skillsLoading={skillsLoading()} loadSkills={loadInsightSkills}
@@ -2938,6 +2940,8 @@ function InsightContent() {
                         {renderAddonMenu()}
 
                         <ModelSelectorPopover
+                          closeWhen={lastOpenedPopover() === "addon"}
+                          onOpen={() => setLastOpenedPopover("model")}
                           onModelSelect={(model) => trackInsight("model-select", { sessionId: params.id, ...model })}
                           model={local.model} riskDialog={MakeModelRiskDialog}
                           triggerAs="button"
@@ -3181,6 +3185,8 @@ function InsightContent() {
                     {renderAddonMenu()}
 
                     <ModelSelectorPopover
+                      closeWhen={lastOpenedPopover() === "addon"}
+                      onOpen={() => setLastOpenedPopover("model")}
                       onModelSelect={(model) => trackInsight("model-select", { sessionId: params.id, ...model })}
                       model={local.model} riskDialog={MakeModelRiskDialog}
                       triggerAs="button"

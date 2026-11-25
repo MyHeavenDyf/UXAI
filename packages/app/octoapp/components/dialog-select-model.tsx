@@ -1,5 +1,5 @@
 import { Popover as Kobalte } from "@kobalte/core/popover"
-import { Component, ComponentProps, createMemo, JSX, Show, ValidComponent } from "solid-js"
+import { Component, ComponentProps, createEffect, createMemo, JSX, on, Show, ValidComponent } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -152,6 +152,8 @@ export function ModelSelectorPopover(props: {
   children?: JSX.Element
   triggerAs?: ValidComponent
   triggerProps?: ModelSelectorTriggerProps
+  closeWhen?: boolean
+  onOpen?: () => void
   onClose?: (cause: "escape" | "select") => void
   onModelSelect?: (model: { modelId: string; providerId: string; isExternal: boolean }) => void
   riskDialog?: RiskDialogComponent
@@ -170,6 +172,10 @@ export function ModelSelectorPopover(props: {
     setStore("dismiss", dismiss)
     setStore("open", false)
   }
+
+  createEffect(on(() => props.closeWhen, (shouldClose) => {
+    if (shouldClose && store.open) close("outside")
+  }))
 
   const handleManage = () => {
     close("manage")
@@ -192,7 +198,10 @@ export function ModelSelectorPopover(props: {
       <Kobalte
         open={store.open}
         onOpenChange={(next) => {
-          if (next) setStore("dismiss", null)
+          if (next) {
+            setStore("dismiss", null)
+            props.onOpen?.()
+          }
           setStore("open", next)
         }}
         modal={false}
