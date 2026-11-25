@@ -1013,11 +1013,12 @@ export function registerIpcHandlers(deps: Deps) {
     await writeFile(resolved, content, "utf-8")
   })
 
-  ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
+  ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string, strict?: boolean) => {
     try {
       const buf = await readFile(path)
       return toExactArrayBuffer(buf)
-    } catch {
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       return null
     }
   })
@@ -1082,11 +1083,11 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
-  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
+  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string, strict?: boolean) => {
     try {
       await unlink(path)
-    } catch {
-      // 文件不存在时忽略，不执行任何代码
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
   })
 

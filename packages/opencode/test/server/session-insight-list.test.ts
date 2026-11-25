@@ -36,7 +36,7 @@ afterEach(async () => {
 })
 
 describe("insight.sessions.list (listInsightSessions)", () => {
-  test("filters by agent=octo_insight server-side, excludes other agents and agent-less", async () => {
+  test("lists only root Insight sessions, including in the pagination total", async () => {
     await using tmp = await tmpdir({ git: true })
     await WithInstance.provide({
       directory: tmp.path,
@@ -45,6 +45,7 @@ describe("insight.sessions.list (listInsightSessions)", () => {
         const b = await svc.create({ title: "insight-2", agent: "octo_insight" })
         const make = await svc.create({ title: "make-1", agent: "octo_make" })
         const bare = await svc.create({ title: "no-agent" })
+        const child = await svc.create({ title: "legacy Insight task", agent: "octo_insight", parentID: a.id })
 
         const page = listInsightSessions({ projectID: projectIDOf(a.id), directory: tmp.path, limit: 100, offset: 0 })
         const ids = page.items.map((s) => s.id)
@@ -54,6 +55,7 @@ describe("insight.sessions.list (listInsightSessions)", () => {
         expect(ids).toContain(b.id)
         expect(ids).not.toContain(make.id)
         expect(ids).not.toContain(bare.id)
+        expect(ids).not.toContain(child.id)
         expect(page.items.every((s) => s.agent === "octo_insight")).toBe(true)
       },
     })
