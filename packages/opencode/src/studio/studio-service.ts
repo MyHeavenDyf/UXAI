@@ -2863,6 +2863,12 @@ async function createGenerationImpl(request: StudioGenerationRequest): Promise<S
         extra: {
           userIdx: request.extra?.userIdx,
           skipPromptRefine: true,
+          ...(snapshot.operation?.capability === "image.outpaint" ? {
+            left: snapshot.operation.left,
+            right: snapshot.operation.right,
+            top: snapshot.operation.top,
+            bottom: snapshot.operation.bottom,
+          } : {}),
           ...(snapshot.operation?.capability === "image.upscale" ? { mode: snapshot.operation.mode } : {}),
           ...(snapshot.operation?.capability === "image.inpaint" ? {
             generateMode: snapshot.operation.generateMode,

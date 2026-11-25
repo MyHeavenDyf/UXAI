@@ -1,4 +1,4 @@
-import { adjustStudioImageForEdit as adjustImageForEdit, prepareStudioUpscaleImage, prepareStudioImageOperation, resizeStudioCompositeImage } from "./studio/studio-edit-image"
+import { adjustStudioImageForEdit as adjustImageForEdit, prepareStudioUpscaleImage, prepareStudioImageOperation, prepareStudioOutpaintImage, resizeStudioCompositeImage } from "./studio/studio-edit-image"
 import "./studio/studio.css"
 import "./studio/board/studio-board-entry.css"
 import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSuccess, studioPermissionState } from "./studio/studio-permission-store"
@@ -81,6 +81,8 @@ import { StudioConversation, StudioDetails, StudioEmptyState, StudioResultCanvas
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { studioInpaintPrompt, type StudioInpaintInput } from "./studio/studio-inpaint-canvas"
+import { STUDIO_OUTPAINT_PROMPT } from "@opencode-ai/core/studio-outpaint"
+import type { StudioOutpaintInput } from "./studio/studio-outpaint-stage"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
 import { StudioStyleTemplateDeleteDialog } from "./studio/studio-style-template-delete-dialog"
@@ -5039,17 +5041,16 @@ function StudioPageContent() {
     })
   }
 
-  async function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
+  async function submitOutpaint(input: StudioOutpaintInput) {
     const image = workspaceEditImage()
     if (!image || recommendationMode.taskBlocked()) return
     const canRestore = recommendationMode.capture()
     const canRestoreInput = captureDraft()
-    let sourceUrl = image.remoteUrl ?? image.url
-
-    // Auto-adjust original image (not local upload) if exceeds limits
-    if (!workspaceImage()) {
-      sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 300 })
-    }
+    const prepared = await prepareStudioOutpaintImage(image.remoteUrl ?? image.url, input.extra).catch((error: unknown) => {
+      showFloatingNotice("error", error instanceof Error ? error.message : "图片处理失败，请重试")
+      return undefined
+    })
+    if (!prepared) return
 
     if (!canRestore() || !canRestoreInput()) return
     tracker.interaction({
@@ -5062,24 +5063,13 @@ function StudioPageContent() {
         isUploadedImage: !!workspaceImage(),
       }),
     })
-    // 扩图结果比例：优先用画布框实际像素尺寸(realWidth/realHeight)推算，
-    // 覆盖用户自由拖动（不匹配预设比例）的场景；否则回退 extra.ratio
-    const extra = input.extra
-    const realW = typeof extra?.realWidth === "number" ? extra.realWidth : undefined
-    const realH = typeof extra?.realHeight === "number" ? extra.realHeight : undefined
-    const ratioRaw = extra?.ratio
-    const targetAspectRatio = realW && realH
-      ? closestStudioAspectRatio(realW, realH)
-      : typeof ratioRaw === "string" && (STUDIO_ASPECT_RATIOS as string[]).includes(ratioRaw)
-        ? (ratioRaw as StudioAspectRatio)
-        : undefined
     void runGeneration({
       inputPolicy: "preserve",
       capability: "image.outpaint",
-      sourceImage: sourceUrl,
-      aspectRatio: targetAspectRatio,
-      prompt: input.prompt || "保留主体和画面风格，扩展更大尺寸和更多环境内容",
-      extra: input.extra,
+      sourceImage: prepared.sourceImage,
+      aspectRatio: prepared.aspectRatio,
+      prompt: input.prompt || STUDIO_OUTPAINT_PROMPT,
+      extra: { ...input.extra, ...prepared.metrics },
     })
   }
 
@@ -6020,6 +6010,7 @@ function StudioPageContent() {
             <Show when={mode() === "outpaint" && workspaceEditImage()}>
               {(image) => (
                 <StudioOutpaintEditor
+                  busy={recommendationMode.taskBlocked()}
                   image={image()}
                   aspectRatio={aspectRatio()}
                   onAspectRatio={setAspectRatio}

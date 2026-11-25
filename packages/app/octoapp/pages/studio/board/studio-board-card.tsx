@@ -13,6 +13,7 @@ import type { BoardOperation } from "./studio-board-operations"
 import { studioGenerationFailureMessage, studioGenerationProgress, studioGenerationQueueLabel } from "../studio-shared"
 import { StudioVideoPlayer } from "../studio-video-player"
 import { StudioInpaintCanvas, type StudioInpaintDrawing } from "../studio-inpaint-canvas"
+import { StudioOutpaintStage, type StudioOutpaint } from "../studio-outpaint-stage"
 
 export function StudioBoardCardView(props: {
   card: BoardCard
@@ -35,6 +36,9 @@ export function StudioBoardCardView(props: {
   submissionError?: string
   onRetry?: () => void
   inpaint?: StudioInpaintDrawing
+  outpaint?: StudioOutpaint
+  outpaintSource?: string
+  zoom?: number
 }) {
   const current = () => props.results[props.card.currentGenerationID ?? ""]
   const hasFailure = () => !props.operation && (!!props.submissionError || (!props.failureSuppressed && boardFailed(current())))
@@ -63,7 +67,9 @@ export function StudioBoardCardView(props: {
   const source = () => props.mediaURL(shownMedia()?.url)
   const dimensions = new Map<string, { width: number; height: number }>()
   const [media, setMedia] = createStore({ width: 300, height: 300 })
-  const size = createMemo(() => boardCardSize(media.width, media.height))
+  const size = createMemo(() => props.outpaint?.state.ready
+    ? { width: props.outpaint.rect().width + 4, height: props.outpaint.rect().height + 30 }
+    : boardCardSize(media.width, media.height))
   let element!: HTMLElement
   function measure(width: number, height: number) {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
@@ -100,6 +106,7 @@ export function StudioBoardCardView(props: {
         "studio-board-card-image": props.card.kind === "image",
         "studio-board-card-video": props.card.kind === "video",
         inpainting: !!props.inpaint,
+        outpainting: !!props.outpaint,
       }}
       aria-label={props.card.title}
       on:pointerdown={(event) => {
@@ -184,7 +191,7 @@ export function StudioBoardCardView(props: {
             </Show>
           </div>
         </Show>
-        <Show
+        <Show when={props.outpaint && props.outpaintSource} fallback={<Show
           when={!props.locked && !showFailure()}
           fallback={
             <div
@@ -261,6 +268,8 @@ export function StudioBoardCardView(props: {
               </Show>
             )}
           </Show>
+        </Show>}>
+          <StudioOutpaintStage editor={props.outpaint!} source={props.outpaintSource!} board zoom={props.zoom} />
         </Show>
         <Show when={props.inpaint}>
           {(drawing) => <StudioInpaintCanvas drawing={drawing()} />}

@@ -21,7 +21,9 @@ import { createBoardOperations } from "./studio-board-operations"
 import { isSeedreamStyleModel, referenceImageLimit, styleModelId } from "../data"
 import { originalMediaSrc, resolveStudioMediaUrl } from "../studio-media"
 import { prepareStudioMediaDownload, saveStudioMediaDownload, type StudioHDMode, type StudioInpaintMode } from "../studio-shared"
-import { prepareStudioImageOperation, resizeStudioCompositeImage } from "../studio-edit-image"
+import { prepareStudioImageOperation, prepareStudioOutpaintImage, resizeStudioCompositeImage } from "../studio-edit-image"
+import { STUDIO_OUTPAINT_PROMPT } from "@opencode-ai/core/studio-outpaint"
+import { createStudioOutpaint, type StudioOutpaintInput } from "../studio-outpaint-stage"
 import { createStudioInpaintDrawing, studioInpaintPrompt, type StudioInpaintInput } from "../studio-inpaint-canvas"
 import { tracker } from "@/utils/tracker"
 import type { StudioGenerationResult, StudioImage } from "../types"
@@ -61,6 +63,7 @@ import { StudioBoardMediaToolbar } from "./studio-board-media-toolbar"
 import { StudioBoardComposer } from "./studio-board-composer"
 import { StudioBoardUpscale } from "./studio-board-upscale"
 import { StudioBoardInpaint } from "./studio-board-inpaint"
+import { StudioBoardOutpaint } from "./studio-board-outpaint"
 import { StudioBoardResults } from "./studio-board-results"
 import { StudioBoardHeader, type BoardSessionPage } from "./studio-board-header"
 import type { ThumbnailMap } from "../session-thumbnail"
@@ -158,6 +161,10 @@ export default function StudioBoard(props: {
     inpaintPrompt: "",
     inpaintError: "",
     inpaintAnchor: { left: 0, top: 0, width: 488 },
+    outpaint: undefined as { cardID: string; generationID: string; mediaID: string; url: string } | undefined,
+    outpaintPrompt: "",
+    outpaintError: "",
+    outpaintAnchor: { left: 0, top: 0, width: 440 },
     upscaleMode: "restoration_8k" as StudioHDMode,
     derivedPreparing: false,
     submissionErrors: {} as Record<string, string>,
@@ -205,6 +212,20 @@ export default function StudioBoard(props: {
     brushSize: () => state.inpaintBrush,
     busy: () => busy() || awaitingRecovery(),
   })
+  const outpaintEditor = createStudioOutpaint({
+    source: () => state.outpaint?.url,
+    key: () => state.outpaint && `${state.outpaint.generationID}:${state.outpaint.mediaID}`,
+    busy: () => busy() || awaitingRecovery() || !!state.saveError,
+    stage: { width: 768, height: 768 },
+  })
+  createEffect(() => {
+    const edit = state.outpaint
+    if (!edit) return
+    const card = selected()
+    const media = card && boardMedia(card, state.results).find((item) => item.media === boardDisplayedMedia(card, state.results))
+    if (card?.id !== edit.cardID || media?.generationID !== edit.generationID || media?.mediaID !== edit.mediaID)
+      setState("outpaint", undefined)
+  })
   createEffect(() => {
     const edit = state.inpaint
     if (!edit) return
@@ -237,6 +258,25 @@ export default function StudioBoard(props: {
   let temporaryEdge: Edge | undefined
   let selectionStart: { x: number; y: number } | undefined
   let snapping = false
+  let outpaintPositionID = ""
+  createEffect(() => {
+    const edit = state.outpaint
+    if (outpaintPositionID && outpaintPositionID !== edit?.cardID) {
+      const card = state.document.cards.find((card) => card.id === outpaintPositionID)
+      const node = graph?.getCellById(outpaintPositionID)
+      if (card && node?.isNode()) node.position(card.position.x, card.position.y)
+      outpaintPositionID = ""
+      updateAnchor()
+    }
+    if (!edit || !outpaintEditor.state.ready) return
+    const card = state.document.cards.find((card) => card.id === edit.cardID)
+    const node = graph?.getCellById(edit.cardID)
+    if (!card || !node?.isNode()) return
+    outpaintPositionID = card.id
+    node.position(card.position.x + outpaintEditor.rect().x - outpaintEditor.image().x,
+      card.position.y + outpaintEditor.rect().y - outpaintEditor.image().y)
+    updateAnchor()
+  })
 
   function notify(message: string) {
     clearTimeout(noticeTimer)
@@ -267,6 +307,7 @@ export default function StudioBoard(props: {
     if (!card || card.kind !== "image" || editingBlocked(card) || !boardDisplayedMedia(card, state.results)) return
     setState("menuTab", "")
     setState("inpaint", undefined)
+    setState("outpaint", undefined)
     setState("upscaleCardID", state.upscaleCardID === card.id ? "" : card.id)
     setState("upscaleMode", "restoration_8k")
     updateAnchor()
@@ -282,6 +323,7 @@ export default function StudioBoard(props: {
     const url = item && mediaURL(originalMediaSrc(item.media))
     if (!item || !url) return
     batch(() => {
+      setState("outpaint", undefined)
       setState("upscaleCardID", "")
       setState("menuTab", "")
       setState("inpaintMode", "qwen_image_edit")
@@ -304,6 +346,31 @@ export default function StudioBoard(props: {
     } catch (error) {
       setState("inpaintError", boardErrorMessage(error))
     }
+  }
+  function toggleOutpaint() {
+    const card = selected()
+    if (!card || card.kind !== "image" || busy() || editingBlocked(card)) return
+    if (state.outpaint?.cardID === card.id) {
+      setState("outpaint", undefined)
+      return
+    }
+    const item = boardMedia(card, state.results).find((item) => item.media === boardDisplayedMedia(card, state.results))
+    const url = item && mediaURL(originalMediaSrc(item.media))
+    if (!item || !url) return
+    batch(() => {
+      setState("upscaleCardID", "")
+      setState("inpaint", undefined)
+      setState("menuTab", "")
+      setState("outpaintPrompt", "")
+      setState("outpaintError", "")
+      setState("outpaint", { cardID: card.id, generationID: item.generationID, mediaID: item.mediaID, url })
+    })
+    updateAnchor()
+  }
+  function generateOutpaint() {
+    if (!state.outpaint || !outpaintEditor.canSubmit()) return
+    outpaintEditor.finish()
+    generateDerived("image.outpaint", undefined, outpaintEditor.input(state.outpaintPrompt))
   }
   async function submitDerived(card: BoardCard, retry = false) {
     if (!card.operation || disposed) return
@@ -328,13 +395,14 @@ export default function StudioBoard(props: {
       notify(boardErrorMessage(error))
     })
   }
-  function generateDerived(capability: "image.upscale" | "image.cutout" | "image.inpaint", input?: StudioInpaintInput) {
+  function generateDerived(capability: "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint", input?: StudioInpaintInput, outpaint?: StudioOutpaintInput) {
     const source = selected()
     if (!source || source.kind !== "image" || busy() || editingBlocked(source) || state.saveError) return
     const item = boardMedia(source, state.results).find((item) => item.media === boardDisplayedMedia(source, state.results))
     const url = item && mediaURL(originalMediaSrc(item.media))
     if (!item || !url) return
     if (capability === "image.inpaint" && !input) return
+    if (capability === "image.outpaint" && !outpaint) return
     const mode = state.upscaleMode
     const name = boardImageOperationName(capability)
     const sourceRef = {
@@ -349,11 +417,12 @@ export default function StudioBoard(props: {
       const card = state.document.cards.find((card) => card.id === source.id)
       const displayed = card && boardMedia(card, state.results).find((item) => item.media === boardDisplayedMedia(card, state.results))
       return !disposed && !state.exiting &&
-        (capability === "image.inpaint" ? state.inpaint?.cardID : capability === "image.upscale" ? state.upscaleCardID : state.cutoutCardID) === source.id &&
+        (capability === "image.outpaint" ? state.outpaint?.cardID : capability === "image.inpaint" ? state.inpaint?.cardID : capability === "image.upscale" ? state.upscaleCardID : state.cutoutCardID) === source.id &&
         displayed?.generationID === sourceRef.generationID && displayed.mediaID === sourceRef.mediaID
     }
     batch(() => {
       if (capability === "image.cutout") {
+        setState("outpaint", undefined)
         setState("inpaint", undefined)
         setState("upscaleCardID", "")
         setState("cutoutCardID", source.id)
@@ -361,9 +430,11 @@ export default function StudioBoard(props: {
       }
       setState("derivedPreparing", true)
       setState("inpaintError", "")
+      setState("outpaintError", "")
     })
     void enqueueWrite(async () => {
-      const prepared = await prepareStudioImageOperation(url, capability)
+      const expanded = outpaint ? await prepareStudioOutpaintImage(url, outpaint.extra) : undefined
+      const prepared = expanded ?? await prepareStudioImageOperation(url, capability)
       const composite = input ? await resizeStudioCompositeImage(input.compositeImage, prepared.sourceImage) : undefined
       if (!matches()) return
       const sessionID = props.demo ? undefined : await ensureSession()
@@ -381,27 +452,33 @@ export default function StudioBoard(props: {
       const uploaded = uploads.flatMap((upload) => upload.status === "fulfilled" ? [upload.value] : [])
       if (!matches()) return
       if (!props.demo && (!uploaded[0]?.path || (composite && !uploaded[1]?.path))) throw new Error("上传失败，未返回素材路径")
-      const origin = { x: source.position.x + (cardSizes.get(source.id)?.width ?? WIDTH) + 120, y: source.position.y }
+      const sourceNode = graph?.getCellById(source.id)
+      const sourcePosition = sourceNode?.isNode() ? sourceNode.position() : source.position
+      const origin = { x: sourcePosition.x + (cardSizes.get(source.id)?.width ?? WIDTH) + 120, y: sourcePosition.y }
       const position = Array.from({ length: state.document.cards.length + 1 }, (_, index) => ({
         x: origin.x,
         y: origin.y + index * (HEIGHT + 40),
-      })).find((point) => state.document.cards.every((card) =>
-        point.x + WIDTH + 40 < card.position.x ||
-        point.x > card.position.x + (cardSizes.get(card.id)?.width ?? WIDTH) + 40 ||
-        point.y + HEIGHT + 24 < card.position.y ||
-        point.y > card.position.y + (cardSizes.get(card.id)?.height ?? HEIGHT) + 24,
-      ))!
+      })).find((point) => state.document.cards.every((card) => {
+        const bounds = {
+          ...(card.id === source.id ? sourcePosition : card.position),
+          ...(cardSizes.get(card.id) ?? { width: WIDTH, height: HEIGHT }),
+        }
+        return point.x + WIDTH + 40 < bounds.x || point.x > bounds.x + bounds.width + 40 ||
+          point.y + HEIGHT + 24 < bounds.y || point.y > bounds.y + bounds.height + 24
+      }))!
       const card = newBoardCard(crypto.randomUUID(), "image", position)
       card.title = `${name} ${String(state.document.cards.filter((card) => card.operation?.capability === capability).length + 1).padStart(2, "0")}`
       card.operation = {
-        ...(capability === "image.inpaint" ? {
+        ...(capability === "image.outpaint" ? {
+          capability, ...expanded!.metrics, ratio: outpaint!.extra.ratio,
+        } : capability === "image.inpaint" ? {
           capability, generateMode: input!.mode, brushSize: input!.brushSize,
           hasDrawing: input!.hasDrawing, compositeImage: uploaded[1]?.path ?? composite!,
         } : capability === "image.upscale" ? { capability, mode } : { capability }),
         source: sourceRef,
         sourceImage: uploaded[0]?.path ?? prepared.sourceImage,
       }
-      card.draft.prompt = input ? studioInpaintPrompt(input) : capability === "image.upscale" ? BOARD_UPSCALE_PROMPT : BOARD_CUTOUT_PROMPT
+      card.draft.prompt = outpaint ? outpaint.prompt || STUDIO_OUTPAINT_PROMPT : input ? studioInpaintPrompt(input) : capability === "image.upscale" ? BOARD_UPSCALE_PROMPT : BOARD_CUTOUT_PROMPT
       card.draft.settings = { ...card.draft.settings, aspectRatio: prepared.aspectRatio, count: 1 }
       const edge = { id: crypto.randomUUID(), sourceID: source.id, targetID: card.id, role: "reference" as const, purpose: "derivation" as const }
       batch(() => {
@@ -421,6 +498,7 @@ export default function StudioBoard(props: {
       tracker.interaction({ module: "studio", name: capability.replace("image.", ""), extend: JSON.stringify({
         ...(capability === "image.upscale" ? { mode } : {}),
         ...(input ? { mode: input.mode, brushSize: input.brushSize, hasDrawing: input.hasDrawing, hasCustomPrompt: !!input.prompt } : {}),
+        ...(outpaint ? { aspectRatio: prepared.aspectRatio, hasCustomPrompt: !!outpaint.prompt } : {}),
         hasSourceImage: true, isUploadedImage: false,
       }) })
       if (props.demo) {
@@ -435,6 +513,7 @@ export default function StudioBoard(props: {
     }).catch((error: unknown) => {
       if (!disposed) {
         if (capability === "image.inpaint") setState("inpaintError", boardErrorMessage(error))
+        if (capability === "image.outpaint") setState("outpaintError", boardErrorMessage(error))
         notify(boardErrorMessage(error, `${name}提交失败，请重试`))
       }
     }).finally(() => {
@@ -466,11 +545,17 @@ export default function StudioBoard(props: {
         top: Math.max(80, Math.min(bounds.height - 202, bottomLeft.y - bounds.top + 12)),
         width: inpaintWidth,
       })
+      const outpaintWidth = Math.min(440, bounds.width - 32)
+      setState("outpaintAnchor", {
+        left: Math.max(16, Math.min(bounds.width - outpaintWidth - 16, bottomLeft.x - bounds.left)),
+        top: Math.max(80, Math.min(bounds.height - 130, bottomLeft.y - bounds.top + 12)),
+        width: outpaintWidth,
+      })
       const top = graph.localToClient(node.getBBox().topCenter)
       const toolbarMargin = Math.min((selected()?.kind === "video" ? 176 : 581) / 2 + 16, bounds.width / 2)
       setState("mediaToolbarAnchor", {
         left: Math.max(toolbarMargin, Math.min(bounds.width - toolbarMargin, top.x - bounds.left)),
-        top: top.y - bounds.top - 12,
+        top: state.outpaint ? Math.max(116, top.y - bounds.top - 12) : top.y - bounds.top - 12,
       })
       updateDropdown()
     })
@@ -496,6 +581,7 @@ export default function StudioBoard(props: {
       setState("upscaleCardID", "")
       setState("cutoutCardID", "")
       setState("inpaint", undefined)
+      setState("outpaint", undefined)
     }
     if (!multiple) setState("selectedIDs", id ? [id] : [])
     if (multiple)
@@ -768,6 +854,9 @@ export default function StudioBoard(props: {
                     : undefined}
                   onRetry={() => retryDerived(value())}
                   inpaint={state.inpaint?.cardID === id ? inpaintDrawing : undefined}
+                  outpaint={state.outpaint?.cardID === id ? outpaintEditor : undefined}
+                  outpaintSource={state.outpaint?.cardID === id ? state.outpaint.url : undefined}
+                  zoom={state.zoom}
                   onResults={() => {
                     setState("resultsCardID", id)
                     setState("inspectGenerationID", "")
@@ -1584,10 +1673,10 @@ export default function StudioBoard(props: {
       grid: { visible: true, size: 24, type: "dot", args: { color: "#d6d9e2", thickness: 1 } },
       panning: { enabled: true, eventTypes: ["leftMouseDown", "mouseWheelDown"] },
       mousewheel: { enabled: false },
-      interacting: () => ({
+      interacting: (view) => ({
         edgeMovable: false,
         arrowheadMovable: false,
-        nodeMovable: !awaitingRecovery(),
+        nodeMovable: !awaitingRecovery() && state.outpaint?.cardID !== view.cell.id,
         magnetConnectable: !awaitingRecovery(),
       }),
       connecting: {
@@ -1692,7 +1781,7 @@ export default function StudioBoard(props: {
     graph.on("edge:mouseenter", ({ edge }) => flow(edge))
     graph.on("edge:mouseleave", () => stopFlow())
     const wheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) < 0.1 || state.menu || inpaintDrawing.state.drawing) return
+      if (Math.abs(event.deltaY) < 0.1 || state.menu || inpaintDrawing.state.drawing || outpaintEditor.state.dragging) return
       event.preventDefault()
       wheelDelta += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? board.clientHeight : 1)
       wheelPoint = { x: event.clientX, y: event.clientY }
@@ -2058,6 +2147,9 @@ export default function StudioBoard(props: {
               inpaintActive={state.inpaint?.cardID === card().id}
               inpaintBlocked={busy() || editingBlocked(card()) || !!state.saveError}
               onInpaint={toggleInpaint}
+              outpaintActive={state.outpaint?.cardID === card().id}
+              outpaintBlocked={busy() || editingBlocked(card()) || !!state.saveError}
+              onOutpaint={toggleOutpaint}
             />
           </Show>
         )}
@@ -2083,7 +2175,14 @@ export default function StudioBoard(props: {
           onGenerate={generateInpaint} />
       </Show>
       {/* Keep card identity stable while popup cleanup commits its local inputs. */}
-      <Show when={selected() && !selected()!.operation && state.upscaleCardID !== selected()!.id && state.cutoutCardID !== selected()!.id && state.inpaint?.cardID !== selected()!.id ? selected() : undefined} keyed>
+      <Show when={selected() && state.outpaint?.cardID === selected()!.id}>
+        <StudioBoardOutpaint anchor={state.outpaintAnchor} editor={outpaintEditor} prompt={state.outpaintPrompt}
+          hidden={state.draggingCard} blocked={busy() || awaitingRecovery() || !!state.saveError}
+          preparing={state.derivedPreparing} error={state.outpaintError}
+          onPrompt={(prompt) => setState("outpaintPrompt", prompt)} onCancel={() => setState("outpaint", undefined)}
+          onGenerate={generateOutpaint} />
+      </Show>
+      <Show when={selected() && !selected()!.operation && state.upscaleCardID !== selected()!.id && state.cutoutCardID !== selected()!.id && state.inpaint?.cardID !== selected()!.id && state.outpaint?.cardID !== selected()!.id ? selected() : undefined} keyed>
         {(card) => (
           <StudioBoardComposer
             card={card}

@@ -1,3 +1,4 @@
+import { STUDIO_OUTPAINT_PROMPT } from "../src/studio-outpaint"
 import { expect, test } from "bun:test"
 import { STUDIO_STYLE_MODEL_CONFIG, defaultStudioStyleModel } from "../src/studio/model-availability"
 import {
@@ -210,20 +211,22 @@ test("video references use their own limit and reject material from the wrong mo
   )
 })
 
-test.each(["image.upscale", "image.cutout", "image.inpaint"] as const)("%s provenance survives parsing and recovery without becoming a live reference", (capability) => {
-  const name = capability === "image.upscale" ? "变清晰" : capability === "image.cutout" ? "抠图" : "智能重绘"
+test.each(["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"] as const)("%s provenance survives parsing and recovery without becoming a live reference", (capability) => {
+  const name = capability === "image.upscale" ? "变清晰" : capability === "image.cutout" ? "抠图" : capability === "image.outpaint" ? "扩图" : "智能重绘"
   const source = newBoardCard("source", "image")
   source.cover = { generationID: "changed-cover", mediaID: "new-image" }
   const child = newBoardCard("derived", "image")
   child.operation = {
-    ...(capability === "image.inpaint" ? {
+    ...(capability === "image.outpaint" ? {
+      capability, sourceWidth: 800, sourceHeight: 600, left: 0, right: 100, top: 100, bottom: 100, realWidth: 900, realHeight: 800,
+    } : capability === "image.inpaint" ? {
       capability, generateMode: "erase" as const, brushSize: 40, hasDrawing: true,
       compositeImage: ".octo/session/uploads/composite.png",
     } : capability === "image.upscale" ? { capability, mode: "restoration_8k" as const } : { capability }),
     source: { sourceID: source.id, generationID: "original", mediaID: "original-image", title: "来源", image: "https://example.test/original.png", role: "reference" },
     sourceImage: ".octo/session/uploads/prepared.jpg",
   }
-  child.draft.prompt = capability === "image.inpaint" ? "消除涂抹区域内的物体" : capability === "image.upscale" ? BOARD_UPSCALE_PROMPT : BOARD_CUTOUT_PROMPT
+  child.draft.prompt = capability === "image.outpaint" ? STUDIO_OUTPAINT_PROMPT : capability === "image.inpaint" ? "消除涂抹区域内的物体" : capability === "image.upscale" ? BOARD_UPSCALE_PROMPT : BOARD_CUTOUT_PROMPT
   child.draft.settings.styleModel = "seedream-5-lite"
   const document = BoardDocument.parse({
     ...emptyBoard(), cards: [source, child],
@@ -237,7 +240,7 @@ test.each(["image.upscale", "image.cutout", "image.inpaint"] as const)("%s prove
   expect(boardGenerationError("image", snapshot)).toBeUndefined()
   expect(boardGenerationError("video", snapshot)).toBe(`${name}只能生成图片卡片`)
   expect(boardGenerationError("image", { ...snapshot, settings: { ...snapshot.settings, count: 2 } })).toBe(`${name}仅支持单张源图`)
-  if (capability !== "image.inpaint")
+  if (capability !== "image.inpaint" && capability !== "image.outpaint")
     expect(boardGenerationError("image", { ...snapshot, prompt: "其他提示词" })).toBe(`${name}任务提示词不一致`)
   if (capability === "image.inpaint") {
     expect(boardGenerationError("image", { ...snapshot, prompt: "修改指定对象" })).toBeUndefined()
@@ -246,6 +249,15 @@ test.each(["image.upscale", "image.cutout", "image.inpaint"] as const)("%s prove
     expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...child.operation, generateMode: "invalid" } }).success).toBe(false)
     expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...child.operation, brushSize: 127 } }).success).toBe(false)
     expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...child.operation, compositeImage: "" } }).success).toBe(false)
+  }
+  if (capability === "image.outpaint" && snapshot.operation?.capability === "image.outpaint") {
+    expect(boardGenerationError("image", { ...snapshot, prompt: " " })).toContain("提示词")
+    expect(boardGenerationError("image", { ...snapshot, prompt: "字".repeat(2001) })).toContain("2000")
+    expect(boardGenerationError("image", { ...snapshot, operation: { ...snapshot.operation, realWidth: 901 } })).toContain("不一致")
+    expect(boardGenerationError("image", { ...snapshot, operation: { ...snapshot.operation, sourceWidth: 299 } })).toContain("尺寸")
+    expect(boardGenerationError("image", { ...snapshot, operation: { ...snapshot.operation, left: 0, right: 0, top: 0, bottom: 0 } })).toContain("至少")
+    expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...snapshot.operation, right: -1 } }).success).toBe(false)
+    expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...snapshot.operation, right: 1.5 } }).success).toBe(false)
   }
   if (capability === "image.upscale")
     expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...child.operation, mode: "invalid" } }).success).toBe(false)

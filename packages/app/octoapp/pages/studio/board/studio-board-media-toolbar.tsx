@@ -14,6 +14,9 @@ export function StudioBoardMediaToolbar(props: {
   inpaintActive: boolean
   inpaintBlocked: boolean
   onInpaint: () => void
+  outpaintActive: boolean
+  outpaintBlocked: boolean
+  onOutpaint: () => void
 }) {
   return (
     <div
@@ -48,22 +51,25 @@ export function StudioBoardMediaToolbar(props: {
                 active:
                   (action.icon === "upscale" && props.upscaleActive) ||
                   (action.icon === "cutout" && props.cutoutActive) ||
-                  (action.icon === "redraw" && props.inpaintActive),
+                  (action.icon === "redraw" && props.inpaintActive) ||
+                  (action.icon === "expand" && props.outpaintActive),
               }}
               aria-pressed={
                 action.icon === "upscale" ? props.upscaleActive : action.icon === "cutout" ? props.cutoutActive
-                  : action.icon === "redraw" ? props.inpaintActive : undefined
+                  : action.icon === "redraw" ? props.inpaintActive : action.icon === "expand" ? props.outpaintActive : undefined
               }
               disabled={
                 (action.icon === "upscale" && props.upscaleBlocked) ||
                 (action.icon === "cutout" && props.cutoutBlocked) ||
-                (action.icon === "redraw" && props.inpaintBlocked)
+                (action.icon === "redraw" && props.inpaintBlocked) ||
+                (action.icon === "expand" && props.outpaintBlocked)
               }
               onClick={
                 action.icon === "download" ? props.onDownload
                   : action.icon === "upscale" ? props.onUpscale
                   : action.icon === "cutout" ? props.onCutout
                   : action.icon === "redraw" ? props.onInpaint
+                  : action.icon === "expand" ? props.onOutpaint
                   : undefined
               }
             >

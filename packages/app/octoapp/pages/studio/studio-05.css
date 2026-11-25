@@ -500,7 +500,6 @@
 
 .studio-enlarging-selection {
   position: absolute;
-  z-index: 1;
   border: 1px solid #0a59f7;
   background: #e9efff;
   box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.06);

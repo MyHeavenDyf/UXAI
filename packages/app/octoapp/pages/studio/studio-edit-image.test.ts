@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test"
-import { adjustStudioImageForEdit, prepareStudioImageOperation, prepareStudioUpscaleImage } from "./studio-edit-image"
+import { adjustStudioImageForEdit, prepareStudioOutpaintImage, prepareStudioImageOperation, prepareStudioUpscaleImage } from "./studio-edit-image"
 
 function imageEnvironment(input: { width: number; height: number; invalid?: boolean; oversized?: boolean; bytes?: number }) {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "Image")!
@@ -105,4 +105,35 @@ test("shared editing preparation rejects incompatible minimum and maximum dimens
     }),
   ).rejects.toThrow("不能超过 7500px")
   expect(environment.sizes).toEqual([])
+})
+
+
+test.each([
+  [12000, 6000, 3000, 7500, 3750, 1875],
+  [20, 10, 5, 600, 300, 150],
+] as const)("outpaint rescales margins with its %sx%s source", async (width, height, margin, w, h, normalized) => {
+  using environment = imageEnvironment({ width, height })
+  const prepared = await prepareStudioOutpaintImage("https://example.test/source.png", {
+    sourceWidth: width, sourceHeight: height, left: 0, right: 0, top: margin, bottom: margin,
+    realWidth: width, realHeight: height + margin * 2,
+  })
+  expect(environment.sizes).toEqual([[w, h]])
+  expect(prepared.metrics).toEqual({
+    sourceWidth: w, sourceHeight: h, left: 0, right: 0, top: normalized, bottom: normalized,
+    realWidth: w, realHeight: h + normalized * 2,
+  })
+  expect(prepared.aspectRatio).toBe("1:1")
+})
+
+test("outpaint rejects an outdated source size", async () => {
+  using environment = imageEnvironment({ width: 1000, height: 500 })
+  await expect(prepareStudioOutpaintImage("https://example.test/source.png", {
+    sourceWidth: 2000, sourceHeight: 1000, left: 0, right: 100, top: 0, bottom: 0,
+    realWidth: 2100, realHeight: 1000,
+  })).rejects.toThrow("源图尺寸已变化")
+})
+
+test("outpaint enforces the 8MiB input limit", async () => {
+  using environment = imageEnvironment({ width: 1000, height: 1000, bytes: 8 * 1024 * 1024 + 1 })
+  await expect(prepareStudioImageOperation("https://example.test/large.png", "image.outpaint")).rejects.toThrow("不能超过 8MiB")
 })

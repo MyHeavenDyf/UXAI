@@ -1,4 +1,5 @@
 import z from "zod"
+import { StudioOutpaintMetrics, STUDIO_OUTPAINT_RATIOS, studioOutpaintMetricsError } from "./studio-outpaint"
 import { isStudioCustomSizeValid } from "./studio-image-size"
 import { defaultStudioStyleModel, studioModelUnavailableMessage } from "./studio/model-availability"
 
@@ -37,6 +38,12 @@ export const BoardUpscale = z.object({
 })
 export const BoardImageOperation = z.discriminatedUnion("capability", [
   BoardUpscale,
+  StudioOutpaintMetrics.extend({
+    capability: z.literal("image.outpaint"),
+    source: BoardReference,
+    sourceImage: z.string().min(1),
+    ratio: z.enum(STUDIO_OUTPAINT_RATIOS).optional(),
+  }),
   z.object({
     capability: z.literal("image.cutout"),
     source: BoardReference,
@@ -53,7 +60,7 @@ export const BoardImageOperation = z.discriminatedUnion("capability", [
   }),
 ])
 export function boardImageOperationName(capability: z.infer<typeof BoardImageOperation>["capability"]) {
-  return capability === "image.upscale" ? "变清晰" : capability === "image.cutout" ? "抠图" : "智能重绘"
+  return capability === "image.upscale" ? "变清晰" : capability === "image.cutout" ? "抠图" : capability === "image.outpaint" ? "扩图" : "智能重绘"
 }
 export const BOARD_UPSCALE_PROMPT = "将当前图片变清晰，提升分辨率和细节"
 export const BOARD_CUTOUT_PROMPT = "对当前图片进行抠图，移除背景并保留主体"
@@ -191,6 +198,12 @@ export function boardGenerationError(kind: BoardCard["kind"], snapshot: BoardSna
     const name = boardImageOperationName(snapshot.operation.capability)
     if (kind !== "image") return `${name}只能生成图片卡片`
     if (snapshot.references.length || snapshot.settings.count !== 1) return `${name}仅支持单张源图`
+    if (snapshot.operation.capability === "image.outpaint") {
+      if (!snapshot.prompt.trim() || snapshot.prompt.length > 2000) return "请输入不超过 2000 字的扩图提示词"
+      if (Math.min(snapshot.operation.sourceWidth, snapshot.operation.sourceHeight) < 300 ||
+        Math.max(snapshot.operation.sourceWidth, snapshot.operation.sourceHeight) > 7500) return "扩图源图尺寸不符合要求"
+      return studioOutpaintMetricsError(snapshot.operation)
+    }
     if (snapshot.operation.capability === "image.inpaint")
       return !snapshot.prompt.trim() || snapshot.prompt.length > 2000 ? "请输入不超过 2000 字的重绘提示词" : undefined
     if (snapshot.prompt !== (snapshot.operation.capability === "image.upscale" ? BOARD_UPSCALE_PROMPT : BOARD_CUTOUT_PROMPT))

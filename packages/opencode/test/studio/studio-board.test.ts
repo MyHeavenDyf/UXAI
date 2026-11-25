@@ -849,8 +849,8 @@ test.each(["stored", "legacy"])(
   },
 )
 
-test("board image operations pin their source, validate snapshots and send native magnify, remove_bg and inpainting requests", async () => {
-  const requests: { task_type: string; args: { mode?: string; prompt?: string; generate_mode?: string; has_drawing?: boolean; image_base64?: string; num_image?: number; image_list?: { mode: string; image_base64: string }[] }; user: { idx: string } }[] = []
+test("board image operations pin their source, validate snapshots and send native magnify, remove_bg, inpainting and outpainting requests", async () => {
+  const requests: { task_type: string; args: { left?: number; right?: number; top?: number; bottom?: number; mode?: string; prompt?: string; generate_mode?: string; has_drawing?: boolean; image_base64?: string; num_image?: number; image_list?: { mode: string; image_base64: string }[] }; user: { idx: string } }[] = []
   using upstream = Bun.serve({
     hostname: "127.0.0.1", port: 0,
     async fetch(request) {
@@ -912,15 +912,18 @@ test("board image operations pin their source, validate snapshots and send nativ
       const changedCover = getBoard(id)
       changedCover.document.cards[0].cover = { generationID: "upscale-changed-cover", mediaID: "image-1" }
       saveBoard(id, changedCover.revision, changedCover.document)
-      for (const mode of ["restoration_8k", "restoration", "super_resolution", "cutout", "qwen_image_edit", "erase", "prompt-only"] as const) {
+      for (const mode of ["restoration_8k", "restoration", "super_resolution", "cutout", "qwen_image_edit", "erase", "prompt-only", "outpaint"] as const) {
         const inpaint = mode === "qwen_image_edit" || mode === "erase" || mode === "prompt-only"
-        const capability = inpaint ? "image.inpaint" : mode === "cutout" ? "image.cutout" : "image.upscale"
+        const capability = mode === "outpaint" ? "image.outpaint" : inpaint ? "image.inpaint" : mode === "cutout" ? "image.cutout" : "image.upscale"
         const board = getBoard(id)
         const child = newBoardCard(`upscale-${mode}`, "image", { x: 500, y: 100 })
-        child.draft.prompt = inpaint ? "修改指定区域" : mode === "cutout" ? "对当前图片进行抠图，移除背景并保留主体" : "将当前图片变清晰，提升分辨率和细节"
+        child.draft.prompt = mode === "outpaint" ? "保留主体，扩展环境" : inpaint ? "修改指定区域" : mode === "cutout" ? "对当前图片进行抠图，移除背景并保留主体" : "将当前图片变清晰，提升分辨率和细节"
         child.draft.settings.styleModel = "seedream-5-lite"
         child.operation = {
-          ...(mode === "qwen_image_edit" || mode === "erase" || mode === "prompt-only" ? {
+          ...(mode === "outpaint" ? {
+            capability: "image.outpaint" as const, sourceWidth: 600, sourceHeight: 300,
+            left: 100, right: 200, top: 50, bottom: 150, realWidth: 900, realHeight: 500,
+          } : mode === "qwen_image_edit" || mode === "erase" || mode === "prompt-only" ? {
             capability: "image.inpaint" as const, generateMode: mode === "erase" ? "erase" as const : "qwen_image_edit" as const,
             compositeImage, hasDrawing: mode !== "prompt-only", brushSize: 40,
           } : mode === "cutout" ? { capability: "image.cutout" as const } : { capability: "image.upscale" as const, mode }), sourceImage,
@@ -952,7 +955,7 @@ test("board image operations pin their source, validate snapshots and send nativ
         expect(() => saveBoard(id, saved.revision, changed)).toThrow("任务历史")
         const input = {
           sessionID: id, capability, prompt: child.draft.prompt,
-          sourceImage: "https://example.test/wrong-source.png", extra: { mode: "wrong-mode", generateMode: "wrong-mode", compositeImage: "/foreign/composite.png", hasDrawing: false, userIdx: "current-upscale-user" }, board: submission,
+          sourceImage: "https://example.test/wrong-source.png", extra: { left: 999, right: -1, top: 0, bottom: 0, mode: "wrong-mode", generateMode: "wrong-mode", compositeImage: "/foreign/composite.png", hasDrawing: false, userIdx: "current-upscale-user" }, board: submission,
         } satisfies Parameters<typeof createGeneration>[0]
         const accepted = await createGeneration(input)
         expect((await createGeneration(input)).id).toBe(accepted.id)
@@ -963,8 +966,10 @@ test("board image operations pin their source, validate snapshots and send nativ
           await Bun.sleep(25)
         }
         expect(requests.at(-1)).toEqual({
-          task_type: inpaint ? "inpainting" : mode === "cutout" ? "remove_bg" : "magnify", user: { idx: "current-upscale-user" },
-          args: inpaint
+          task_type: mode === "outpaint" ? "outpainting" : inpaint ? "inpainting" : mode === "cutout" ? "remove_bg" : "magnify", user: { idx: "current-upscale-user" },
+          args: mode === "outpaint"
+            ? { prompt: child.draft.prompt, image_base64: `data:image/png;base64,${bytes}`, left: 100, right: 200, top: 50, bottom: 150, num_image: 1 }
+            : inpaint
             ? { prompt: child.draft.prompt, has_drawing: mode !== "prompt-only", image_base64: compositeBytes,
                 generate_mode: mode === "erase" ? "erase" : "qwen_image_edit", num_image: 1 }
             : mode === "cutout"
@@ -974,7 +979,7 @@ test("board image operations pin their source, validate snapshots and send nativ
         expect(getBoard(id).document.cards.find((card) => card.id === child.id)?.taskLinks[0].snapshot.operation).toEqual(child.operation)
         await cancelGeneration(accepted.id)
       }
-      expect(requests).toHaveLength(7)
+      expect(requests).toHaveLength(8)
     },
   })
 })

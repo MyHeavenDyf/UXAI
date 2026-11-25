@@ -1,88 +1,9 @@
-import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
+import { For, Show, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
+import { STUDIO_OUTPAINT_RATIOS } from "@opencode-ai/core/studio-outpaint"
 import { tracker } from "@/utils/tracker"
 import type { StudioAspectRatio, StudioImage } from "./types"
-
-type OutpaintBox = {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-type OutpaintHandle = "top-left" | "top" | "top-right" | "left" | "right" | "bottom-left" | "bottom" | "bottom-right"
-
-const IMAGE_STAGE_SHARE = 0.4
-const STAGE_INSET = 8
-const OUTPAINT_RATIOS = ["1:1", "9:16", "16:9"] as StudioAspectRatio[]
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value))
-}
-
-function ratioToNumber(ratio: StudioAspectRatio): number {
-  const [w, h] = ratio.split(":").map(Number)
-  return w / h
-}
-
-function ratioDimensions(width: number, height: number, ratio: StudioAspectRatio) {
-  const value = ratioToNumber(ratio)
-  if (value > width / height) return { width: height * value, height }
-  return { width, height: width / value }
-}
-
-function findMatchingRatio(rect: OutpaintBox, ratios: StudioAspectRatio[]): StudioAspectRatio | undefined {
-  const currentRatio = rect.width / rect.height
-  const tolerance = 0.02
-  for (const ratio of ratios) {
-    if (Math.abs(currentRatio - ratioToNumber(ratio)) < tolerance) {
-      return ratio
-    }
-  }
-  return undefined
-}
-
-function ratioBox(imageBox: OutpaintBox, stage: { width: number; height: number }, ratio: StudioAspectRatio, inset = STAGE_INSET): OutpaintBox {
-  const { width, height } = ratioDimensions(imageBox.width, imageBox.height, ratio)
-  return {
-    x: clamp(imageBox.x + (imageBox.width - width) / 2, inset, Math.max(inset, stage.width - inset - width)),
-    y: clamp(imageBox.y + (imageBox.height - height) / 2, inset, Math.max(inset, stage.height - inset - height)),
-    width,
-    height,
-  }
-}
-
-function resizeOutpaintBox(input: {
-  rect: OutpaintBox
-  imageBox: OutpaintBox
-  stage: { width: number; height: number }
-  handle: OutpaintHandle
-  dx: number
-  dy: number
-}): OutpaintBox {
-  const next = { ...input.rect }
-  const imageRight = input.imageBox.x + input.imageBox.width
-  const imageBottom = input.imageBox.y + input.imageBox.height
-  if (input.handle.includes("left")) {
-    next.x = clamp(input.rect.x + input.dx, STAGE_INSET, input.imageBox.x)
-    next.width = input.rect.x + input.rect.width - next.x
-  }
-  if (input.handle.includes("right")) {
-    next.width = clamp(input.rect.x + input.rect.width + input.dx, imageRight, input.stage.width - STAGE_INSET) - next.x
-  }
-  if (input.handle.includes("top")) {
-    next.y = clamp(input.rect.y + input.dy, STAGE_INSET, input.imageBox.y)
-    next.height = input.rect.y + input.rect.height - next.y
-  }
-  if (input.handle.includes("bottom")) {
-    next.height = clamp(input.rect.y + input.rect.height + input.dy, imageBottom, input.stage.height - STAGE_INSET) - next.y
-  }
-  return {
-    x: next.x,
-    y: next.y,
-    width: Math.max(input.imageBox.width, next.width),
-    height: Math.max(input.imageBox.height, next.height),
-  }
-}
+import { createStudioOutpaint, StudioOutpaintStage, type StudioOutpaintInput } from "./studio-outpaint-stage"
 
 export function StudioOutpaintEditor(props: {
   image: StudioImage
@@ -90,143 +11,29 @@ export function StudioOutpaintEditor(props: {
   onAspectRatio: (value: StudioAspectRatio) => void
   onClose: () => void
   onDelete: () => void
-  onSubmit: (input: { prompt: string; extra: Record<string, unknown> }) => void
+  busy?: boolean
+  onSubmit: (input: StudioOutpaintInput) => void
 }): JSX.Element {
-  const [editorPrompt, setEditorPrompt] = createSignal("")
-  const [stage, setStage] = createSignal({ width: 828, height: 420 })
-  const [rect, setRect] = createSignal<OutpaintBox>()
-  const [imageSourceSize, setImageSourceSize] = createSignal({ width: props.image.width ?? 1024, height: props.image.height ?? 1024 })
-  const [localAspectRatio, setLocalAspectRatio] = createSignal<StudioAspectRatio | undefined>(undefined)
-  let stageRef!: HTMLDivElement
-
-  createEffect(
-    on(
-      () => `${props.image.id}:${props.image.url}:${props.image.width ?? ""}:${props.image.height ?? ""}`,
-      () => {
-        let active = true
-        setImageSourceSize({ width: props.image.width ?? 1024, height: props.image.height ?? 1024 })
-        const image = new Image()
-        image.onload = () => {
-          if (active) setImageSourceSize({ width: image.naturalWidth, height: image.naturalHeight })
-        }
-        image.src = props.image.url
-        return () => {
-          active = false
-        }
-      },
-    ),
-  )
-
-  const imageBox = createMemo<OutpaintBox>(() => {
-    const sourceWidth = imageSourceSize().width
-    const sourceHeight = imageSourceSize().height
-    const currentStage = stage()
-    const usableStage = {
-      width: Math.max(1, currentStage.width - STAGE_INSET * 2),
-      height: Math.max(1, currentStage.height - STAGE_INSET * 2),
-    }
-    const scale = Math.min(
-      usableStage.width * IMAGE_STAGE_SHARE / sourceWidth,
-      usableStage.height * IMAGE_STAGE_SHARE / sourceHeight,
-      ...OUTPAINT_RATIOS.map((ratio) => {
-        const target = ratioDimensions(sourceWidth, sourceHeight, ratio)
-        return Math.min(usableStage.width / target.width, usableStage.height / target.height)
-      }),
-    )
-    const width = sourceWidth * scale
-    const height = sourceHeight * scale
-    return {
-      x: STAGE_INSET + (usableStage.width - width) / 2,
-      y: STAGE_INSET + (usableStage.height - height) / 2,
-      width,
-      height,
-    }
+  const [state, setState] = createStore({ prompt: "" })
+  const editor = createStudioOutpaint({
+    source: () => props.image.remoteUrl ?? props.image.url,
+    key: () => props.image.id,
+    busy: () => !!props.busy,
   })
-
-  createEffect(() => {
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (!entry) return
-      setStage({
-        width: Math.max(360, entry.contentRect.width),
-        height: Math.max(280, entry.contentRect.height),
-      })
-    })
-    observer.observe(stageRef)
-    onCleanup(() => observer.disconnect())
-  })
-
-  createEffect(
-    on(
-      () => `${props.image.id}:${stage().width}:${stage().height}:${imageSourceSize().width}:${imageSourceSize().height}`,
-      () => {
-        setLocalAspectRatio(undefined)
-        setRect(imageBox())
-      },
-      { defer: true },
-    ),
-  )
-
-  function applyRatio(ratio: StudioAspectRatio) {
-    setLocalAspectRatio(ratio)
-    setRect(ratioBox(imageBox(), stage(), ratio))
-  }
-
-  function handlePointerDown(handle: OutpaintHandle, event: PointerEvent) {
-    event.preventDefault()
-    const startX = event.clientX
-    const startY = event.clientY
-    const startRect = rect() ?? imageBox()
-    function onMove(moveEvent: PointerEvent) {
-      setRect(resizeOutpaintBox({
-        rect: startRect,
-        imageBox: imageBox(),
-        stage: stage(),
-        handle,
-        dx: moveEvent.clientX - startX,
-        dy: moveEvent.clientY - startY,
-      }))
-    }
-    function onUp() {
-      document.removeEventListener("pointermove", onMove)
-      document.removeEventListener("pointerup", onUp)
-      const currentRect = rect()
-      if (currentRect) {
-        setLocalAspectRatio(findMatchingRatio(currentRect, OUTPAINT_RATIOS))
-      }
-    }
-    document.addEventListener("pointermove", onMove)
-    document.addEventListener("pointerup", onUp)
-  }
-
-  const outpaintMetrics = createMemo(() => {
-    const current = rect() ?? imageBox()
-    const scale = imageBox().width / imageSourceSize().width
-    const left = Math.round((imageBox().x - current.x) / scale)
-    const right = Math.round((current.x + current.width - imageBox().x - imageBox().width) / scale)
-    const top = Math.round((imageBox().y - current.y) / scale)
-    const bottom = Math.round((current.y + current.height - imageBox().y - imageBox().height) / scale)
-    return {
-      left: Math.max(0, left),
-      right: Math.max(0, right),
-      top: Math.max(0, top),
-      bottom: Math.max(0, bottom),
-      realWidth: Math.round(current.width / scale),
-      realHeight: Math.round(current.height / scale),
-    }
-  })
-  const canSubmit = createMemo(() =>
-    outpaintMetrics().left > 0 ||
-    outpaintMetrics().right > 0 ||
-    outpaintMetrics().top > 0 ||
-    outpaintMetrics().bottom > 0,
-  )
   return (
     <div class="studio-enlarging">
       <div class="studio-enlarging-header">
         <span class="studio-canvas-tab">
           <span class="studio-canvas-label-text">扩图</span>
-          <span class="studio-canvas-tab-close" onClick={() => { tracker.interaction({ module: "studio", name: "outpaint-close" }); props.onClose() }} aria-label="关闭扩图" title="关闭扩图" />
+          <span
+            class="studio-canvas-tab-close"
+            onClick={() => {
+              tracker.interaction({ module: "studio", name: "outpaint-close" })
+              props.onClose()
+            }}
+            aria-label="关闭扩图"
+            title="关闭扩图"
+          />
         </span>
       </div>
       <div class="studio-enlarging-body">
@@ -234,129 +41,70 @@ export function StudioOutpaintEditor(props: {
           <img src="/studio/studio_help_tips.png" alt="" class="studio-enlarging-hint-icon" />
           <span>保留特征生成更大尺寸和内容</span>
         </div>
-        <div ref={stageRef!} class="studio-enlarging-canvas-wrap">
-          <div class="studio-enlarging-stage" style={{ width: `${stage().width}px`, height: `${stage().height}px` }}>
-            <div
-              class="studio-enlarging-selection"
-              style={{
-                left: `${(rect() ?? imageBox()).x}px`,
-                top: `${(rect() ?? imageBox()).y}px`,
-                width: `${(rect() ?? imageBox()).width}px`,
-                height: `${(rect() ?? imageBox()).height}px`,
-              }}
-            >
-              <For each={[
-                ["top-left", "nwse-resize"],
-                ["top", "ns-resize"],
-                ["top-right", "nesw-resize"],
-                ["left", "ew-resize"],
-                ["right", "ew-resize"],
-                ["bottom-left", "nesw-resize"],
-                ["bottom", "ns-resize"],
-                ["bottom-right", "nwse-resize"],
-              ] as const}>
-                {(item) => (
-                  <button
-                    type="button"
-                    class={`studio-enlarging-handle studio-enlarging-handle-${item[0]}`}
-                    style={{ cursor: item[1] }}
-                    aria-label={`调整${item[0]}`}
-                    onPointerDown={(event) => handlePointerDown(item[0], event)}
-                  />
-                )}
-              </For>
-            </div>
-            <img
-              src={props.image.url}
-              class="studio-enlarging-image"
-              style={{
-                left: `${imageBox().x}px`,
-                top: `${imageBox().y}px`,
-                width: `${imageBox().width}px`,
-                height: `${imageBox().height}px`,
-              }}
-              alt="Outpaint source"
-            />
-          </div>
+        <div class="studio-enlarging-canvas-wrap">
+          <StudioOutpaintStage editor={editor} source={props.image.remoteUrl ?? props.image.url} />
         </div>
+        <Show when={editor.state.error}>{(error) => <div role="alert">{error()}</div>}</Show>
         <div class="studio-enlarging-controls">
           <div class="studio-enlarging-ratios" aria-label="扩图比例">
-          <For each={OUTPAINT_RATIOS}>
-            {(item) => (
-              <button
-                type="button"
-                onClick={() => {
-                  tracker.interaction({ module: "studio", name: "outpaint-ratio", extend: JSON.stringify({ ratio: item }) })
-                  applyRatio(item)
-                }}
-                class="studio-enlarging-ratio"
-                classList={{ active: item === localAspectRatio() }}
-              >
-                {item}
-              </button>
-            )}
-          </For>
+            <For each={STUDIO_OUTPAINT_RATIOS}>
+              {(item) => (
+                <button
+                  type="button"
+                  disabled={props.busy || !editor.state.ready}
+                  onClick={() => {
+                    tracker.interaction({
+                      module: "studio",
+                      name: "outpaint-ratio",
+                      extend: JSON.stringify({ ratio: item }),
+                    })
+                    editor.applyRatio(item)
+                  }}
+                  class="studio-enlarging-ratio"
+                  classList={{ active: item === editor.state.ratio }}
+                >
+                  {item}
+                </button>
+              )}
+            </For>
             <span class="studio-enlarging-distance">
-              左 {outpaintMetrics().left} · 右 {outpaintMetrics().right} · 上 {outpaintMetrics().top} · 下 {outpaintMetrics().bottom}
+              左 {editor.metrics().left} · 右 {editor.metrics().right} · 上 {editor.metrics().top} · 下{" "}
+              {editor.metrics().bottom}
             </span>
           </div>
           <div class="studio-enlarging-prompt-row">
-          <textarea
-            class="studio-enlarging-prompt"
-            maxlength="2000"
-            placeholder="描述希望扩展出的画面内容"
-            value={editorPrompt()}
-            onInput={(event) => setEditorPrompt(event.currentTarget.value)}
-          />
-          <button type="button" class="studio-editor-delete" onClick={() => { tracker.interaction({ module: "studio", name: "outpaint-delete" }); props.onDelete() }}>删除</button>
-          <button
-            type="button"
-            disabled={!canSubmit()}
-            onClick={() => props.onSubmit({
-              prompt: editorPrompt().trim(),
-              extra: {
-                ...outpaintMetrics(),
-                numImage: 1,
-                ratio: localAspectRatio() ?? props.aspectRatio,
-              },
-            })}
-            class="studio-hd-create disabled:opacity-45"
-          >
-            一键生成
-          </button>
+            <textarea
+              class="studio-enlarging-prompt"
+              maxlength="2000"
+              disabled={props.busy}
+              placeholder="描述希望扩展出的画面内容"
+              value={state.prompt}
+              onInput={(event) => setState("prompt", event.currentTarget.value)}
+            />
+            <button
+              type="button"
+              class="studio-editor-delete"
+              onClick={() => {
+                tracker.interaction({ module: "studio", name: "outpaint-delete" })
+                props.onDelete()
+              }}
+            >
+              删除
+            </button>
+            <button
+              type="button"
+              disabled={!editor.canSubmit()}
+              onClick={() => {
+                editor.finish()
+                props.onSubmit(editor.input(state.prompt))
+              }}
+              class="studio-hd-create disabled:opacity-45"
+            >
+              一键生成
+            </button>
           </div>
         </div>
       </div>
     </div>
   )
-}
-
-function currentImageName(image: StudioImage) {
-  return image.localPath?.split("/").at(-1) ?? image.id
-}
-
-function InfoRow(props: { label: string; value: string }): JSX.Element {
-  return (
-    <div class="studio-detail-row">
-      <span>{props.label}</span>
-      <strong>{props.value}</strong>
-    </div>
-  )
-}
-
-function StudioGlassSphere(): JSX.Element {
-  return (
-    <div
-      class="w-[210px] h-[210px] rounded-full"
-      style={{
-        background:
-          "radial-gradient(circle at 35% 24%, rgba(133,207,255,0.95), transparent 23%), radial-gradient(circle at 36% 42%, rgba(191,137,255,0.72), transparent 30%), radial-gradient(circle at 68% 68%, rgba(255,255,255,0.9), transparent 22%), linear-gradient(135deg, rgba(156,185,255,0.64), rgba(213,243,255,0.88))",
-        "box-shadow": "0 28px 80px rgba(73, 123, 255, 0.25), inset -18px -22px 30px rgba(82, 151, 255, 0.12), inset 12px 14px 28px rgba(255,255,255,0.52)",
-      }}
-    />
-  )
-}
-
-function formatTime(value: number) {
-  return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
 }

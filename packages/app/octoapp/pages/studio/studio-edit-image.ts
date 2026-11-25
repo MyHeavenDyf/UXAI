@@ -1,9 +1,10 @@
 import { closestStudioAspectRatio } from "./turns"
+import { scaleStudioOutpaintMetrics, type StudioOutpaintMetrics } from "@opencode-ai/core/studio-outpaint"
 
-export async function adjustStudioImageForEdit(
+async function prepareImage(
   sourceUrl: string,
   opts: { maxSize: number; maxDimension: number; minSide: number },
-): Promise<string> {
+) {
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image()
     image.crossOrigin = "anonymous"
@@ -36,31 +37,38 @@ export async function adjustStudioImageForEdit(
 
   if (!blob) throw new Error("图片处理失败，请重试")
   if (blob.size > opts.maxSize) throw new Error(`处理后的图片不能超过 ${opts.maxSize / 1024 / 1024}MiB`)
-  return new Promise((resolve, reject) => {
+  const sourceImage = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)
     reader.onerror = () => reject(new Error("Failed to read adjusted image"))
     reader.readAsDataURL(blob)
   })
+  return { sourceImage, width: w, height: h, sourceWidth: img.naturalWidth, sourceHeight: img.naturalHeight }
+}
+
+export async function adjustStudioImageForEdit(source: string, opts: { maxSize: number; maxDimension: number; minSide: number }) {
+  return (await prepareImage(source, opts)).sourceImage
 }
 
 export async function prepareStudioUpscaleImage(source: string) {
   return prepareStudioImageOperation(source, "image.upscale")
 }
 
-export async function prepareStudioImageOperation(source: string, capability: "image.upscale" | "image.cutout" | "image.inpaint") {
-  const sourceImage = await adjustStudioImageForEdit(source, {
+export async function prepareStudioImageOperation(source: string, capability: "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint") {
+  const prepared = await prepareImage(source, {
     maxSize: (capability === "image.upscale" ? 20 : 8) * 1024 * 1024,
     maxDimension: 7500,
-    minSide: capability === "image.inpaint" ? 300 : capability === "image.cutout" ? 50 : 0,
+    minSide: capability === "image.inpaint" || capability === "image.outpaint" ? 300 : capability === "image.cutout" ? 50 : 0,
   })
-  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const element = new Image()
-    element.onload = () => resolve(element)
-    element.onerror = () => reject(new Error("无法读取处理后的图片"))
-    element.src = sourceImage
-  })
-  return { sourceImage, aspectRatio: closestStudioAspectRatio(image.naturalWidth, image.naturalHeight) }
+  return { ...prepared, aspectRatio: closestStudioAspectRatio(prepared.width, prepared.height) }
+}
+
+export async function prepareStudioOutpaintImage(source: string, metrics: StudioOutpaintMetrics) {
+  const prepared = await prepareStudioImageOperation(source, "image.outpaint")
+  if (prepared.sourceWidth !== metrics.sourceWidth || prepared.sourceHeight !== metrics.sourceHeight)
+    throw new Error("源图尺寸已变化，请重新打开扩图")
+  const normalized = scaleStudioOutpaintMetrics(metrics, prepared.width, prepared.height)
+  return { ...prepared, metrics: normalized, aspectRatio: closestStudioAspectRatio(normalized.realWidth, normalized.realHeight) }
 }
 
 export async function resizeStudioCompositeImage(composite: string, source: string) {

@@ -1,3 +1,4 @@
+import { STUDIO_OUTPAINT_PROMPT } from "@opencode-ai/core/studio-outpaint"
 import { afterAll, expect, spyOn, test } from "bun:test"
 import { plugin } from "bun"
 import solid from "vite-plugin-solid"
@@ -3034,11 +3035,18 @@ test.each([
   ["image.inpaint", "rejected"],
   ["image.inpaint", "prepare-failed"],
   ["image.inpaint", "upload-failed"],
+  ["image.outpaint", "success"],
+  ["image.outpaint", "custom"],
+  ["image.outpaint", "uncertain"],
+  ["image.outpaint", "save-failed"],
+  ["image.outpaint", "rejected"],
+  ["image.outpaint", "prepare-failed"],
+  ["image.outpaint", "upload-failed"],
 ] as const)(
   "%s %s creates a connected result card, preserves the source draft and supports further editing",
   async (capability, scenario) => {
     const mode = scenario === "restoration" || scenario === "super_resolution" ? scenario : "restoration_8k"
-    const prompt = capability === "image.inpaint"
+    const prompt = capability === "image.outpaint" ? scenario === "custom" ? "扩展更多环境" : STUDIO_OUTPAINT_PROMPT : capability === "image.inpaint"
       ? scenario === "erase" ? "消除涂抹区域内的物体" : scenario === "prompt-only" ? "把花瓶改成台灯" : "重绘所选区域"
       : capability === "image.cutout" ? BOARD_CUTOUT_PROMPT : BOARD_UPSCALE_PROMPT
     const source = newBoardCard("upscale-source", "image", { x: 100, y: 100 })
@@ -3073,7 +3081,7 @@ test.each([
     const uploadResponse = Promise.withResolvers<Response>()
     const options: Parameters<typeof setup>[0] = {
       uploadResponses: scenario === "upload-failed" ? [
-        Promise.resolve(Response.json({ error: "原图上传失败" }, { status: 503 })), uploadResponse.promise,
+        ...(capability === "image.outpaint" ? [uploadResponse.promise] : [Promise.resolve(Response.json({ error: "原图上传失败" }, { status: 503 })), uploadResponse.promise]),
       ] : undefined,
       accepted: scenario !== "rejected",
       reject: scenario === "uncertain" ? "network" : undefined,
@@ -3160,13 +3168,41 @@ test.each([
           generate.click()
         }
       }
+      if (capability === "image.outpaint") {
+        button(value.container, "扩图").click()
+        await Bun.sleep(20)
+        expect(button(value.container, "扩图").getAttribute("aria-pressed")).toBe("true")
+        expect(button(value.container, "变清晰").getAttribute("aria-pressed")).toBe("false")
+        expect(value.container.querySelector(".studio-board-upscale, .studio-board-composer")).toBeNull()
+        const generate = button(value.container, "生成")
+        expect(generate.disabled).toBe(true)
+        if (scenario !== "prepare-failed") {
+          expect(value.container.querySelectorAll(".studio-enlarging-handle")).toHaveLength(8)
+          button(value.container, "1:1").click()
+          expect(generate.disabled).toBe(false)
+          // Cancelling a transient expansion must leave the original card untouched.
+          button(value.container, "取消").click()
+          expect(value.container.querySelector(".studio-board-outpaint-stage")).toBeNull()
+          expect(value.container.querySelector(".studio-board-composer")).not.toBeNull()
+          button(value.container, "扩图").click()
+          await Bun.sleep(20)
+          button(value.container, "1:1").click()
+          if (scenario === "custom") {
+            const promptInput = value.container.querySelector<HTMLInputElement>('[aria-label="扩图提示词"]')!
+            promptInput.value = "扩展更多环境"
+            promptInput.dispatchEvent(new Event("input", { bubbles: true }))
+          }
+          button(value.container, "生成").click()
+          button(value.container, "处理中…").click()
+        }
+      }
       await Bun.sleep(80)
       if (scenario === "upload-failed") {
-        expect(value.uploads).toHaveLength(2)
+        expect(value.uploads).toHaveLength(capability === "image.outpaint" ? 1 : 2)
         expect(value.requests).toHaveLength(0)
         expect(value.container.querySelectorAll(".studio-board-card")).toHaveLength(1)
         expect(button(value.container, "处理中…").disabled).toBe(true)
-        uploadResponse.resolve(Response.json({ path: "/test/.octo/test-board/uploads/composite.png" }))
+        uploadResponse.resolve(capability === "image.outpaint" ? Response.json({ error: "原图上传失败" }, { status: 503 }) : Response.json({ path: "/test/.octo/test-board/uploads/composite.png" }))
         await Bun.sleep(50)
         expect(button(value.container, "生成").disabled).toBe(false)
         expect(value.container.querySelector('[role="alert"]')?.textContent).toContain("原图上传失败")
@@ -3183,7 +3219,7 @@ test.each([
           expect(button(value.container, "抠图").getAttribute("aria-pressed")).toBe("false")
           expect(value.container.querySelector(".studio-board-composer")).not.toBeNull()
         }
-        if (capability === "image.inpaint") {
+        if (capability === "image.inpaint" || capability === "image.outpaint") {
           expect(button(value.container, "生成").disabled).toBe(true)
           button(value.container, "取消").click()
           expect(value.container.querySelector(".studio-board-composer")).not.toBeNull()
@@ -3213,6 +3249,7 @@ test.each([
       expect(value.uploads).toHaveLength(capability === "image.inpaint" ? 2 : 1)
       const child = value.stored.document.cards.find((card) => card.id !== source.id)!
       expect(child.position.x).toBeGreaterThan(source.position.x + 304)
+      if (capability === "image.outpaint") expect(child.position.y).toBeLessThanOrEqual(source.position.y)
       expect(child.operation).toMatchObject({
         capability, ...(capability === "image.upscale" ? { mode } : {}),
         source: { sourceID: source.id, generationID: "source-result", mediaID: "shown", image: "https://example.test/original.png" },
@@ -3223,7 +3260,11 @@ test.each([
       }])
       expect(value.requests[0]).toMatchObject({
         capability, prompt,
-        board: { cardID: child.id, snapshot: { operation: child.operation, references: [], settings: { count: 1, aspectRatio: "16:9" } } },
+        board: { cardID: child.id, snapshot: { operation: child.operation, references: [], settings: { count: 1, aspectRatio: capability === "image.outpaint" ? "1:1" : "16:9" } } },
+      })
+      if (capability === "image.outpaint") expect(child.operation).toMatchObject({
+        sourceWidth: 7500, sourceHeight: 3750, left: 0, right: 0, top: 1875, bottom: 1875,
+        realWidth: 7500, realHeight: 7500, ratio: "1:1",
       })
       if (capability === "image.cutout") expect(child.operation).not.toHaveProperty("mode")
       if (capability === "image.inpaint") expect(child.operation).toMatchObject({
@@ -3234,6 +3275,13 @@ test.each([
       expect(value.container.querySelector(".studio-board-composer")).toBeNull()
       expect(value.container.querySelector(".studio-board-upscale")).toBeNull()
       expect(value.container.querySelector(".studio-board-media-toolbar")).not.toBeNull()
+      if (capability === "image.outpaint") {
+        button(value.container, "扩图").click()
+        await Bun.sleep(20)
+        expect(value.container.querySelector(".studio-board-outpaint")).not.toBeNull()
+        button(value.container, "扩图").click()
+        expect(value.container.querySelector(".studio-board-outpaint, .studio-board-composer")).toBeNull()
+      }
       button(value.container, "变清晰").click()
       expect(value.container.querySelector(".studio-board-upscale")).not.toBeNull()
       button(value.container, "变清晰").click()
