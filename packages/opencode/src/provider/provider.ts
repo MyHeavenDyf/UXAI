@@ -1518,7 +1518,12 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider, source: Info
     source,
     name: provider.name,
     env: [...(provider.env ?? [])],
-    options: provider.requires_api_key === true ? { requires_api_key: true, api_key_configured: false } : {},
+    options: {
+      ...(typeof provider.sortOrder === "number" && Number.isFinite(provider.sortOrder)
+        ? { sortOrder: provider.sortOrder }
+        : {}),
+      ...(provider.requires_api_key === true ? { requires_api_key: true, api_key_configured: false } : {}),
+    },
     title_model: provider.title_model ? [...provider.title_model] : undefined,
     models,
   }

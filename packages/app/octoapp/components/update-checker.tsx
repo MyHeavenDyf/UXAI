@@ -13,6 +13,7 @@ const dialogRequests = new EventTarget()
 export type AvailableUpdate = {
   version: string
   releaseNotes?: string
+  forceUpdate?: boolean
 }
 
 const [availableUpdate, setAvailableUpdate] = createSignal<AvailableUpdate>()
@@ -53,7 +54,6 @@ export function UpdateChecker() {
   let entry = 0
 
   const check = () => {
-    if (!settings.updates.startup()) return Promise.resolve(undefined)
     if (checking) return checking
     const request = platform.checkUpdate!()
       .catch(() => undefined)
@@ -64,8 +64,9 @@ export function UpdateChecker() {
           return undefined
         }
 
-        const update = { version: result.version ?? "", releaseNotes: result.releaseNotes }
+        const update = { version: result.version ?? "", releaseNotes: result.releaseNotes, forceUpdate: result.forceUpdate }
         setAvailableUpdate(update)
+        if (update.forceUpdate && !stopped) setPending(update)
         return update
       })
     checking = request
@@ -78,14 +79,10 @@ export function UpdateChecker() {
   const scheduleNextPrompt = () => {
     clearTimeout(nextPrompt)
     nextPrompt = setTimeout(async () => {
-      if (!settings.updates.startup()) {
-        scheduleNextPrompt()
-        return
-      }
       await check()
       if (stopped) return
       const update = availableUpdate()
-      if (update) {
+      if (update && (update.forceUpdate || settings.updates.startup())) {
         setPending(update)
         return
       }
@@ -98,7 +95,7 @@ export function UpdateChecker() {
     const update = pending()
     if (!update) return
 
-    if (dialog.active || layout.onboarding.show() || hasOpenDialog()) {
+    if (!update.forceUpdate && (dialog.active || layout.onboarding.show() || hasOpenDialog())) {
       const timer = setTimeout(() => setRetry((value) => value + 1), DIALOG_RETRY_INTERVAL)
       onCleanup(() => clearTimeout(timer))
       return
@@ -108,7 +105,7 @@ export function UpdateChecker() {
     entry += 1
     clearTimeout(startupPrompt)
     clearTimeout(nextPrompt)
-    showUpdate(update.version, update.releaseNotes, scheduleNextPrompt)
+    showUpdate(update.version, update.releaseNotes, scheduleNextPrompt, update.forceUpdate)
   })
 
   onMount(() => {
@@ -119,6 +116,7 @@ export function UpdateChecker() {
       const current = ++entry
       void check().then((update) => {
         if (!update || stopped || current !== entry) return
+        if (update.forceUpdate || !settings.updates.startup()) return
         clearTimeout(startupPrompt)
         startupPrompt = setTimeout(() => {
           const available = availableUpdate()

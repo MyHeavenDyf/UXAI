@@ -85,6 +85,7 @@ export const Provider = Schema.Struct({
   name: Schema.String,
   env: Schema.Array(Schema.String),
   id: Schema.String,
+  sortOrder: Schema.optional(Schema.Finite),
   npm: Schema.optional(Schema.String),
   title_model: Schema.optional(Schema.Array(Schema.String)),
   requires_api_key: Schema.optional(Schema.Boolean),

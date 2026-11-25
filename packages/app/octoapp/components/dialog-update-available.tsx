@@ -10,13 +10,14 @@ export function useUpdateAvailableDialog() {
   const dialog = useDialog()
   const platform = usePlatform()
 
-  return (version: string, releaseNotes?: string, onClose?: () => void) =>
+  return (version: string, releaseNotes?: string, onClose?: () => void, forceUpdate = false) =>
     dialog.show(
       () => (
         <DialogUpdateAvailable
           os={platform.os === "macos" ? "macos" : "windows"}
           version={version}
           releaseNotes={releaseNotes}
+          forceUpdate={forceUpdate}
           onUpgrade={(onProgress) => {
             if (platform.os === "macos") {
               platform.openLink(MAC_DOWNLOAD_PAGE_URL)
@@ -27,6 +28,7 @@ export function useUpdateAvailableDialog() {
         />
       ),
       onClose,
+      { dismissible: !forceUpdate },
     )
 }
 
@@ -34,6 +36,7 @@ export function DialogUpdateAvailable(props: {
   os: "windows" | "macos"
   version: string
   releaseNotes?: string
+  forceUpdate?: boolean
   onUpgrade: (onProgress: (percent: number) => void) => void | Promise<void>
 }) {
   const dialog = useDialog()
@@ -42,7 +45,7 @@ export function DialogUpdateAvailable(props: {
   const [failed, setFailed] = createSignal(false)
   const upgrade = () => {
     if (props.os === "macos") {
-      dialog.close()
+      if (!props.forceUpdate) dialog.close()
       void props.onUpgrade(setProgress)
       return
     }
@@ -59,9 +62,11 @@ export function DialogUpdateAvailable(props: {
     <Dialog fit class="octo-update-dialog">
       <section class="octo-update-dialog-hero">
         <img src="/update-dialog-hero.png" alt="Octo Agent" />
-        <button type="button" class="octo-update-dialog-close" aria-label="关闭" onClick={() => dialog.close()}>
-          ×
-        </button>
+        {!props.forceUpdate && (
+          <button type="button" class="octo-update-dialog-close" aria-label="关闭" onClick={() => dialog.close()}>
+            ×
+          </button>
+        )}
       </section>
 
       <section class="octo-update-dialog-content">
@@ -78,8 +83,8 @@ export function DialogUpdateAvailable(props: {
             </div>
           </div>
         )}
-        <div class="octo-update-dialog-actions" data-os={props.os} data-progress={downloading() ? true : undefined}>
-          {props.os === "windows" && (
+        <div class="octo-update-dialog-actions" data-os={props.os} data-forced={props.forceUpdate ? true : undefined} data-progress={downloading() ? true : undefined}>
+          {props.os === "windows" && !props.forceUpdate && (
             <button type="button" class="octo-update-dialog-later" disabled={downloading()} onClick={() => dialog.close()}>
               以后再说
             </button>
@@ -178,7 +183,8 @@ export function DialogUpdateAvailable(props: {
         .octo-update-dialog-actions[data-progress] {
           margin-top: 24px;
         }
-        .octo-update-dialog-actions[data-os="macos"] {
+        .octo-update-dialog-actions[data-os="macos"],
+        .octo-update-dialog-actions[data-forced] {
           justify-content: center;
         }
         .octo-update-dialog-actions button {

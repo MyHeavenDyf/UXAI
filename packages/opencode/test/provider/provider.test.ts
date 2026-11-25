@@ -15,7 +15,7 @@ import { configureModelsApi } from "../../src/plugin/model-headers"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Filesystem } from "@/util/filesystem"
 import { Env } from "../../src/env"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { makeRuntime } from "../../src/effect/run-service"
 
@@ -2133,10 +2133,11 @@ test("remote providers require a local API key and react to key removal without 
   }
 })
 
-test("remote title models synchronize independently for each project and refresh", async () => {
+test("remote title models and sort order synchronize independently for each project and refresh", async () => {
   const remote = {
     id: "title-test-gateway",
     name: "Title Test Gateway",
+    sortOrder: 3,
     env: [],
     npm: "@ai-sdk/openai-compatible",
     title_model: ["title-fast"],
@@ -2169,21 +2170,42 @@ test("remote title models synchronize independently for each project and refresh
         fn: async () => {
           const model = await run((provider) => provider.getTitleModel(providerID, selected))
           expect(model.id).toBe(ModelID.make("title-fast"))
+          expect((await list())[providerID].options.sortOrder).toBe(3)
         },
       })
     }
     remote.title_model = ["title-next"]
+    remote.sortOrder = 0
     configureModelsApi({ url: server.url.toString(), token: "updated" })
     await WithInstance.provide({
       directory: first.path,
       fn: async () => {
         const model = await run((provider) => provider.getTitleModel(providerID, selected))
         expect(model.id).toBe(ModelID.make("title-next"))
+        expect((await list())[providerID].options.sortOrder).toBe(0)
       },
     })
   } finally {
     configureModelsApi({ source: "local" })
     await server.stop(true)
+  }
+})
+
+test("models.dev normalization preserves provider sort order", () => {
+  for (const sortOrder of [3, 0, -1, undefined]) {
+    const decoded = Schema.decodeUnknownSync(ModelsDev.Provider)({
+      id: "ranked",
+      name: "Ranked",
+      env: [],
+      sortOrder,
+      requires_api_key: true,
+      models: {},
+    })
+    const provider = Provider.fromModelsDevProvider(decoded, "remote")
+    expect(provider.options.sortOrder).toBe(sortOrder)
+    expect(provider.options.requires_api_key).toBe(true)
+    expect(provider.options.api_key_configured).toBe(false)
+    expect(provider.source).toBe("remote")
   }
 })
 

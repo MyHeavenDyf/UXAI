@@ -753,6 +753,7 @@ function setupAutoUpdater() {
 
 let availableUpdateVersion: string | undefined
 let availableUpdateReleaseNotes: string | undefined
+let availableUpdateForceUpdate = false
 let downloadedUpdateVersion: string | undefined
 
 async function downloadUpdate(version: string) {
@@ -767,7 +768,7 @@ async function checkUpdate(download = false) {
     logger.log("returning cached downloaded update", {
       version: downloadedUpdateVersion,
     })
-    return { updateAvailable: true, version: downloadedUpdateVersion, releaseNotes: availableUpdateReleaseNotes }
+    return { updateAvailable: true, version: downloadedUpdateVersion, releaseNotes: availableUpdateReleaseNotes, forceUpdate: availableUpdateForceUpdate }
   }
   logger.log("checking for updates", {
     currentVersion: app.getVersion(),
@@ -778,12 +779,14 @@ async function checkUpdate(download = false) {
   try {
     const result = await autoUpdater.checkForUpdates()
     const updateInfo = result?.updateInfo
+    const forceUpdate = updateInfo !== undefined && "forceUpdate" in updateInfo && updateInfo.forceUpdate === true
     const releaseNotes = normalizeReleaseNotes(updateInfo?.releaseNotes)
     logger.log("update metadata fetched", {
       releaseVersion: updateInfo?.version ?? null,
       releaseDate: updateInfo?.releaseDate ?? null,
       releaseName: updateInfo?.releaseName ?? null,
       releaseNotes: releaseNotes ?? null,
+      forceUpdate,
       files: updateInfo?.files?.map((file) => file.url) ?? [],
     })
     const version = result?.updateInfo?.version
@@ -803,10 +806,11 @@ async function checkUpdate(download = false) {
     logger.log("update available", { version })
     availableUpdateVersion = version
     availableUpdateReleaseNotes = releaseNotes
+    availableUpdateForceUpdate = forceUpdate
     if (download) {
       await downloadUpdate(version)
     }
-    return { updateAvailable: true, version, releaseNotes }
+    return { updateAvailable: true, version, releaseNotes, forceUpdate }
   } catch (error) {
     logger.error("update check failed", error)
     return { updateAvailable: false, failed: true }

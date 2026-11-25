@@ -14,6 +14,7 @@ import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
 import { StudioVideoRiskDialog } from "@/pages/studio/studio-video-risk-dialog"
 import { Portal } from "solid-js/web"
+import { compareProviderSortOrder } from "@/utils/provider-sort"
 
 type ModelState = ReturnType<typeof useLocal>["model"]
 
@@ -65,6 +66,8 @@ const ModelList: Component<{
       sortBy={(a, b) => a.name.localeCompare(b.name)}
       groupBy={(x) => x.provider.name}
       sortGroupsBy={(a, b) => {
+        const order = compareProviderSortOrder(a.items[0].provider, b.items[0].provider)
+        if (order) return order
         const aProvider = a.items[0].provider.id
         const bProvider = b.items[0].provider.id
         if (popularProviders.includes(aProvider) && !popularProviders.includes(bProvider)) return -1

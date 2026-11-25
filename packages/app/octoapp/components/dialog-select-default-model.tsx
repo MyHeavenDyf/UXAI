@@ -9,6 +9,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { popularProviders } from "@/hooks/use-providers"
 import { ModelTooltip } from "./model-tooltip"
+import { compareProviderSortOrder } from "@/utils/provider-sort"
 
 export const DialogSelectDefaultModel: Component<{
   onSelect?: (model: { providerID: string; modelID: string }) => void
@@ -59,6 +60,8 @@ export const DialogSelectDefaultModel: Component<{
         sortBy={(a, b) => a.name.localeCompare(b.name)}
         groupBy={(x) => x.provider.name}
         sortGroupsBy={(a, b) => {
+          const order = compareProviderSortOrder(a.items[0].provider, b.items[0].provider)
+          if (order) return order
           const aProvider = a.items[0].provider.id
           const bProvider = b.items[0].provider.id
           if (popularProviders.includes(aProvider) && !popularProviders.includes(bProvider)) return -1
