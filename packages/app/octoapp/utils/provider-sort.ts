@@ -1,5 +1,11 @@
 type Provider = { id: string; options?: Record<string, unknown> }
 
+export const modelProviderGrouping = {
+  groupBy: (model: { provider: { id: string } }) => model.provider.id,
+  groupHeader: (group: { category: string; items: { provider: { name: string } }[] }) =>
+    group.items[0]?.provider.name ?? group.category,
+}
+
 export function providerSortOrder(provider: Provider) {
   const value = provider.options?.sortOrder
   return typeof value === "number" && Number.isFinite(value) ? value : undefined

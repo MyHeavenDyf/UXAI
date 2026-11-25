@@ -2137,7 +2137,7 @@ test("remote title models and sort order synchronize independently for each proj
   const remote = {
     id: "title-test-gateway",
     name: "Title Test Gateway",
-    sortOrder: 3,
+    sortOrder: 3 as number | null,
     env: [],
     npm: "@ai-sdk/openai-compatible",
     title_model: ["title-fast"],
@@ -2183,6 +2183,18 @@ test("remote title models and sort order synchronize independently for each proj
         const model = await run((provider) => provider.getTitleModel(providerID, selected))
         expect(model.id).toBe(ModelID.make("title-next"))
         expect((await list())[providerID].options.sortOrder).toBe(0)
+      },
+    })
+    remote.sortOrder = null
+    configureModelsApi({ url: server.url.toString(), token: "invalid-sort" })
+    await WithInstance.provide({
+      directory: first.path,
+      fn: async () => {
+        const provider = (await list())[providerID]
+        expect(provider).toBeDefined()
+        expect(provider.options.sortOrder).toBeUndefined()
+        expect(provider.models[selected]).toBeDefined()
+        expect(provider.title_model).toEqual(["title-next"])
       },
     })
   } finally {
