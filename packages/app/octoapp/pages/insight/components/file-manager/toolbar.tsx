@@ -9,7 +9,8 @@ import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { IconRefresh, IconFilter, IconUpload, IconDownload, IconFolder, IconFile } from "../../icons/design-files-icons"
 import { kindLabel, type InsightFileKind } from "../../utils/insight-file-api"
-import type { createInsightFileStore } from "../../utils/insight-file-store"
+import type { createInsightFileStore, GroupMode } from "../../utils/insight-file-store"
+import { trackInsight } from "../../utils/interaction-tracking"
 
 interface ToolbarProps {
   fileStore: ReturnType<typeof createInsightFileStore>
@@ -26,6 +27,11 @@ export function FileManagerToolbar(props: ToolbarProps): JSX.Element {
   const store = () => props.fileStore.store
   const hasSelection = createMemo(() => store().selected.size > 0)
   const deletableCount = createMemo(() => store().selected.size)
+
+  function selectGroupMode(mode: GroupMode) {
+    props.fileStore.setGroupMode(mode)
+    trackInsight("files-group-mode", { mode })
+  }
 
   const filterButtonText = createMemo(() => {
     const size = store().kindFilter.size
@@ -69,8 +75,8 @@ export function FileManagerToolbar(props: ToolbarProps): JSX.Element {
             gap: "4px",
           }}
         >
-          <GroupModeButton active={store().groupMode === "kind"} label="类型" onClick={() => props.fileStore.setGroupMode("kind")} />
-          <GroupModeButton active={store().groupMode === "modified"} label="修改时间" onClick={() => props.fileStore.setGroupMode("modified")} />
+          <GroupModeButton active={store().groupMode === "kind"} label="类型" onClick={() => selectGroupMode("kind")} />
+          <GroupModeButton active={store().groupMode === "modified"} label="修改时间" onClick={() => selectGroupMode("modified")} />
         </div>
 
         <div class="shrink-0" style={{ width: "1px", height: "10px", "border-radius": "9px", background: "var(--octo-border-input)", margin: "0 8px" }} />
@@ -95,7 +101,10 @@ export function FileManagerToolbar(props: ToolbarProps): JSX.Element {
                 <Show when={store().kindFilter.size > 0}>
                   <button
                     type="button"
-                    onClick={() => props.fileStore.clearKindFilter()}
+                    onClick={() => {
+                      props.fileStore.clearKindFilter()
+                      trackInsight("files-filter", { kinds: [] })
+                    }}
                     class="hover:underline"
                     style={{ "font-size": "12px", "line-height": "20px", cursor: "pointer", color: "var(--octo-brand)" }}
                   >
@@ -118,7 +127,10 @@ export function FileManagerToolbar(props: ToolbarProps): JSX.Element {
                           <input
                             type="checkbox"
                             checked={store().kindFilter.has(kind as InsightFileKind)}
-                            onChange={() => props.fileStore.toggleKindFilter(kind as InsightFileKind)}
+                            onChange={() => {
+                              props.fileStore.toggleKindFilter(kind as InsightFileKind)
+                              trackInsight("files-filter", { kinds: Array.from(store().kindFilter) })
+                            }}
                             style={{ width: "16px", height: "16px", "border-radius": "2px", border: "1px solid var(--octo-border-input)", cursor: "pointer", "accent-color": "var(--octo-brand)" }}
                           />
                           <span>{kindLabel(kind as InsightFileKind)}</span>

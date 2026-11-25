@@ -1,6 +1,6 @@
 import { tracker } from "@/utils/tracker"
 
-type Fields = Record<string, string | number | boolean | undefined>
+type Fields = Record<string, string | number | boolean | readonly string[] | undefined>
 type Status = "success" | "partial" | "failure" | "cancelled" | "unconfirmed"
 type Operation = "files-delete" | "files-upload" | "md-save" | "archive" | "context-compact" | "permission-decision" | "question-response" | "addon-import" | "canvas-edit" | "canvas-return-save"
 

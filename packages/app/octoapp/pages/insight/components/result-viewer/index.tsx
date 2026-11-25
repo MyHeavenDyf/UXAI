@@ -401,7 +401,7 @@ function TabContent(props: { tab: ResultTab; refreshKey?: number }): JSX.Element
       }
     >
       <Match when={props.tab.type === "markdown"}>
-        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
+        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" tabType="markdown" />}>
           <MarkdownRenderer content={content()} onReady={() => ready("rendered")} />
         </Show>
       </Match>
@@ -416,20 +416,20 @@ function TabContent(props: { tab: ResultTab; refreshKey?: number }): JSX.Element
             判定与渲染共用同一条 isMindmapJSON,杜绝"判中但渲空"漂移。 */}
         <Show
           when={!isSource() && isMindmapJSON(content())}
-          fallback={<SourceCodeView content={content()} lang="json" />}
+          fallback={<SourceCodeView content={content()} lang="json" tabType="json" />}
         >
           <MindmapRenderer content={content()} onReady={() => ready("rendered")} />
         </Show>
       </Match>
       <Match when={props.tab.type === "html"}>
-        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="html" />}>
+        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="html" tabType="html" />}>
           <HtmlRenderer content={content()} filePath={props.tab.filePath} onReady={() => ready("frame-load")} />
         </Show>
       </Match>
       <Match when={props.tab.type === "code"}>
         {/* 路径 C 通用代码/纯文本(.py/.ts/.csv/.txt/…):shiki 按扩展名高亮,单视图。
             lang 从 filePath 推断(见 write-output.langFromPath)。 */}
-        <SourceCodeView content={content()} lang={langFromPath(props.tab.filePath ?? "")} />
+        <SourceCodeView content={content()} lang={langFromPath(props.tab.filePath ?? "")} tabType="code" />
       </Match>
       <Match when={props.tab.type === "file"}>
         <Switch fallback={<FileFallback tab={props.tab} />}>
