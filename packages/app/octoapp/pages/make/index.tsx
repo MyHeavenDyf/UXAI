@@ -188,6 +188,7 @@ export default function MakePage() {
 let lastMakeDir: string | undefined
 
 function MakeContent() {
+  const [lastOpenedPopover, setLastOpenedPopover] = createSignal<"addon" | "model">()
   useSharedSessionImportContext("design")
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -6370,6 +6371,8 @@ onPreview={(url) => {
                           onChange={handleFileInputChange}
                         />
                         <AddonMenu
+                          closeWhen={lastOpenedPopover() === "model"}
+                          onOpen={() => setLastOpenedPopover("addon")}
                           items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                           slots={[
                             {
@@ -6423,6 +6426,8 @@ onPreview={(url) => {
                           trackerModule="design"
                         />
 <ModelSelectorPopover
+                           closeWhen={lastOpenedPopover() === "addon"}
+                           onOpen={() => setLastOpenedPopover("model")}
                            model={local.model}
                            riskDialog={MakeModelRiskDialog}
                            triggerAs="button"
@@ -6824,6 +6829,8 @@ onPreview={(url) => {
                         onChange={handleFileInputChange}
                       />
                       <AddonMenu
+                        closeWhen={lastOpenedPopover() === "model"}
+                        onOpen={() => setLastOpenedPopover("addon")}
                         items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                         slots={[
                           {
@@ -6877,6 +6884,8 @@ onPreview={(url) => {
                         trackerModule="design"
                       />
 <ModelSelectorPopover
+                         closeWhen={lastOpenedPopover() === "addon"}
+                         onOpen={() => setLastOpenedPopover("model")}
                          model={local.model}
                          riskDialog={MakeModelRiskDialog}
                          triggerAs="button"
