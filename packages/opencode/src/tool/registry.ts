@@ -6,6 +6,7 @@ import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
+import { MemoryReadTool } from "./memory"
 import { TaskTool } from "./task"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
@@ -108,6 +109,7 @@ export const layer: Layer.Layer<
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
     const read = yield* ReadTool
+    const memoryread = yield* MemoryReadTool
     const question = yield* QuestionTool
     const todo = yield* TodoWriteTool
     const lsptool = yield* LspTool
@@ -236,6 +238,7 @@ export const layer: Layer.Layer<
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
+          memory_read: Tool.init(memoryread),
         })
 
         return {
@@ -245,6 +248,7 @@ export const layer: Layer.Layer<
             ...(questionEnabled ? [tool.question] : []),
             tool.shell,
             tool.read,
+            tool.memory_read,
             tool.glob,
             tool.grep,
             tool.edit,

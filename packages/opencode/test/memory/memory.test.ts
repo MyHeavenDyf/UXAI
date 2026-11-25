@@ -8,6 +8,7 @@ import type { ModelMessage } from "ai"
 import { MemoryStore } from "@/memory/store"
 import { MemoryExtract, parseActions } from "@/memory/extract"
 import { MemoryDebug } from "@/memory/debug"
+import { buildReadOutput } from "@/tool/memory"
 import { MemoryTombstoneTable } from "@/memory/tombstone.sql"
 import type { MemoryType } from "@/memory/memory.sql"
 import { Database } from "@/storage/db"
@@ -62,7 +63,10 @@ describe("memory store", () => {
     const system = MemoryStore.system(projectID)
     expect(system).toHaveLength(1)
     expect(system[0]).toContain("<memory>")
-    expect(system[0]).toContain("(feedback) pnpm_preference: 本仓库只用 pnpm")
+    // 核心层级(feedback)注入完整 content,索引行带短 ID,并声明参考数据与 memory_read 用法
+    expect(system[0]).toMatch(/- \[[0-9a-f-]{12}\] \(feedback\) pnpm_preference: 只用 pnpm，禁止 npm/)
+    expect(system[0]).toContain("REFERENCE DATA")
+    expect(system[0]).toContain("memory_read")
   })
 
   test("same topic upserts instead of duplicating", () => {
@@ -148,11 +152,41 @@ describe("memory store", () => {
       budget,
       version: 1000,
     })
-    const system = MemoryStore.system(projectID, 20)
+    const system = MemoryStore.system(projectID, 30)
     expect(system).toHaveLength(1)
     expect(system[0]).toContain("short_a")
     expect(system[0]).toContain("short_c")
     expect(system[0]).not.toContain("long_b")
+  })
+
+  test("core tier injects full content, normal tier only the summary", () => {
+    MemoryStore.write({
+      projectID,
+      actions: [
+        { action: "create", type: "user", topic: "core_pref", content: "核心完整内容", summary: "核心摘要" },
+        { action: "create", type: "project", topic: "normal_note", content: "普通完整内容", summary: "普通摘要" },
+      ],
+      budget,
+    })
+    const system = MemoryStore.system(projectID)
+    expect(system[0]).toContain("(user) core_pref: 核心完整内容")
+    expect(system[0]).not.toContain("核心摘要")
+    expect(system[0]).toContain("(project) normal_note: 普通摘要")
+    expect(system[0]).not.toContain("普通完整内容")
+  })
+
+  test("core entries are injected first when budget is tight", () => {
+    MemoryStore.write({
+      projectID,
+      actions: [
+        { action: "create", type: "project", topic: "normal_old", content: "n", summary: "s".repeat(100) },
+        { action: "create", type: "feedback", topic: "core_new", content: "核心内容", summary: "s" },
+      ],
+      budget,
+    })
+    const system = MemoryStore.system(projectID, 40)
+    expect(system[0]).toContain("core_new")
+    expect(system[0]).not.toContain("normal_old")
   })
 
   test("trim drops oldest unpinned entries beyond budget", () => {
@@ -163,7 +197,7 @@ describe("memory store", () => {
         { action: "create", type: "project", topic: "second", content: "2", summary: "s".repeat(80) },
         { action: "create", type: "project", topic: "third", content: "3", summary: "s".repeat(80) },
       ],
-      budget: 30,
+      budget: 40,
     })
     const topics = MemoryStore.list(projectID).map((row) => row.topic)
     expect(topics).toEqual(["third"])
@@ -206,6 +240,102 @@ describe("memory switch", () => {
       budget,
     })
     expect(MemoryStore.list(projectID)).toHaveLength(1)
+  })
+})
+
+describe("effectiveBudget", () => {
+  test("scales down for small context windows, floors at minimum", () => {
+    // 无上下文信息/大窗口:原样使用配置值
+    expect(MemoryStore.effectiveBudget(2000, undefined)).toBe(2000)
+    expect(MemoryStore.effectiveBudget(2000, 65536)).toBe(2000)
+    expect(MemoryStore.effectiveBudget(2000, 262144)).toBe(2000)
+    expect(MemoryStore.effectiveBudget(5000, 65536)).toBe(5000)
+    // 64K 以下按 1/8 收缩:8K 窗口只允许 1K 索引
+    expect(MemoryStore.effectiveBudget(2000, 8192)).toBe(1024)
+    expect(MemoryStore.effectiveBudget(2000, 4096)).toBe(512)
+    // 极小窗口保底 300 tokens,不归零
+    expect(MemoryStore.effectiveBudget(2000, 2048)).toBe(MemoryStore.MIN_BUDGET_TOKENS)
+    expect(MemoryStore.effectiveBudget(2000, 256)).toBe(MemoryStore.MIN_BUDGET_TOKENS)
+  })
+})
+
+describe("memory_read on-demand loading", () => {
+  const entry = (topic: string, content: string, summary = "s") => ({
+    action: "create" as const,
+    type: "project" as MemoryType,
+    topic,
+    content,
+    summary,
+  })
+
+  test("entriesByIDs resolves full and short-prefix ids within the project", () => {
+    MemoryStore.write({ projectID, actions: [entry("a", "内容A"), entry("b", "内容B")], budget })
+    const rows = MemoryStore.list(projectID)
+    const byFull = MemoryStore.entriesByIDs(projectID, [rows[0].id])
+    expect(byFull).toHaveLength(1)
+    expect(byFull[0].topic).toBe("a")
+    const byShort = MemoryStore.entriesByIDs(projectID, [rows[1].id.slice(0, 12)])
+    expect(byShort).toHaveLength(1)
+    expect(byShort[0].topic).toBe("b")
+  })
+
+  test("entriesByIDs is strictly project scoped", () => {
+    MemoryStore.write({ projectID, actions: [entry("a", "内容A")], budget })
+    const rows = MemoryStore.list(projectID)
+    // 用另一个项目(已播种 otherID)查同一 ID:必须查不到
+    expect(MemoryStore.entriesByIDs(otherID, [rows[0].id, rows[0].id.slice(0, 12)])).toHaveLength(0)
+    expect(MemoryStore.entriesByIDs(otherID, ["not-exist"])).toHaveLength(0)
+  })
+
+  test("entriesByIDs caps batch size and dedupes ids", () => {
+    MemoryStore.write({
+      projectID,
+      actions: Array.from({ length: 12 }, (_, i) => entry(`topic_${i}`, `内容${i}`)),
+      budget,
+    })
+    const rows = MemoryStore.list(projectID)
+    expect(MemoryStore.entriesByIDs(projectID, rows.flatMap((row) => [row.id, row.id]))).toHaveLength(
+      MemoryStore.MAX_READ_BATCH,
+    )
+    expect(MemoryStore.entriesByIDs(projectID, [])).toHaveLength(0)
+  })
+})
+
+describe("buildReadOutput", () => {
+  const row = (id: string, topic: string, content: string) =>
+    ({ id, type: "project", topic, content, summary: "s" }) as unknown as MemoryStore.Row
+
+  test("returns full content for fresh ids and marks them returned", () => {
+    const seen = new Set<string>()
+    const result = buildReadOutput({ rows: [row("id_a", "t_a", "内容A")], seen, maxTokens: 1000 })
+    expect(result.returned).toBe(1)
+    expect(result.output).toContain("内容A")
+    expect(result.returnedIDs).toEqual(["id_a"])
+    expect(seen.has("id_a")).toBe(false) // seen 由调用方登记,纯函数不越权
+  })
+
+  test("already loaded ids get a hint instead of full content", () => {
+    const seen = new Set(["id_a"])
+    const result = buildReadOutput({ rows: [row("id_a", "t_a", "内容A")], seen, maxTokens: 1000 })
+    expect(result.returned).toBe(0)
+    expect(result.output).toContain("已在本会话加载过")
+    expect(result.output).not.toContain("内容A")
+  })
+
+  test("unknown ids degrade to a not-found message", () => {
+    const result = buildReadOutput({ rows: [], seen: new Set(), maxTokens: 1000 })
+    expect(result.returned).toBe(0)
+    expect(result.output).toContain("未找到匹配的记忆")
+  })
+
+  test("caps single-return size and reports the remainder", () => {
+    const rows = [row("id_a", "t_a", "x".repeat(600)), row("id_b", "t_b", "y".repeat(600)), row("id_c", "t_c", "z".repeat(600))]
+    const result = buildReadOutput({ rows, seen: new Set(), maxTokens: 400 })
+    expect(result.returned).toBeLessThan(3)
+    expect(result.tokens).toBeLessThanOrEqual(400)
+    expect(result.output).toContain("剩余")
+    // 超限条目未被标记已读,可继续读取
+    expect(result.returnedIDs).not.toContain("id_c")
   })
 })
 

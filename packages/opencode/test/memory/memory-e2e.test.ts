@@ -262,7 +262,10 @@ describe("memory e2e (feature ON)", () => {
         }
         expect(injectDump).toBeDefined()
         expect(injectDump).toContain("<memory>")
-        expect(injectDump).toContain("(feedback) pnpm_preference: 本仓库只用 pnpm，禁止 npm")
+        // feedback 属核心层级:索引行直接展开完整 content,并带短 ID 与 memory_read 指引
+        expect(injectDump).toMatch(/\[.*?\] \(feedback\) pnpm_preference: 本仓库所有安装/)
+        expect(injectDump).toContain("memory_read")
+        expect(injectDump).toContain("memory tokens:")
 
         const extractDump = findDump("extract", "pnpm_preference")
         expect(extractDump).toBeDefined()

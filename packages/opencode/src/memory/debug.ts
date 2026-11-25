@@ -41,11 +41,11 @@ const sessionDir = Effect.fnUntraced(function* (sessionID: string) {
   return dir
 })
 
-// extract 与 inject 各自按 session 计数,文件名互不干扰
-const counters = new Map<string, { extract: number; inject: number }>()
+// extract/inject/read 各自按 session 计数,文件名互不干扰
+const counters = new Map<string, { extract: number; inject: number; read: number }>()
 
-const next = (sessionID: string, kind: "extract" | "inject") => {
-  const counter = counters.get(sessionID) ?? { extract: 0, inject: 0 }
+const next = (sessionID: string, kind: "extract" | "inject" | "read") => {
+  const counter = counters.get(sessionID) ?? { extract: 0, inject: 0, read: 0 }
   counter[kind]++
   counters.set(sessionID, counter)
   return counter[kind]
@@ -77,7 +77,7 @@ const stringify = (value: unknown) => {
 
 const isPosix = process.platform !== "win32"
 
-const write = Effect.fnUntraced(function* (sessionID: string, kind: "extract" | "inject", content: string) {
+const write = Effect.fnUntraced(function* (sessionID: string, kind: "extract" | "inject" | "read", content: string) {
   const dir = path.join(dumpDir(), yield* sessionDir(sessionID))
   yield* Effect.tryPromise(() => mkdir(dir, { recursive: true }))
   if (isPosix) yield* Effect.tryPromise(() => chmod(dir, 0o700)).pipe(Effect.ignore)
@@ -131,7 +131,7 @@ const separator = "=".repeat(80)
 // 开关判断在序列化之前(build 是惰性闭包,关闭时零序列化开销);内容构建与写入
 // 全部在 exit 隔离区内,任何序列化/IO 异常只 warn,绝不影响 Agent 主流程。
 const dump = Effect.fn("MemoryDebug.dump")(function* (
-  kind: "extract" | "inject",
+  kind: "extract" | "inject" | "read",
   sessionID: string,
   build: () => string,
 ) {
@@ -183,13 +183,15 @@ export const dumpExtract = Effect.fn("MemoryDebug.dumpExtract")(function* (input
   )
 })
 
-// 注入埋点:记忆带进 prompt 时,记录全部上下文(system + tools + messages)
+// 注入埋点:记忆带进 prompt 时,记录全部上下文(system + tools + messages)与索引 Token 数
 export const dumpInject = Effect.fn("MemoryDebug.dumpInject")(function* (input: {
   sessionID: string
   model: string
   system: string[]
   modelMsgs: unknown[]
   activeTools: Record<string, unknown>
+  // 索引注入的 Token 数(仅 <memory> 块),小上下文调优的核心观测指标
+  memoryTokens: number
 }) {
   yield* dump("inject", input.sessionID, () =>
     [
@@ -199,6 +201,7 @@ export const dumpInject = Effect.fn("MemoryDebug.dumpInject")(function* (input: 
       `session:         ${input.sessionID}`,
       `time:            ${new Date().toISOString()}`,
       `model:           ${input.model}`,
+      `memory tokens:   ${input.memoryTokens}`,
       `tool count:      ${Object.keys(input.activeTools).length}`,
       `message count:   ${input.modelMsgs.length}`,
       `tokens system:   ${Token.estimateValue(input.system)}`,
@@ -215,6 +218,35 @@ export const dumpInject = Effect.fn("MemoryDebug.dumpInject")(function* (input: 
       "",
       "===== MESSAGES PREPARED FOR THE AI =====",
       stringify(input.modelMsgs),
+      "",
+    ].join("\n"),
+  )
+})
+
+// 读取埋点:memory_read 调用时记录请求 ID、返回条数与返回 Token 数
+export const dumpRead = Effect.fn("MemoryDebug.dumpRead")(function* (input: {
+  sessionID: string
+  projectID: string
+  requested: string[]
+  returned: number
+  tokens: number
+  output: string
+}) {
+  yield* dump("read", input.sessionID, () =>
+    [
+      separator,
+      `memory read dump`,
+      separator,
+      `session:         ${input.sessionID}`,
+      `project:         ${input.projectID}`,
+      `time:            ${new Date().toISOString()}`,
+      `requested ids:   ${input.requested.length}`,
+      `returned:        ${input.returned}`,
+      `read tokens:     ${input.tokens}`,
+      separator,
+      "",
+      "===== READ RESULT =====",
+      input.output,
       "",
     ].join("\n"),
   )

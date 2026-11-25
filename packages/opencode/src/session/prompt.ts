@@ -753,14 +753,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: input.messages })
       const memCfg = (yield* config.get()).memory
       // 跨会话记忆注入:主 agent 顶层会话才注入;统一开关(env 硬关/config 关闭)与
-      // hidden 工具型 agent、subagent、task 子会话一律跳过。走 prepareRequest 使
-      // 记忆计入 compaction 固定成本预算。MemoryStore 内部自带异常降级,不影响主流程。
+      // hidden 工具型 agent、subagent、task 子会话一律跳过。索引预算按模型上下文
+      // 动态收缩(不超过窗口 1/8,适配 ≤64K 的小上下文模型),下限 300 tokens。
+      // MemoryStore 内部自带异常降级,不影响主流程。
       const memory =
         !MemoryStore.disabled(memCfg) &&
         input.agent.hidden !== true &&
         input.agent.mode !== "subagent" &&
         !input.session.parentID
-          ? MemoryStore.system(input.session.projectID, memCfg?.budget_tokens)
+          ? MemoryStore.system(
+              input.session.projectID,
+              MemoryStore.effectiveBudget(
+                memCfg?.budget_tokens ?? MemoryStore.DEFAULT_BUDGET_TOKENS,
+                input.model.limit?.context,
+              ),
+            )
           : []
       const [skills, env, instructions, modelMsgs] = yield* Effect.all([
         sys.skills(input.agent).pipe(Effect.catch(() => Effect.succeed(undefined))),
@@ -795,6 +802,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         yield* MemoryDebug.dumpInject({
           sessionID: input.session.id,
           model: `${input.model.providerID}/${input.model.id}`,
+          memoryTokens: Token.estimate(memory.join("\n")),
           system,
           modelMsgs,
           activeTools,
