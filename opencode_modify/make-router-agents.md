@@ -260,3 +260,15 @@ index.tsx 两处 InsightTurn 调用自动合并，dev 的 `canRevert` 以 `sessi
 - 测试:restore-draft.test.ts 加 recordWriteEvidence 6 例(exists 记录/undefined 不删/edit 已存在/路径归一/多消息保最早且与调用顺序无关/未完成不记),32 pass
 
 E2E 实测定位手法(复用):CDP 9222 拿 sidecar 密码 → `GET /session`(主会话 directory/children)→ `GET /session/{child}/message` 看 parts(write 工具 input.filePath + metadata.exists)→ 对照项目磁盘文件与 revert 指针状态;TurnAnchorNav 阈值(≥3 条消息才渲染)也解释了两输入对话锚点栏整体消失——过滤幽灵锚点后 2<3,属既有阈值设计而非过滤缺陷。
+
+## 第五批修复:回退子任务文件的用户提示(UI,2026-11-25)
+
+第四批把子任务文件的实际删除修通后(桌面 dev 手动验证删除成功),用户提示链路还是只覆盖主会话——两个洞:
+
+**洞 1(回退确认面板预告)**:`insight-turn.tsx` 的 `revertArtifacts` memo(「将被删除/将被修改」清单)只扫本 turn 会话消息,子代理 write 路径与 artifact 标签全在子会话 → 面板不预告子任务文件。**修复**:InsightTurn 新增 `childSessionIDs?: string[]` prop(index.tsx 两处调用点传 `[...childSessionIDs()]`);memo 在 `sessionID === mainSessionID` 且有子会话时追加扫描——各子会话按主会话 revert 指针过滤活消息(与 executeRevert liveChildMsgs 同口径),`id > 回退目标消息 id` 的 parts 计入待回退清单、更早的计入 existedBefore 证据(跨会话 ULID 时序可比),artifact 路径仍按主会话 sid 推导(autoSave 归属一致)。
+
+**洞 2(回退后 toast 无子任务文件反馈)**:`api.deleteFile` 兜底删除是静默的,`.history` 删除(outcome==="deleted")也无提示。**修复**:executeRevert 里 `deletedFiles` 收集两路删除(outcome "deleted" + 兜底删除,后者改门在 `api.deleteFile` 存在才记账),全部文件操作完成后 `showOctoToast({ title: "已删除 N 个文件", description: 文件名列表(>5 截断为「前 5 + 等 N 个」) })`;第二循环逐 tab 的「该页面已随回退删除」提示在文件已被汇总 toast 覆盖时跳过防重复。handleRegenerateMessage 复用 executeRevert,重新生成流程同样受益。
+
+验证:packages/app typecheck 过;visible-message + turn-anchor-text 30 pass;桌面 dev HMR 热载无报错。子会话无 write 的会话不进新分支(当前测试会话 ses_e73e95c69ffe 四个子会话仅 read/glob/question),面板预告+删除 toast 的可视验证需子任务实际 write 文件的场景。
+
+**E2E 验证（2026-11-25，桌面 dev + CDP）**：11-23 会话 ses_e9812e706ffe（octo_code 子会话 write index.html/style.css/script.js，均 exists=false）实测全过——①面板预告：回退面板列出子任务写的 index.html「将被删除」（改前只扫主会话时此处为空）；②删除 toast：确定后弹出「已删除 3 个文件：index.html、style.css、script.js」（Toast DOM 为 .octo-toast-text，MutationObserver 捕获，title+description 合并显示）；③磁盘实删：三文件消失，其他会话产物（about/pricing/todo）不动；④首消息回退重启流程正常（会话删除 + 跳回 /make + 第二条 toast）。CDP 手法：_cdp_eval.cjs 装全局 toast 观察器再点确定（toast 4s 自动消失，先装观察器防漏采），面板定位用「含『确定要回退到此步骤』且含 ≥2 按钮的最小 div」。

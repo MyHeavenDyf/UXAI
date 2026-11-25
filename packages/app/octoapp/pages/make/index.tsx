@@ -2237,6 +2237,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
     const api = getDesktopApi()
     if (api?.readFileBuffer) {
+      // 本次回退实际删除的文件(.history 全版本在回退点后 → restore 删除 + 无版本兜底删除),完成后统一 toast 反馈
+      const deletedFiles: string[] = []
       // 产物在 .octo/{sid}/outputs（项目 .gitignore 内），服务端 snapshot/patch 不追踪 →
       // revert 拿不到 patch，文件内容必须由前端用 .history 版本自己恢复/删除
       for (const filePath of involved) {
@@ -2259,15 +2261,19 @@ const sessionMessagesLoaded = createMemo(() => {
             }
             outcome = await historyController.restoreFilesBefore(pseudoTab, cutoff)
           }
-          if (outcome !== "none") continue
+          if (outcome !== "none") {
+            if (outcome === "deleted") deletedFiles.push(filePath)
+            continue
+          }
           // 兜底删除:子代理 write 工具服务端直接落盘的文件(非 git 项目拿不到
           // patch,没开过 tab 也没有 .history 版本)零版本时上面的恢复是 no-op。
           // write part 的 metadata.exists 记录写入时文件是否已存在:该路径最早的
           // 写在回退点之后且写入时不存在 → 文件是回退轮次新建的,直接删除;
           // 之前已存在的文件保持不动(无恢复来源,与既有行为一致)。
           const evidence = writeEvidence.get(filePath)
-          if (evidence && evidence.existed === false && evidence.msgId > msg.id) {
-            await api.deleteFile?.(filePath)
+          if (evidence && evidence.existed === false && evidence.msgId > msg.id && api.deleteFile) {
+            await api.deleteFile(filePath)
+            deletedFiles.push(filePath)
           }
         } catch (error) {
           console.warn("[octo:make] revert file restore failed", filePath, error)
@@ -2285,7 +2291,10 @@ const sessionMessagesLoaded = createMemo(() => {
             if (!openTab.filePath || normalizePath(openTab.filePath) !== filePath) continue
             const buffer = await api.readFileBuffer(openTab.filePath)
             if (!buffer) {
-              showOctoToast({ title: "该页面已随回退删除", description: openTab.title })
+              // 末尾的删除汇总 toast 已覆盖该文件时不再逐 tab 重复提示
+              if (!deletedFiles.includes(filePath)) {
+                showOctoToast({ title: "该页面已随回退删除", description: openTab.title })
+              }
               handleCloseTab(openTab.id)
               continue
             }
@@ -2301,6 +2310,12 @@ const sessionMessagesLoaded = createMemo(() => {
         await historyController.loadVersions(activeTab).catch((error) => {
           console.warn("[octo:make] revert history refresh failed", activeTab.filePath, error)
         })
+      }
+      if (deletedFiles.length > 0) {
+        const names = deletedFiles.map((p) => p.split(/[/\\]/).pop() ?? p)
+        const description =
+          names.length > 5 ? `${names.slice(0, 5).join("、")} 等 ${names.length} 个文件` : names.join("、")
+        showOctoToast({ title: `已删除 ${deletedFiles.length} 个文件`, description })
       }
     }
 
@@ -6637,6 +6652,7 @@ onPreview={(url) => {
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
                         active={sessionActive(sync.data.session_status[userMessages()[0].sessionID ?? params.id!])}
                         mainSessionID={params.id}
+                        childSessionIDs={[...childSessionIDs()]}
                         hideUserBubble={isHiddenTaskPromptMessage(userMessages()[0], params.id)}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
@@ -6679,6 +6695,7 @@ onPreview={(url) => {
                             status={sync.data.session_status[messageSessionID] ?? sessionStatus()}
                             active={sessionActive(sync.data.session_status[messageSessionID])}
                             mainSessionID={params.id}
+                            childSessionIDs={[...childSessionIDs()]}
                             hideUserBubble={isHiddenTaskPromptMessage(msg, params.id)}
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}

@@ -530,6 +530,8 @@ export function InsightTurn(props: {
   mainSessionID?: string
   /** 隐藏用户气泡:task 子会话的 user 消息是路由派发的 task prompt,不是用户输入 */
   hideUserBubble?: boolean
+  /** 主会话下的子任务子会话 id 集合:回退面板的产物清单要预告子任务落盘文件(仅主 turn 使用) */
+  childSessionIDs?: string[]
   canRevert?: boolean
   showRevert?: boolean
   showRegenerate?: boolean
@@ -1168,7 +1170,7 @@ const stateStatus = state.status as string | undefined
       .filter((f, i, arr) => arr.findIndex((x) => x.path === f.path) === i)
   })
 
-  // 回退面板的产物列表：此消息之后（含后续轮次）write/edit 工具写入的文件 + <artifact> 标签落盘的产物，
+  // 回退面板的产物列表：此消息之后（含后续轮次与子任务子会话）write/edit 工具写入的文件 + <artifact> 标签落盘的产物，
   const revertArtifacts = createMemo((): Array<{ path: string; created: boolean }> => {
     if (!props.onRevertToMessage) return []
     const messages = msgStore?.[props.sessionID] ?? []
@@ -1182,11 +1184,24 @@ const stateStatus = state.status as string | undefined
     for (let i = 0; i < idx; i++) {
       beforeParts.push(...((partStore?.[live[i].id] ?? []) as RevertDraftPart[]))
     }
-    const existedBefore = new Set(collectRevertedFiles(beforeParts, opts).map((p) => p.replace(/\\/g, "/")))
     const parts: RevertDraftPart[] = []
     for (let i = idx + 1; i < live.length; i++) {
       parts.push(...((partStore?.[live[i].id] ?? []) as RevertDraftPart[]))
     }
+    // 主会话 turn：回退同样作用于子任务子会话（executeRevert 同口径），
+    // 子会话消息 id 与主会话 ULID 时序可比，回退点前后的落盘文件分别计入证据与待回退清单
+    if (props.mainSessionID && props.sessionID === props.mainSessionID && props.childSessionIDs?.length) {
+      for (const childId of props.childSessionIDs) {
+        const childMsgs = msgStore?.[childId] ?? []
+        const liveChild = revertID ? childMsgs.filter((m) => m.id < revertID) : childMsgs
+        for (const m of liveChild) {
+          const childParts = (partStore?.[m.id] ?? []) as RevertDraftPart[]
+          if (m.id > props.messageID) parts.push(...childParts)
+          else beforeParts.push(...childParts)
+        }
+      }
+    }
+    const existedBefore = new Set(collectRevertedFiles(beforeParts, opts).map((p) => p.replace(/\\/g, "/")))
     return collectRevertedFiles(parts, opts)
       .filter((path) => /\.html?$/i.test(path.replace(/\\/g, "/")))
       .map((path) => ({
