@@ -29,6 +29,7 @@ const pendingSchema = z.discriminatedUnion("kind", [
     sessionID: z.string(),
     guidePartID: z.string(),
     independent: z.boolean().optional(),
+    exitRequested: z.boolean().optional(),
   }),
 ])
 type Pending = z.infer<typeof pendingSchema>
@@ -47,6 +48,15 @@ export function createPromptRecommendation(input: {
   sessionID: () => string | undefined
   scope: () => string
   revision: () => string
+  snapshotReady?: () => boolean
+  messagesCurrent?: (recommendation: z.infer<typeof summary>) => boolean
+  activity?: () => {
+    sessionID: string
+    guidePartID: string
+    assistantMessageID: string
+    resultRevision: number
+    status: string
+  } | undefined
   request: (path: string, body?: unknown, timeoutMs?: number) => Promise<Response>
   uploadImage: (sessionID: string, image: Submission["images"][number]) => Promise<{ path: string }>
   reload: (sessionID: string) => Promise<unknown>
@@ -65,6 +75,7 @@ export function createPromptRecommendation(input: {
         ready: boolean
         pending: boolean
         unknown: boolean
+        messagesSyncFailed?: boolean
         preparing?: boolean
         independent?: boolean
         exiting?: boolean
@@ -84,9 +95,27 @@ export function createPromptRecommendation(input: {
   const uploads = new Map<string, { path: string }>()
   let clearReplay: ((sessionID?: string) => void) | undefined
   const current = createMemo(() => store[key()])
+  const activity = createMemo(() => {
+    const state = current()?.state?.recommendation
+    const snapshot = input.activity?.()
+    if (!snapshot) return state
+    if (state && (state.assistantMessageID ?? state.guideMessageID) > snapshot.assistantMessageID) return state
+    if (state?.assistantMessageID === snapshot.assistantMessageID && (state.resultRevision ?? 0) > snapshot.resultRevision)
+      return state
+    return snapshot
+  })
   const visit = createMemo(() => ({ key: key() }))
+  const startRead = () => ({ visit: visit(), sequence: ++sequence })
+  const isCurrentRead = (read: ReturnType<typeof startRead>) =>
+    !disposed && read.visit === visit() && read.sequence === sequence
+  const needsRecovery = () => Boolean(current()?.unknown || current()?.messagesSyncFailed)
   const versions = new Map<string, number>()
   const recoveries = new Map<string, number>()
+  const synchronized = new Map<string, { visit: ReturnType<typeof visit>; version: string }>()
+  const messageVersion = (recommendation?: z.infer<typeof summary> | null) => JSON.stringify(recommendation ? [
+    recommendation.guidePartID, recommendation.guideRevision,
+    recommendation.assistantMessageID, recommendation.resultRevision,
+  ] : null)
   const save = (value?: Pending, target = key()) =>
     value
       ? sessionStorage.setItem(storageKey(target), JSON.stringify(value))
@@ -106,10 +135,36 @@ export function createPromptRecommendation(input: {
     }
     return value
   }
-  async function refresh() {
+  function prepareMessageSync(
+    sessionID: string,
+    recommendation = current()?.state?.recommendation,
+    trigger: "automatic" | "manual" = "manual",
+  ) {
+    const operation = { visit: visit(), version: messageVersion(recommendation) }
+    const target = operation.visit.key
+    const previous = synchronized.get(target)
+    if (trigger === "automatic" && previous?.visit === operation.visit && previous.version === operation.version) return
+    // Register before publishing a new summary so the automatic effect cannot start a duplicate load.
+    synchronized.set(target, operation)
+    return async () => {
+      const loaded = await input.reload(sessionID).then(() => true, () => false)
+      if (disposed || operation.visit !== visit() || synchronized.get(target) !== operation ||
+        messageVersion(current()?.state?.recommendation) !== operation.version) return
+      const latest = current()?.state?.recommendation
+      if (!latest || (input.messagesCurrent ? input.messagesCurrent(latest) : loaded)) {
+        setStore(target, "messagesSyncFailed", false)
+        return latest ? true : loaded
+      }
+      setStore(target, "messagesSyncFailed", true)
+      input.notice("扩写消息同步失败，请重新同步会话。")
+      // Keep message failures separate from an unconfirmed recommendation operation.
+      return false
+    }
+  }
+  async function refresh(reload = true, read = startRead()) {
+    if (!isCurrentRead(read)) return false
     const id = input.sessionID()
     const target = key()
-    const token = ++sequence
     if (!id) {
       setStore(target, {
         ...store[target],
@@ -121,34 +176,41 @@ export function createPromptRecommendation(input: {
     }
     try {
       const state = stateSchema.parse(await json(`/studio/sessions/${encodeURIComponent(id)}/prompt-recommendation`))
-      if (disposed || token !== sequence || target !== key()) return
+      if (!isCurrentRead(read)) return false
       const previous = store[target]?.state?.recommendation
       if (
         previous?.guidePartID === state.recommendation?.guidePartID &&
         ((previous?.guideRevision ?? 0) > (state.recommendation?.guideRevision ?? 0) ||
           (previous?.resultRevision ?? 0) > (state.recommendation?.resultRevision ?? 0))
       )
-        return
+        return false
+      const synchronize = reload ? prepareMessageSync(id, state.recommendation) : undefined
       setStore(target, "state", state)
       setStore(target, "ready", true)
       if (!pending(target)) {
         setStore(target, "unknown", false)
-        setStore(target, "exiting", false)
+        if (!store[target]?.pending && !store[target]?.preparing && state.recommendation?.status !== "armed")
+          setStore(target, "exiting", false)
       }
-      await input.reload(id)
+      if (synchronize && await synchronize() === false) return false
+      return true
     } catch (error) {
-      if (disposed || token !== sequence || target !== key()) throw error
-      const active = store[target]?.state?.recommendation?.status
+      if (!isCurrentRead(read)) return false
+      console.warn("[StudioRecommendation] state read failed", {
+        sessionID: id,
+        name: error instanceof Error ? error.name : undefined,
+        ...(error instanceof Error && "status" in error ? { status: error.status, code: error.message } : {}),
+      })
+      const active = activity()?.status
       if (
         input.mode?.enabled(target) !== true &&
         !pending(target) &&
         !store[target]?.pending &&
         !store[target]?.unknown &&
-        !["armed", "running", "cancelling"].includes(active ?? "")
+        !["running", "cancelling"].includes(active ?? "") &&
+        (active !== "armed" || input.mode?.enabled(target) === false)
       ) {
-        const ready = store[target]?.ready
         setStore(target, "ready", true)
-        if (!ready) input.notice("推荐状态读取失败，已按普通生图模式继续。")
       }
       throw error
     }
@@ -167,9 +229,12 @@ export function createPromptRecommendation(input: {
     setStore(target, "pending", true)
     try {
       const id = input.sessionID()
-      if (!resume && id) await refresh()
+      if (!resume && id && await refresh() === false) return
       if (disposed || operationScope !== input.scope() || operationVisit !== visit()) return
       if (!resume && !continuation?.independent && input.mode?.enabled(target) === false) return
+      const state = store[target]?.state
+      if (!resume && state?.recommendation?.status === "armed")
+        return { ...state.recommendation, stateToken: state.stateToken }
       const request = resume ?? {
         kind: "initialize" as const,
         requestID: crypto.randomUUID(),
@@ -201,6 +266,7 @@ export function createPromptRecommendation(input: {
         ...store[destination],
         preparing: continuing || store[destination]?.preparing,
         independent: continuing ? continuation?.independent : store[destination]?.independent,
+        exiting: store[target]?.exiting,
         ready: true,
         pending: destination === target,
         unknown: false,
@@ -213,7 +279,7 @@ export function createPromptRecommendation(input: {
         continuation.visit = visit()
         continuation.version = versions.get(destination)
       }
-      await input.reload(result.sessionID).catch(() => input.notice("推荐已开启，消息同步失败，请重新同步会话。"))
+      await prepareMessageSync(result.sessionID)?.().catch(() => {})
       await refresh().catch(() => input.notice("推荐已开启，状态同步失败，请重新同步会话。"))
       return result
     } catch (error) {
@@ -343,25 +409,28 @@ export function createPromptRecommendation(input: {
       setStore(target, "pending", false)
     }
   }
-  async function recover() {
+  async function recover(reload = true, restoring = false) {
     const target = key()
+    const read = startRead()
     recoveries.set(target, (recoveries.get(target) ?? 0) + 1)
     setStore(target, "recovering", true)
     try {
       const operation = pending()
-      if (!operation) return await refresh()
+      if (!operation) return await refresh(reload, read)
       if (operation.kind === "initialize") {
-        if (operation.sessionID && operation.sessionID !== input.sessionID()) return await refresh()
+        if (operation.sessionID && operation.sessionID !== input.sessionID()) return await refresh(true, read)
         return await initialize(operation)
       }
-      if (operation.sessionID !== input.sessionID()) return await refresh()
+      if (operation.sessionID !== input.sessionID()) return await refresh(true, read)
       if (operation.kind === "dismiss") return await dismiss(operation)
       const response = stateSchema.parse(
         await json(
           `/studio/sessions/${encodeURIComponent(operation.sessionID)}/prompt-recommendation?guidePartID=${encodeURIComponent(operation.guidePartID)}`,
         ),
       )
-      if (disposed || target !== key()) return
+      if (!isCurrentRead(read)) return
+      const saved = pending(target)
+      if (saved?.kind !== "submit" || saved.requestID !== operation.requestID) return await refresh(reload, read)
       if (response.recommendation?.submission) {
         if (response.recommendation.submission.requestID === operation.requestID) clearReplay?.(operation.sessionID)
         else input.notice("本次推荐已由其他提交使用，保留了当前输入。")
@@ -369,7 +438,7 @@ export function createPromptRecommendation(input: {
         replay = undefined
         clearReplay = undefined
         setStore(target, "unknown", false)
-      } else if ((!operation.independent && input.mode?.enabled(target) === false) || store[target]?.cancelRequested) {
+      } else if (saved.exitRequested || store[target]?.cancelRequested) {
         save(undefined, target)
         replay = undefined
         clearReplay = undefined
@@ -380,7 +449,18 @@ export function createPromptRecommendation(input: {
         setStore(key(), "unknown", true)
         input.notice("上次提交尚待确认。再次发送将重放原请求；刷新后请重新确认输入再提交。")
       }
-      await refresh()
+      await refresh(true, read)
+    } catch (error) {
+      if (!isCurrentRead(read)) return
+      if (restoring && (pending() || current()?.unknown || input.mode?.enabled(target) ||
+        ["running", "cancelling"].includes(activity()?.status ?? ""))) {
+        setStore(target, "ready", false)
+        setStore(target, "unknown", true)
+        input.notice(["running", "cancelling"].includes(activity()?.status ?? "")
+          ? "扩写状态同步失败，请重新同步会话。"
+          : "上次推荐请求仍待确认，请重新同步会话。")
+      }
+      throw error
     } finally {
       const remaining = (recoveries.get(target) ?? 1) - 1
       if (remaining) recoveries.set(target, remaining)
@@ -421,13 +501,13 @@ export function createPromptRecommendation(input: {
   ) {
     const target = key()
     if (store[target]?.pending || store[target]?.preparing ||
-      ["running", "cancelling"].includes(current()?.state?.recommendation?.status ?? "")) return
+      ["running", "cancelling"].includes(activity()?.status ?? "")) return
     // Keep independent guides from enabling recommendation mode through legacy state restoration.
     if (independent && input.mode?.enabled(target) === undefined) input.mode?.save(target, false)
-    if (current()?.unknown) {
+    if (needsRecovery()) {
       await recover()
       if (target !== key()) return
-      if (!current()?.unknown || pending()?.kind !== "submit" || current()?.state?.recommendation?.status !== "armed")
+      if (!current()?.unknown || current()?.messagesSyncFailed || pending()?.kind !== "submit" || current()?.state?.recommendation?.status !== "armed")
         return
     }
     const operation = { target, visit: visit(), version: versions.get(target), independent }
@@ -462,13 +542,12 @@ export function createPromptRecommendation(input: {
       !current()?.cancelRequested ||
       current()?.pending ||
       current()?.preparing ||
-      current()?.unknown ||
+      needsRecovery() ||
       current()?.cancelling ||
-      current()?.recovering ||
       pending()
     )
       return
-    const guide = current()?.state?.recommendation
+    const guide = activity()
     if (
       !guide ||
       (current()?.cancelGuidePartID && current()?.cancelGuidePartID !== guide.guidePartID) ||
@@ -496,15 +575,17 @@ export function createPromptRecommendation(input: {
   async function cancel() {
     const target = key()
     versions.set(target, (versions.get(target) ?? 0) + 1)
+    if (current()?.independent && input.mode?.enabled(target) === false) setStore(target, "exiting", true)
     const operation = pending()
     setStore(
       target,
       "cancelGuidePartID",
-      operation?.kind === "submit" ? operation.guidePartID : current()?.state?.recommendation?.guidePartID,
+      operation?.kind === "submit" ? operation.guidePartID : activity()?.guidePartID,
     )
     setStore(target, "cancelRequested", true)
-    if (current()?.pending || current()?.preparing || current()?.recovering) return
-    if (current()?.unknown || pending()) await recover()
+    if (current()?.pending || current()?.preparing ||
+      (current()?.recovering && !activity()?.assistantMessageID)) return
+    if (needsRecovery() || pending()) await recover()
     if (target === key()) await applyCancellation()
   }
   createEffect(() => {
@@ -512,7 +593,7 @@ export function createPromptRecommendation(input: {
       !current()?.cancelRequested ||
       current()?.pending ||
       current()?.preparing ||
-      current()?.unknown ||
+      needsRecovery() ||
       current()?.cancelling ||
       current()?.recovering
     )
@@ -524,47 +605,42 @@ export function createPromptRecommendation(input: {
   async function exit() {
     input.mode?.save(key(), false)
     if (current()?.independent) return
+    const operation = pending()
+    if (operation?.kind === "submit" && !operation.independent) save({ ...operation, exitRequested: true })
     versions.set(key(), (versions.get(key()) ?? 0) + 1)
-    if (current()?.pending || current()?.preparing) return
-    if (pending() || current()?.unknown) return recover()
+    if (current()?.pending || current()?.preparing) {
+      setStore(key(), "exiting", true)
+      return
+    }
+    if (pending() || needsRecovery()) {
+      setStore(key(), "exiting", true)
+      return recover()
+    }
     const guide = current()?.state?.recommendation
     if (guide?.status === "armed")
-      await dismiss({ kind: "dismiss", sessionID: guide.sessionID, guidePartID: guide.guidePartID })
+      return dismiss({ kind: "dismiss", sessionID: guide.sessionID, guidePartID: guide.guidePartID })
+    setStore(key(), "exiting", false)
   }
   async function exitForDraftRestore() {
     const target = visit()
     if (current()?.pending || current()?.preparing || current()?.recovering ||
-      ["running", "cancelling"].includes(current()?.state?.recommendation?.status ?? ""))
+      ["running", "cancelling"].includes(activity()?.status ?? ""))
       throw new Error("请先完成或停止当前任务。")
     await exit()
     if (disposed || target !== visit()) throw new Error("当前会话已切换。")
-    if (input.mode?.enabled(key()) || pending() || current()?.unknown || current()?.exiting ||
+    if (input.mode?.enabled(key()) || pending() || needsRecovery() || current()?.exiting ||
       current()?.pending || current()?.preparing || current()?.state?.recommendation?.status === "armed")
       throw new Error("退出推荐尚未确认，请重新同步后重试。")
   }
   createEffect(() => {
-    if (!input.mode?.ready() || !current()?.ready) return
+    // Only an explicit close releases a guide. A module exit merely drops its local switch.
+    if (!current()?.exiting || current()?.pending || current()?.preparing || needsRecovery() || current()?.recovering) return
     const target = key()
-    const enabled = input.mode.enabled(target)
-    const status = current()?.state?.recommendation?.status
-    if (enabled === undefined && ["armed", "running", "cancelling"].includes(status ?? "")) {
-      input.mode.save(target, true)
-      return
-    }
-    if (enabled === false && status === "armed" && !current()?.pending && !current()?.preparing && !current()?.unknown)
-      queueMicrotask(() => {
-        if (
-          disposed ||
-          target !== key() ||
-          input.mode?.enabled(target) !== false ||
-          current()?.pending ||
-          current()?.preparing ||
-          current()?.cancelling ||
-          current()?.unknown
-        )
-          return
-        if (current()?.state?.recommendation?.status === "armed") void exit()
-      })
+    queueMicrotask(() => {
+      if (disposed || target !== key() || !current()?.exiting || current()?.pending ||
+        current()?.preparing || needsRecovery() || current()?.recovering) return
+      void exit()
+    })
   })
   createEffect(
     on(
@@ -580,24 +656,26 @@ export function createPromptRecommendation(input: {
           pending: store[key()]?.pending ?? false,
           unknown: store[key()]?.unknown ?? false,
         })
-        const target = key()
-        void untrack(recover).catch(() => {
-          if (disposed || target !== key()) return
-          if (pending() || store[target]?.unknown || input.mode?.enabled(target)) {
-            setStore(target, "ready", false)
-            setStore(target, "unknown", true)
-            input.notice("上次推荐请求仍待确认，请重新同步会话。")
-          }
-        })
+        void untrack(() => recover(false, true)).catch(() => {})
       },
     ),
   )
+  createEffect(() => {
+    const recommendation = current()?.state?.recommendation
+    if (!input.snapshotReady?.() || !input.messagesCurrent) return
+    if (!recommendation || input.messagesCurrent(recommendation)) {
+      if (current()?.messagesSyncFailed) setStore(key(), "messagesSyncFailed", false)
+      return
+    }
+    const synchronize = prepareMessageSync(recommendation.sessionID, recommendation, "automatic")
+    if (synchronize) void untrack(synchronize).catch(() => {})
+  })
   createEffect(
     on(
       input.revision,
       () => {
         if (!input.sessionID()) return
-        void untrack(refresh).catch(() => {})
+        void untrack(() => pending() ? recover(false) : refresh(false)).catch(() => {})
       },
       { defer: true },
     ),
@@ -618,10 +696,12 @@ export function createPromptRecommendation(input: {
       Boolean(
         current()?.pending ||
           current()?.preparing ||
-          ["running", "cancelling"].includes(current()?.state?.recommendation?.status ?? ""),
+          ["running", "cancelling"].includes(activity()?.status ?? ""),
       ),
-    ready: () => Boolean(current()?.ready) && (input.mode?.ready() ?? true),
+    ready: () => Boolean(current()?.ready || (input.snapshotReady?.() && !needsRecovery() && !pending())) &&
+      (input.mode?.ready() ?? true),
     exiting: () => Boolean(current()?.exiting),
+    needsRecovery,
     expand,
     expandShortcut: (value: Omit<Submission, "requestID" | "sessionID" | "guidePartID">) => expand(value, () => {}, true),
     exit,

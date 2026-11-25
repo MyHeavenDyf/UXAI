@@ -1,5 +1,16 @@
 import { createEffect, createMemo } from "solid-js"
+import { createStore } from "solid-js/store"
 import type { StudioCapability } from "./types"
+
+// Owned by the Studio page: session switches retain preferences, module exits do not.
+export function createRecommendationSwitch() {
+  const [enabled, setEnabled] = createStore<Record<string, boolean>>({})
+  return {
+    ready: () => true,
+    enabled: (key: string) => enabled[key] ?? false,
+    save: (key: string, value: boolean) => setEnabled(key, value),
+  }
+}
 
 // Remember the image recommendation preference without overriding the selected capability.
 export function createRecommendationMode(input: {

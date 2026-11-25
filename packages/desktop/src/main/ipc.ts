@@ -1013,11 +1013,12 @@ export function registerIpcHandlers(deps: Deps) {
     await writeFile(resolved, content, "utf-8")
   })
 
-  ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
+  ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string, strict?: boolean) => {
     try {
       const buf = await readFile(path)
       return toExactArrayBuffer(buf)
-    } catch {
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       return null
     }
   })
@@ -1082,11 +1083,11 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
-  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
+  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string, strict?: boolean) => {
     try {
       await unlink(path)
-    } catch {
-      // 文件不存在时忽略，不执行任何代码
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
   })
 
@@ -1297,6 +1298,45 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  ipcMain.handle("get-skills-by-usage", (_event: IpcMainInvokeEvent, usage: string) => {
+    try {
+      if (!existsSync(skillConfigPath)) return []
+      const config = JSON.parse(readFileSync(skillConfigPath, "utf-8")) as { skill?: Record<string, Record<string, unknown>> }
+      const result: Array<Record<string, unknown>> = []
+      for (const entry of Object.values(config.skill ?? {})) {
+        if (entry && typeof entry === "object" && entry.usage === usage) {
+          result.push(entry)
+        }
+      }
+      return result
+    } catch (err) {
+      console.error("get-skills-by-usage failed", err)
+      return []
+    }
+  })
+
+  ipcMain.handle("get-skill-key-by-name", (_event: IpcMainInvokeEvent, skillName: string) => {
+    try {
+      if (!existsSync(skillConfigPath)) return undefined
+      const config = JSON.parse(readFileSync(skillConfigPath, "utf-8")) as { skill?: Record<string, Record<string, unknown>> }
+      const entries = Object.entries(config.skill ?? {})
+      for (const [key, entry] of entries) {
+        if (entry && typeof entry === "object" && entry.skillName === skillName) {
+          return key
+        }
+      }
+      for (const [key, entry] of entries) {
+        if (entry && typeof entry === "object" && entry.name === skillName) {
+          return key
+        }
+      }
+      return undefined
+    } catch (err) {
+      console.error("get-skill-key-by-name failed", err)
+      return undefined
+    }
+  })
+  
   ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
       mkdirSync(dirname(skillConfigPath), { recursive: true })

@@ -5,7 +5,7 @@ import { readRecommendationImages } from "./prompt-recommendation-images"
 import { Context, Effect, Layer } from "effect"
 import { Slug } from "@opencode-ai/core/util/slug"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
-import { Database, eq } from "@/storage/db"
+import { Database, and, desc, eq, sql } from "@/storage/db"
 import { Instance } from "@/project/instance"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { InstanceState } from "@/effect/instance-state"
@@ -101,21 +101,35 @@ function guide(id: string, sessionID: string) {
     throw new RecommendationError("RECOMMENDATION_NOT_FOUND", 404)
   return { part: found, metadata: metadata.data }
 }
-function guides(sessionID: string) {
-  return Database.use((db) =>
+function findGuide(sessionID: string, assistantMessageID?: string) {
+  const row = Database.use((db) =>
     db
       .select()
       .from(PartTable)
-      .where(eq(PartTable.session_id, SessionID.make(sessionID)))
-      .all(),
+      .where(
+        and(
+          eq(PartTable.session_id, SessionID.make(sessionID)),
+          sql`json_extract(${PartTable.data}, '$.type') = 'text'`,
+          sql`json_extract(${PartTable.data}, '$.metadata.studioPromptRecommendation.version') = 1`,
+          sql`json_extract(${PartTable.data}, '$.metadata.studioPromptRecommendation.kind') = 'guide'`,
+          assistantMessageID
+            ? sql`json_extract(${PartTable.data}, '$.metadata.studioPromptRecommendation.submission.assistantMessageID') = ${assistantMessageID}`
+            : undefined,
+        ),
+      )
+      .orderBy(desc(PartTable.message_id), desc(PartTable.id))
+      .limit(1)
+      .get(),
   )
-    .flatMap((row) => {
-      const value = { ...row.data, id: row.id, messageID: row.message_id, sessionID: row.session_id } as MessageV2.Part
-      if (value.type !== "text") return []
-      const metadata = guideSchema.safeParse(value.metadata?.studioPromptRecommendation)
-      return metadata.success ? [{ part: value, metadata: metadata.data }] : []
-    })
-    .sort((a, b) => a.part.messageID.localeCompare(b.part.messageID))
+  if (!row) return
+  const value = { ...row.data, id: row.id, messageID: row.message_id, sessionID: row.session_id } as MessageV2.Part
+  if (value.type !== "text") return
+  const metadata = guideSchema.safeParse(value.metadata?.studioPromptRecommendation)
+  if (!metadata.success) return
+  return {
+    part: value,
+    metadata: metadata.data,
+  }
 }
 function writePart(value: MessageV2.TextPart | MessageV2.FilePart) {
   SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: value.sessionID, part: value, time: Date.now() })
@@ -148,8 +162,11 @@ function summarize(found: ReturnType<typeof guide>) {
       : {}),
   }
 }
-function snapshot(sessionID: string, guidePartID?: string) {
-  const latest = guides(sessionID).at(-1)
+function snapshot(
+  sessionID: string,
+  guidePartID?: string,
+  latest: ReturnType<typeof findGuide> | null = findGuide(sessionID) ?? null,
+) {
   const summary = latest ? summarize(latest) : null
   return {
     stateToken: digest([scope(), sessionID, summary]),
@@ -235,25 +252,23 @@ function finish(
 export async function getRecommendationState(sessionID: string, guidePartID?: string) {
   session(sessionID)
   const current = await runtime.runPromise((runs) => runs.get())
-  Database.transaction(
-    () => {
-      guides(sessionID).forEach((found) => {
-        const submission = found.metadata.submission
-        if (!submission || current.runs.get(sessionID)?.assistantMessageID === submission.assistantMessageID) return
-        const metadata = resultSchema.safeParse(part(submission.resultPartID)?.metadata?.studioPromptExpansion)
-        if (!metadata.success || !["running", "cancelling"].includes(metadata.data.status)) return
-        finish(
-          sessionID,
-          submission.resultPartID,
-          metadata.data.status === "cancelling" ? "cancelled" : "failed",
-          undefined,
-          "EXECUTION_INTERRUPTED",
-        )
-      })
-    },
-    { behavior: "immediate" },
-  )
-  return snapshot(sessionID, guidePartID)
+  const latest = findGuide(sessionID)
+  // Normal reads recover only the latest task. Uncertain submissions address their exact guide.
+  const targets = [latest, guidePartID && guidePartID !== latest?.part.id ? guide(guidePartID, sessionID) : undefined]
+  targets.forEach((found) => {
+    const submission = found?.metadata.submission
+    if (!submission || current.runs.get(sessionID)?.assistantMessageID === submission.assistantMessageID) return
+    const metadata = resultSchema.safeParse(part(submission.resultPartID)?.metadata?.studioPromptExpansion)
+    if (!metadata.success || !["running", "cancelling"].includes(metadata.data.status)) return
+    finish(
+      sessionID,
+      submission.resultPartID,
+      metadata.data.status === "cancelling" ? "cancelled" : "failed",
+      undefined,
+      "EXECUTION_INTERRUPTED",
+    )
+  })
+  return snapshot(sessionID, guidePartID, latest ?? null)
 }
 
 export async function initializeRecommendation(value: unknown, preparationBudget?: PreparationBudget) {
@@ -602,7 +617,7 @@ export async function submitExpansion(
 export async function cancelExpansion(sessionID: string, assistantMessageID: string) {
   session(sessionID)
   const current = await runtime.runPromise((runs) => runs.get())
-  const found = guides(sessionID).find((item) => item.metadata.submission?.assistantMessageID === assistantMessageID)
+  const found = findGuide(sessionID, assistantMessageID)
   if (!found?.metadata.submission) throw new RecommendationError("RECOMMENDATION_NOT_FOUND", 404)
   const result = part(found.metadata.submission.resultPartID)
   const metadata = resultSchema.safeParse(result?.metadata?.studioPromptExpansion)

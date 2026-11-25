@@ -21,6 +21,19 @@ async function signWindows(configuration: { path: string }) {
   )
 }
 
+// 渠道在文件顶部解析,图标全部取自 git 已提交的 icons/<channel>/(任何能拉到代码的
+// 构建机都必然有),不再依赖 gitignore 的生成目录 resources/icons——那需要构建机
+// 先跑 copy-icons,链路一断图标就静默缺失(dock 深浅切换失效的根因)。
+// 变量名刻意用 iconChannel 不用 channel:构建机基座分支在文件底部 getConfig 一带
+// 有本地补丁,历史合并曾保留旧版底部的 const channel 块,与本块撞名导致
+// "Identifier 'channel' has already been declared" 打包失败。错开命名后,即使合并
+// 再保留旧块也能解析(旧块 getConfig 的 switch 读同一环境变量,行为一致)。
+const iconChannel = (() => {
+  const raw = process.env.OCTO_CHANNEL
+  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
+  return "dev"
+})()
+
 const getBase = (): Configuration => ({
   // jk-j60099994-replace-with-electron-builder-config-2-start
   artifactName: "octo-desktop-${os}-${arch}.${ext}",
@@ -74,10 +87,9 @@ const getBase = (): Configuration => ({
       filter: ["**/*"],
     },
     // icons 必须落在 asar 外的 Contents/Resources/icons：运行时 iconsDir() 在打包态
-    // 读 process.resourcesPath/icons（dock 深浅图标、窗口图标都在这里），files 只会把它打进 asar 内，
-    // 打包态永远找不到。dev 态读 packages/desktop/resources/icons，与本条目同源（copy-icons 生成）。
+    // 读 process.resourcesPath/icons。来源是已提交的 icons/<channel>/,不依赖构建机生成。
     {
-      from: "resources/icons",
+      from: `icons/${iconChannel}`,
       to: "icons",
       filter: ["**/*"],
     },
@@ -86,7 +98,7 @@ const getBase = (): Configuration => ({
   ],
   mac: {
     category: "public.app-category.developer-tools",
-    icon: `resources/icons/icon.icns`,
+    icon: `icons/${iconChannel}/icon.icns`,
     hardenedRuntime: true,
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
@@ -102,7 +114,7 @@ const getBase = (): Configuration => ({
     schemes: ["octo-agent"],
   },
   win: {
-    icon: `resources/icons/icon.ico`,
+    icon: `icons/${iconChannel}/icon.ico`,
     signtoolOptions: {
       sign: signWindows,
     },
@@ -112,29 +124,24 @@ const getBase = (): Configuration => ({
   nsis: {
     oneClick: true,
     perMachine: false,
-    installerIcon: `resources/icons/icon.ico`,
-    installerHeaderIcon: `resources/icons/icon.ico`,
+    installerIcon: `icons/${iconChannel}/icon.ico`,
+    installerHeaderIcon: `icons/${iconChannel}/icon.ico`,
     shortcutName: "Octo Agent",
     uninstallDisplayName: "Octo Agent",
     guid: "cf72eba9-3682-4bca-bf7b-6c8053afd856",
   },
   linux: {
-    icon: `resources/icons`,
+    icon: `icons/${iconChannel}`,
     category: "Development",
     target: ["AppImage", "deb", "rpm"],
   },
 })
 
 // jk-j60099994-replace-with-electron-builder-config-1-start
-const channel = (() => {
-  const raw = process.env.OCTO_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  return "dev"
-})()
 function getConfig() {
   const base = getBase()
 
-  switch (channel) {
+  switch (iconChannel) {
     case "dev": {
       return {
         ...base,

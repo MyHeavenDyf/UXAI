@@ -142,6 +142,8 @@ const api: ElectronAPI = {
   getSkillConfig: () => ipcRenderer.invoke("get-skill-config"),
   setSkillConfig: (config) => ipcRenderer.invoke("set-skill-config", config),
   // jk-j60099994-replace-with-60062650-preload-index-1-start
+  getSkillsByUsage: (usage) => ipcRenderer.invoke("get-skills-by-usage", usage),
+  getSkillKeyByName: (skillName) => ipcRenderer.invoke("get-skill-key-by-name", skillName),
   setDesignSystemSkillConfig: (skillName) => ipcRenderer.invoke("set-Design-System-Skill-Config", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end
   getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
@@ -155,11 +157,11 @@ const api: ElectronAPI = {
   getUploadsDir: () => ipcRenderer.invoke("get-uploads-dir"),
   setUploadsDir: (dir) => ipcRenderer.invoke("set-uploads-dir", dir),
   writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),
-  readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
+  readFileBuffer: (path, strict) => ipcRenderer.invoke("read-file-buffer", path, strict),
   statFile: (path) => ipcRenderer.invoke("stat-file", path),
   fileExists: (path) => ipcRenderer.invoke("file-exists", path),
   dirExists: (path) => ipcRenderer.invoke("dir-exists", path),
-  deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
+  deleteFile: (path, strict) => ipcRenderer.invoke("delete-file", path, strict),
   renameFile: (srcPath, destPath) => ipcRenderer.invoke("rename-file", srcPath, destPath),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),

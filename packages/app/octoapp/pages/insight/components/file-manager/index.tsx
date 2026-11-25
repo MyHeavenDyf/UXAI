@@ -19,7 +19,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { tracker } from "@/utils/tracker"
-import { beginInsightOperation, uploadStatus } from "../../utils/interaction-tracking"
+import { beginInsightOperation, trackInsight, uploadStatus } from "../../utils/interaction-tracking"
 import { useParams } from "@solidjs/router"
 import {
   fetchInsightFiles,
@@ -702,6 +702,12 @@ function FileManagerInner(props: {
   function handleHeaderSort(key: SortKey) {
     if (store().sortKey === key) fileStore.setSortDir(store().sortDir === "asc" ? "desc" : "asc")
     else { fileStore.setSortKey(key); fileStore.setSortDir(key === "mtime" ? "desc" : "asc") }
+    trackInsight("files-sort", { key, dir: store().sortDir })
+  }
+
+  function handleRefresh() {
+    trackInsight("files-refresh")
+    void refresh()
   }
   const handleSelectAllPage = () => fileStore.selectAllPage()
 
@@ -716,7 +722,7 @@ function FileManagerInner(props: {
       <Show when={showHeader()}>
         <FileManagerToolbar
           fileStore={fileStore}
-          onRefresh={refresh}
+          onRefresh={handleRefresh}
           onUploadFile={requestUploadFile}
           onUploadFolder={requestUploadFolder}
           onBatchDownload={handleBatchDownload}
@@ -763,7 +769,7 @@ function FileManagerInner(props: {
             <span>加载文件列表失败</span>
             <button
               type="button"
-              onClick={() => void refresh()}
+              onClick={handleRefresh}
               class="flex items-center justify-center gap-2 transition-colors"
               style={{ background: "var(--octo-brand)", color: "white", "border-radius": "var(--octo-radius-sm)", height: "32px", width: "108px", "font-size": "14px", "line-height": "22px", cursor: "pointer" }}
             >
@@ -883,11 +889,17 @@ function FileTable(props: {
       <tbody>
         {/* 顶层:生成文件 + 上传文件 两段;非顶层(进文件夹):仅上传文件,不分段 */}
         <Show when={props.fileStore.isTopLevel()}>
-          <SectionHeaderRow title="生成文件" collapsed={store().collapsedGenerated} onToggle={() => props.fileStore.toggleGeneratedSection()} />
+          <SectionHeaderRow title="生成文件" collapsed={store().collapsedGenerated} onToggle={() => {
+            props.fileStore.toggleGeneratedSection()
+            trackInsight("files-section-toggle", { section: "generated", action: store().collapsedGenerated ? "close" : "open" })
+          }} />
           <Show when={!store().collapsedGenerated}>
             <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} />
           </Show>
-          <SectionHeaderRow title="上传文件" collapsed={store().collapsedUploaded} onToggle={() => props.fileStore.toggleUploadedSection()} />
+          <SectionHeaderRow title="上传文件" collapsed={store().collapsedUploaded} onToggle={() => {
+            props.fileStore.toggleUploadedSection()
+            trackInsight("files-section-toggle", { section: "uploaded", action: store().collapsedUploaded ? "close" : "open" })
+          }} />
           <Show when={!store().collapsedUploaded}>
             <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
           </Show>

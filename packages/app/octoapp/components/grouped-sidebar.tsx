@@ -29,6 +29,7 @@ export type GroupedSidebarProps = Omit<
   namespace: string
   /** Route prefix for extracting active session ID from URL (e.g. "/make", "/insight") */
   routePrefix: string
+  onShowMoreGroups?: () => void
   /**
    * Directory override for session/group queries. When provided (non-empty) it replaces the
    * default project-dir resolution — studio sessions live under the config sessions dir
@@ -384,7 +385,10 @@ export function GroupedSidebar(props: GroupedSidebarProps) {
                   }}
                 </For>
                 <Show when={!groupExpanded() && groups.length > 5}>
-                  <div class="flex items-center text-[12px] leading-[20px] cursor-pointer" style={{ height: "36px", "padding-left": "12px", color: "var(--octo-text-secondary, #777777)" }} onClick={() => setGroupExpanded(true)}>
+                  <div class="flex items-center text-[12px] leading-[20px] cursor-pointer" style={{ height: "36px", "padding-left": "12px", color: "var(--octo-text-secondary, #777777)" }} onClick={() => {
+                    setGroupExpanded(true)
+                    props.onShowMoreGroups?.()
+                  }}>
                     查看更多
                   </div>
                 </Show>

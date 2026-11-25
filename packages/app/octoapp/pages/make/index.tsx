@@ -188,6 +188,7 @@ export default function MakePage() {
 let lastMakeDir: string | undefined
 
 function MakeContent() {
+  const [lastOpenedPopover, setLastOpenedPopover] = createSignal<"addon" | "model">()
   useSharedSessionImportContext("design")
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -2175,45 +2176,47 @@ const sessionMessagesLoaded = createMemo(() => {
 
     const api = getDesktopApi()
     if (api?.readFileBuffer) {
-      try {
-        // 产物在 .octo/{sid}/outputs（项目 .gitignore 内），服务端 snapshot/patch 不追踪 →
-        // revert 拿不到 patch，文件内容必须由前端用 .history 版本自己恢复/删除
-        for (const filePath of involved) {
+      // 产物未被服务端 snapshot/patch 追踪，由前端从 .history 恢复。
+      for (const filePath of involved) {
+        try {
           const realTab = tabStore.tabs().find((t) => t.filePath && normalizePath(t.filePath) === filePath)
-          if (realTab) {
-            await historyController.restoreFilesBefore(realTab, cutoff)
-            continue
-          }
-          const buffer = await api.readFileBuffer(filePath)
           const fileName = filePath.split(/[/\\]/).pop() ?? filePath
-          const pseudoTab: ResultTab = {
+          const tab: ResultTab = realTab ?? {
             id: `revert-${filePath}`,
             title: fileName,
             type: "html",
             subtype: extractSubtypeFromFilename(fileName),
-            content: buffer ? new TextDecoder().decode(buffer) : "",
+            content: "",
             filePath,
             createdAt: new Date(),
           }
-          await historyController.restoreFilesBefore(pseudoTab, cutoff)
-        }
-        for (const filePath of involved) {
+          await historyController.restoreFilesBefore(tab, cutoff)
           await historyController.removeVersionsAfter({ filePath }, cutoff)
-        }
-        for (const tab of [...tabStore.tabs()]) {
-          if (!tab.filePath || !involved.has(normalizePath(tab.filePath))) continue
-          const buffer = await api.readFileBuffer(tab.filePath)
-          if (!buffer) {
-            showOctoToast({ title: "该页面已随回退删除", description: tab.title })
-            handleCloseTab(tab.id)
-            continue
+          for (const openTab of [...tabStore.tabs()]) {
+            if (!openTab.filePath || normalizePath(openTab.filePath) !== filePath) continue
+            const buffer = await api.readFileBuffer(openTab.filePath)
+            if (!buffer) {
+              showOctoToast({ title: "该页面已随回退删除", description: openTab.title })
+              handleCloseTab(openTab.id)
+              continue
+            }
+            tabStore.updateTabContent(openTab.id, new TextDecoder().decode(buffer))
           }
-          tabStore.updateTabContent(tab.id, new TextDecoder().decode(buffer))
-          await historyController.loadVersions(tab)
+        } catch (error) {
+          console.warn("[octo:make] revert file restore failed", filePath, error)
+          showOctoToast({
+            title: "产物回退失败",
+            description: `${filePath} — ${error instanceof Error ? error.message : String(error)}`,
+            variant: "error",
+          })
         }
-        setFilesRefreshKey((k) => k + 1)
-      } catch (err) {
-        console.warn("[octo:make] revert file restore failed", err)
+      }
+      setFilesRefreshKey((k) => k + 1)
+      const activeTab = tabStore.tabs().find((tab) => tab.id === tabStore.activeId())
+      if (activeTab?.filePath && involved.has(normalizePath(activeTab.filePath))) {
+        await historyController.loadVersions(activeTab).catch((error) => {
+          console.warn("[octo:make] revert history refresh failed", activeTab.filePath, error)
+        })
       }
     }
 
@@ -3644,7 +3647,15 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
     if (!tab) return
     tracker.interaction({ module: "design", name: "switch-version", extend: JSON.stringify({ actor: entry.actor }) })
-    await historyController.switchVersion(entry, tab)
+    try {
+      await historyController.switchVersion(entry, tab)
+    } catch (error) {
+      showOctoToast({
+        title: "无法切换历史版本",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "error",
+      })
+    }
   }
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */
@@ -6360,6 +6371,8 @@ onPreview={(url) => {
                           onChange={handleFileInputChange}
                         />
                         <AddonMenu
+                          closeWhen={lastOpenedPopover() === "model"}
+                          onOpen={() => setLastOpenedPopover("addon")}
                           items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                           slots={[
                             {
@@ -6413,6 +6426,8 @@ onPreview={(url) => {
                           trackerModule="design"
                         />
 <ModelSelectorPopover
+                           closeWhen={lastOpenedPopover() === "addon"}
+                           onOpen={() => setLastOpenedPopover("model")}
                            model={local.model}
                            riskDialog={MakeModelRiskDialog}
                            triggerAs="button"
@@ -6814,6 +6829,8 @@ onPreview={(url) => {
                         onChange={handleFileInputChange}
                       />
                       <AddonMenu
+                        closeWhen={lastOpenedPopover() === "model"}
+                        onOpen={() => setLastOpenedPopover("addon")}
                         items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                         slots={[
                           {
@@ -6867,6 +6884,8 @@ onPreview={(url) => {
                         trackerModule="design"
                       />
 <ModelSelectorPopover
+                         closeWhen={lastOpenedPopover() === "addon"}
+                         onOpen={() => setLastOpenedPopover("model")}
                          model={local.model}
                          riskDialog={MakeModelRiskDialog}
                          triggerAs="button"

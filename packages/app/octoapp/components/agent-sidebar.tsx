@@ -79,6 +79,7 @@ export type AgentSidebarProps = {
   directory: string | null | undefined
   /** Agent string to filter sessions by */
   agentFilter: string
+  rootSessionsOnly?: boolean
   /** Custom list params passed to client.session.list() */
   listParams?: Record<string, unknown>
   /** Custom session fetcher. When provided, replaces the default client.session.list() call.
@@ -197,6 +198,10 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const removeSession = useSessionDelete()
 
   const resolvedDir = () => props.directory ?? undefined
+  const matchesSession = (session: Session) =>
+    session.agent === props.agentFilter && (!props.rootSessionsOnly || !session.parentID)
+  const cacheKey = (dir: string) =>
+    `${globalSDK.url}\n${props.agentFilter}\n${dir}${props.rootSessionsOnly ? "\nroots" : ""}`
   const [fetchedDir, setFetchedDir] = createSignal<string>()
 
   const isOnboarding = createMemo(() => !resolvedDir())
@@ -212,8 +217,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
         setFetchedDir(d)
         return [] as Session[]
       }
-      const cacheKey = `${globalSDK.url}\n${props.agentFilter}\n${d}`
-      const cached = sidebarCache.get(cacheKey)
+      const key = cacheKey(d)
+      const cached = sidebarCache.get(key)
       if (cached && Date.now() - cached.at < SIDEBAR_STALE_MS) {
         setSessionCursor(cached.cursor)
         setFetchedDir(d)
@@ -234,8 +239,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
           const sorted = result.sessions
             .filter(s => !existingIds.has(s.id))
             .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-          const merged = [...pinned, ...groupedDeduped, ...sorted].filter(s => s.agent === props.agentFilter)
-          writeSidebarCache(cacheKey, { sessions: merged, cursor: result.nextCursor, at: Date.now() })
+          const merged = [...pinned, ...groupedDeduped, ...sorted].filter(matchesSession)
+          writeSidebarCache(key, { sessions: merged, cursor: result.nextCursor, at: Date.now() })
           setFetchedDir(d)
           return merged
         }
@@ -243,8 +248,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
           ? await props.fetchSessions(d)
           : ((await globalSDK.createClient({ directory: d }).session.list(props.listParams as any)).data ?? []) as Session[]
         const sorted = data.sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-        const merged = sorted.filter(s => s.agent === props.agentFilter)
-        writeSidebarCache(cacheKey, { sessions: merged, cursor: undefined, at: Date.now() })
+        const merged = sorted.filter(matchesSession)
+        writeSidebarCache(key, { sessions: merged, cursor: undefined, at: Date.now() })
         setFetchedDir(d)
         return merged
       } catch (err) {
@@ -260,7 +265,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
   // explicit refetch so the fetcher always hits the network when data may have changed.
   const bustSidebarCache = () => {
     const d = resolvedDir()
-    if (d) sidebarCache.delete(`${globalSDK.url}\n${props.agentFilter}\n${d}`)
+    if (d) sidebarCache.delete(cacheKey(d))
   }
   // Wrap refetch to bust cache first — without this, refetch() would serve stale
   // cache instead of re-requesting from the server.
@@ -324,7 +329,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         setSessionCursor(result.nextCursor)
         cursor = result.nextCursor
         const sorted = result.sessions.sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-        const filtered = sorted.filter(s => s.agent === props.agentFilter)
+        const filtered = sorted.filter(matchesSession)
         const existingIds = new Set(sessionList.map(s => s.id))
         const deduped = filtered.filter(s => !existingIds.has(s.id))
         if (deduped.length > 0) {
@@ -678,14 +683,14 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (info.directory !== resolvedDir()) return
     const idx = sessionList.findIndex(s => s.id === sessionID)
     if (ev.type === "session.created") {
-      if (info.agent !== props.agentFilter) return
+      if (!matchesSession(info)) return
       if (idx === -1) setSessionList(produce((draft) => { draft.unshift(info) }))
     } else if (ev.type === "session.updated") {
       if (info.time.archived) {
         if (idx >= 0) setSessionList(produce((draft) => { draft.splice(idx, 1) }))
         return
       }
-      if (info.agent !== props.agentFilter) {
+      if (!matchesSession(info)) {
         if (idx >= 0) setSessionList(produce((draft) => { draft.splice(idx, 1) }))
         return
       }
@@ -746,7 +751,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
       if (resolvedDir() !== d) return
       if (info.directory !== d) return
       if (sessionList.some(s => s.id === id)) return
-      if (info.agent !== props.agentFilter || info.time.archived) return
+      if (!matchesSession(info) || info.time.archived) return
       setSessionList(produce((draft) => { draft.unshift(info) }))
       scrollToSession(id)
     } catch (err) {
