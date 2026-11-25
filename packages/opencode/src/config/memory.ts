@@ -12,6 +12,10 @@ export const Info = Schema.Struct({
   budget_tokens: Schema.optional(PositiveInt).annotate({
     description: "Maximum estimated tokens for the injected memory index (default: 2000)",
   }),
+  storage_budget_tokens: Schema.optional(PositiveInt).annotate({
+    description:
+      "Storage budget for persisted memory lines before trim (default: 8000). Independent from budget_tokens: raising injection cost never deletes stored memories.",
+  }),
   extraction_interval_seconds: Schema.optional(PositiveInt).annotate({
     description: "Minimum interval in seconds between memory extractions per session (default: 60)",
   }),

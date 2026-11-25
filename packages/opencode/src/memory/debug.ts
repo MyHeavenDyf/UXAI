@@ -223,7 +223,7 @@ export const dumpInject = Effect.fn("MemoryDebug.dumpInject")(function* (input: 
   )
 })
 
-// 读取埋点:memory_read 调用时记录请求 ID、返回条数与返回 Token 数
+// 读取埋点:memory_read / memory_search 调用时记录请求、返回条数与返回 Token 数
 export const dumpRead = Effect.fn("MemoryDebug.dumpRead")(function* (input: {
   sessionID: string
   projectID: string
@@ -231,6 +231,7 @@ export const dumpRead = Effect.fn("MemoryDebug.dumpRead")(function* (input: {
   returned: number
   tokens: number
   output: string
+  note?: string
 }) {
   yield* dump("read", input.sessionID, () =>
     [
@@ -243,6 +244,7 @@ export const dumpRead = Effect.fn("MemoryDebug.dumpRead")(function* (input: {
       `requested ids:   ${input.requested.length}`,
       `returned:        ${input.returned}`,
       `read tokens:     ${input.tokens}`,
+      ...(input.note ? [`note:            ${input.note}`] : []),
       separator,
       "",
       "===== READ RESULT =====",

@@ -11,15 +11,19 @@ import { MemoryTable, type MemoryType } from "./memory.sql"
 import { MemoryTombstoneTable } from "./tombstone.sql"
 
 export const TYPES = ["user", "feedback", "project", "reference"] as const
+// 注入预算:<memory> 索引常驻 system 的 token 上限(可按模型窗口动态收缩)
 export const DEFAULT_BUDGET_TOKENS = 2000
 // 小上下文模型的索引保底线(≤64K 窗口按 1/8 动态收缩时不会低于此值)
 export const MIN_BUDGET_TOKENS = 300
+// 持久化存储预算:trim 的淘汰基准,独立于注入预算——注入成本上升(核心层展开 content)
+// 不得连带删除历史记忆,小上下文模型切换也不得影响库内数据。
+export const DEFAULT_STORAGE_BUDGET_TOKENS = 8000
 export const DEFAULT_EXTRACTION_INTERVAL_SECONDS = 60
 // 字段硬限制:提取校验与写入防御共用同一组常量
 export const MAX_TOPIC_CHARS = 64
 export const MAX_SUMMARY_CHARS = 200
 export const MAX_CONTENT_CHARS = 2000
-// 按需读取:单批 ID 上限(超出部分静默截断,提示由工具输出说明)
+// 按需读取:单批 ID 上限(由工具层显式报告,不做静默截断)
 export const MAX_READ_BATCH = 8
 
 const log = Log.create({ service: "memory.store" })
@@ -126,23 +130,37 @@ export function system(projectID: ProjectID, budget?: number) {
   })
 }
 
-// 按需读取:批量取完整记忆。短 ID 前缀或全 ID 均可;严格 project 隔离,跨项目 ID 一律查不到。
+// 按需读取:批量取完整记忆。短 ID 前缀或全 ID 均可;前缀歧义(匹配多条)时不猜、
+// 直接不返回该条,由调用方统计未匹配数并显式报告;严格 project 隔离,跨项目 ID 一律查不到。
 export function entriesByIDs(projectID: ProjectID, ids: string[]) {
   return safe("entriesByIDs", () => [] as Row[], () => {
-    const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))].slice(0, MAX_READ_BATCH)
+    const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
     if (unique.length === 0) return []
     const rows = Database.use((db) =>
       db.select().from(MemoryTable).where(eq(MemoryTable.project_id, projectID)).all(),
     )
     return unique.flatMap((id) => {
-      const row = rows.find((entry) => entry.id === id || entry.id.startsWith(id))
-      return row ? [row] : []
+      const exact = rows.find((entry) => entry.id === id)
+      if (exact) return [exact]
+      const matches = rows.filter((entry) => entry.id.startsWith(id))
+      return matches.length === 1 ? [matches[0]] : []
     })
   })
 }
 
+// 轻量检索:topic/summary 关键词包含匹配(大小写不敏感,无 embedding),空查询返回最近一页。
+// rows 由 list() 提供(置顶优先、时间倒序),分页由 offset 控制。
+export function searchRows(rows: Row[], query: string, limit: number, offset = 0) {
+  const q = query.trim().toLowerCase()
+  const matched = q
+    ? rows.filter((row) => row.topic.toLowerCase().includes(q) || row.summary.toLowerCase().includes(q))
+    : rows
+  return matched.slice(offset, offset + limit)
+}
+
 // 写入成功与否必须可观测:调用方(提取器)依赖该返回值决定是否推进游标。
 // 返回 false 表示未写入(开关关闭/数据库故障),游标不得推进。
+// budget 为持久化存储预算(trim 基准),与注入预算分离,默认 8K。
 export function write(input: {
   projectID: ProjectID
   sourceSessionID?: SessionID
@@ -153,7 +171,7 @@ export function write(input: {
 }): boolean {
   if (Flag.OCTO_DISABLE_MEMORY) return false
   return safe("write", () => false, () => {
-    const budget = input.budget ?? DEFAULT_BUDGET_TOKENS
+    const budget = input.budget ?? DEFAULT_STORAGE_BUDGET_TOKENS
     const version = input.version ?? Date.now()
     // 写入防御:字段长度硬限制,超长截断
     const clamp = (value: string, max: number) => (value.length > max ? value.slice(0, max) : value)

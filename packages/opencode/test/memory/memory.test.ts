@@ -8,19 +8,28 @@ import type { ModelMessage } from "ai"
 import { MemoryStore } from "@/memory/store"
 import { MemoryExtract, parseActions } from "@/memory/extract"
 import { MemoryDebug } from "@/memory/debug"
-import { buildReadOutput } from "@/tool/memory"
+import {
+  MemoryReadTool,
+  MemorySearchTool,
+  buildReadOutput,
+  collectVisible,
+  available as memoryToolsAvailable,
+} from "@/tool/memory"
 import { MemoryTombstoneTable } from "@/memory/tombstone.sql"
+import { MemoryTable } from "@/memory/memory.sql"
+import * as Tool from "@/tool/tool"
 import type { MemoryType } from "@/memory/memory.sql"
 import { Database } from "@/storage/db"
 import { ProjectTable } from "@/project/project.sql"
 import type { ProjectID } from "@/project/schema"
 import type { ConfigMemory } from "@/config/memory"
-import type { Config } from "@/config/config"
-import type { Agent } from "@/agent/agent"
+import { Config } from "@/config/config"
+import { Agent } from "@/agent/agent"
 import type { Provider } from "@/provider/provider"
 import type { LLM } from "@/session/llm"
 import type { MessageV2 } from "@/session/message-v2"
-import type * as Session from "@/session/session"
+import * as Session from "@/session/session"
+import { Truncate } from "@/tool/truncate"
 
 const projectID = "mem_test_project" as ProjectID
 const otherID = "mem_test_other" as ProjectID
@@ -120,16 +129,42 @@ describe("memory store", () => {
     expect(MemoryStore.list(projectID)).toHaveLength(0)
   })
 
-  test("system respects token budget", () => {
+  test("system respects token budget at view time without touching storage", () => {
+    // 写入用默认存储预算(不淘汰),小预算只作用于注入视图
     MemoryStore.write({
       projectID,
       actions: [
         { action: "create", type: "project", topic: "a", content: "a", summary: "x".repeat(100) },
         { action: "create", type: "project", topic: "b", content: "b", summary: "y".repeat(100) },
       ],
-      budget: 10,
+      budget,
     })
     expect(MemoryStore.system(projectID, 10)).toHaveLength(0)
+    expect(MemoryStore.list(projectID)).toHaveLength(2)
+  })
+
+  test("small-context injection budget never evicts stored memories", () => {
+    MemoryStore.write({
+      projectID,
+      actions: Array.from({ length: 30 }, (_, i) => ({
+        action: "create" as const,
+        type: "project" as MemoryType,
+        topic: `note_${i}`,
+        content: `c${i}`,
+        summary: "s".repeat(80),
+      })),
+      budget,
+    })
+    expect(MemoryStore.list(projectID)).toHaveLength(30)
+    // 4K 窗口 → 注入预算收缩到 512,只看到部分条目
+    const small = MemoryStore.system(projectID, MemoryStore.effectiveBudget(2000, 4096))
+    const smallLines = small[0].split("\n").filter((line) => line.startsWith("- [")).length
+    expect(smallLines).toBeGreaterThan(0)
+    expect(smallLines).toBeLessThan(30)
+    // 但持久化记忆一条不少:切回大上下文模型全部回来
+    expect(MemoryStore.list(projectID)).toHaveLength(30)
+    const full = MemoryStore.system(projectID, 2000)
+    expect(full[0].split("\n").filter((line) => line.startsWith("- [")).length).toBe(30)
   })
 
   test("single oversized entry skips itself without blocking shorter ones", () => {
@@ -287,55 +322,273 @@ describe("memory_read on-demand loading", () => {
     expect(MemoryStore.entriesByIDs(otherID, ["not-exist"])).toHaveLength(0)
   })
 
-  test("entriesByIDs caps batch size and dedupes ids", () => {
+  test("entriesByIDs dedupes ids and resolves every unique id (no silent cap)", () => {
     MemoryStore.write({
       projectID,
       actions: Array.from({ length: 12 }, (_, i) => entry(`topic_${i}`, `内容${i}`)),
       budget,
     })
     const rows = MemoryStore.list(projectID)
-    expect(MemoryStore.entriesByIDs(projectID, rows.flatMap((row) => [row.id, row.id]))).toHaveLength(
-      MemoryStore.MAX_READ_BATCH,
-    )
+    // 去重后逐条解析;批量上限在工具层显式报告,store 层不做静默截断
+    expect(MemoryStore.entriesByIDs(projectID, rows.flatMap((row) => [row.id, row.id]))).toHaveLength(12)
     expect(MemoryStore.entriesByIDs(projectID, [])).toHaveLength(0)
+  })
+
+  test("ambiguous short ids resolve to nothing instead of guessing", () => {
+    // 直接落两条共享前缀的行(绕过 write 的随机 ID),验证歧义保护
+    Database.use((db) =>
+      db
+        .insert(MemoryTable)
+        .values([
+          { id: "ambig_prefix_0001", project_id: projectID, type: "project", topic: "one", content: "1", summary: "s", pinned: 0 },
+          { id: "ambig_prefix_0002", project_id: projectID, type: "project", topic: "two", content: "2", summary: "s", pinned: 0 },
+        ])
+        .run(),
+    )
+    // 前缀同时命中两条:不猜,不返回
+    expect(MemoryStore.entriesByIDs(projectID, ["ambig_prefix"])).toHaveLength(0)
+    // 全 ID 精确命中不受影响
+    expect(MemoryStore.entriesByIDs(projectID, ["ambig_prefix_0001"])).toHaveLength(1)
   })
 })
 
 describe("buildReadOutput", () => {
-  const row = (id: string, topic: string, content: string) =>
-    ({ id, type: "project", topic, content, summary: "s" }) as unknown as MemoryStore.Row
+  const row = (id: string, topic: string, content: string, version = 1) =>
+    ({ id, type: "project", topic, content, summary: "s", time_updated: version }) as unknown as MemoryStore.Row
 
-  test("returns full content for fresh ids and marks them returned", () => {
-    const seen = new Set<string>()
-    const result = buildReadOutput({ rows: [row("id_a", "t_a", "内容A")], seen, maxTokens: 1000 })
+  test("returns full content for fresh ids", () => {
+    const result = buildReadOutput({ rows: [row("id_a", "t_a", "内容A")], visible: new Map(), maxTokens: 1000 })
     expect(result.returned).toBe(1)
     expect(result.output).toContain("内容A")
     expect(result.returnedIDs).toEqual(["id_a"])
-    expect(seen.has("id_a")).toBe(false) // seen 由调用方登记,纯函数不越权
   })
 
-  test("already loaded ids get a hint instead of full content", () => {
-    const seen = new Set(["id_a"])
-    const result = buildReadOutput({ rows: [row("id_a", "t_a", "内容A")], seen, maxTokens: 1000 })
+  test("unchanged memories already visible in context get a hint, not a re-send", () => {
+    const visible = new Map([["id_a", 1]])
+    const result = buildReadOutput({ rows: [row("id_a", "t_a", "内容A", 1)], visible, maxTokens: 1000 })
     expect(result.returned).toBe(0)
-    expect(result.output).toContain("已在本会话加载过")
+    expect(result.output).toContain("内容未变化")
     expect(result.output).not.toContain("内容A")
   })
 
+  test("updated memories are re-read even if the id was loaded before", () => {
+    const visible = new Map([["id_a", 1]])
+    const result = buildReadOutput({ rows: [row("id_a", "t_a", "新内容", 2)], visible, maxTokens: 1000 })
+    expect(result.returned).toBe(1)
+    expect(result.output).toContain("新内容")
+    expect(result.output).toContain("已返回最新内容")
+  })
+
+  test("memories whose old output was compacted away become readable again", () => {
+    // 旧输出被压缩清理 → 不在 visible 登记中 → 重新返回全文
+    const result = buildReadOutput({ rows: [row("id_a", "t_a", "内容A", 1)], visible: new Map(), maxTokens: 1000 })
+    expect(result.returned).toBe(1)
+    expect(result.output).toContain("内容A")
+  })
+
   test("unknown ids degrade to a not-found message", () => {
-    const result = buildReadOutput({ rows: [], seen: new Set(), maxTokens: 1000 })
+    const result = buildReadOutput({ rows: [], visible: new Map(), maxTokens: 1000 })
     expect(result.returned).toBe(0)
     expect(result.output).toContain("未找到匹配的记忆")
   })
 
   test("caps single-return size and reports the remainder", () => {
     const rows = [row("id_a", "t_a", "x".repeat(600)), row("id_b", "t_b", "y".repeat(600)), row("id_c", "t_c", "z".repeat(600))]
-    const result = buildReadOutput({ rows, seen: new Set(), maxTokens: 400 })
+    const result = buildReadOutput({ rows, visible: new Map(), maxTokens: 400 })
     expect(result.returned).toBeLessThan(3)
     expect(result.tokens).toBeLessThanOrEqual(400)
     expect(result.output).toContain("剩余")
     // 超限条目未被标记已读,可继续读取
     expect(result.returnedIDs).not.toContain("id_c")
+  })
+
+  test("a single oversized entry is truncated instead of blocking the whole read", () => {
+    const oversized = row("id_big", "t_big", "b".repeat(8000))
+    const small = row("id_small", "t_small", "s")
+    // 第一条单独就超预算:截断后仍返回,并明确标注;不阻塞后续条目读取通道
+    const result = buildReadOutput({ rows: [oversized, small], visible: new Map(), maxTokens: 1000 })
+    expect(result.returned).toBe(1)
+    expect(result.output).toContain("[内容超长已截断]")
+    expect(result.output).toContain("剩余 1 条")
+    // 小条目在下一次调用可正常读取(未被标记)
+    const next = buildReadOutput({ rows: [small], visible: new Map(), maxTokens: 1000 })
+    expect(next.returned).toBe(1)
+  })
+})
+
+describe("collectVisible (compaction-aware dedup)", () => {
+  const part = (id: string, v: number, compacted?: number) =>
+    ({
+      type: "tool",
+      tool: "memory_read",
+      state: { status: "completed", time: { compacted }, metadata: { entries: [{ id, v }] } },
+    }) as unknown as MessageV2.Part
+  const message = (...parts: MessageV2.Part[]) =>
+    ({ info: { id: "msg_x", role: "assistant" }, parts }) as unknown as MessageV2.WithParts
+
+  test("collects ids from live memory_read outputs", () => {
+    const visible = collectVisible([message(part("id_a", 1), part("id_b", 2))])
+    expect(visible.get("id_a")).toBe(1)
+    expect(visible.get("id_b")).toBe(2)
+  })
+
+  test("skips outputs cleared by prune/compaction so they can be re-read", () => {
+    const visible = collectVisible([message(part("id_a", 1, Date.now()))])
+    expect(visible.has("id_a")).toBe(false)
+  })
+
+  test("ignores non-memory_read tools and malformed metadata", () => {
+    const junk = {
+      type: "tool",
+      tool: "bash",
+      state: { status: "completed", time: {}, metadata: { entries: [{ id: "id_a", v: 1 }] } },
+    } as unknown as MessageV2.Part
+    expect(collectVisible([message(junk)]).size).toBe(0)
+    expect(collectVisible([]).size).toBe(0)
+  })
+})
+
+describe("memory tools execute (unified switch + isolation)", () => {
+  const sessionInfo = { id: "ses_tool_1", projectID, parentID: undefined } as unknown as Session.Info
+  const fakeConfig = (memory?: ConfigMemory.Info) =>
+    ({ get: () => Effect.succeed({ memory }) }) as unknown as Config.Interface
+  const fakeSessions = (info?: Session.Info) =>
+    ({
+      get: () => (info ? Effect.succeed(info) : Effect.fail(new Error("no session"))),
+    }) as unknown as Session.Interface
+  const fakeTruncate = () =>
+    ({
+      cleanup: () => Effect.void,
+      write: (text: string) => Effect.succeed(text),
+      output: (text: string) => Effect.succeed({ content: text, truncated: false }),
+      limits: () => Effect.succeed({ maxLines: 2000, maxBytes: 51200 }),
+    }) as unknown as Truncate.Interface
+  const fakeAgents = () =>
+    ({
+      get: () => Effect.succeed({ name: "build", mode: "primary" } as unknown as Agent.Info),
+    }) as unknown as Agent.Interface
+  const ctx = (messages: MessageV2.WithParts[] = []) =>
+    ({
+      sessionID: sessionInfo.id,
+      messages,
+      agent: "build",
+      abort: new AbortController().signal,
+      metadata: () => Effect.void,
+      ask: () => Effect.void,
+    }) as unknown as Tool.Context
+  // Tool.define 固定追加 Truncate/Agent 依赖,与 Config/Session 一并注入
+  const toolServices = (cfg?: ConfigMemory.Info) =>
+    Layer.mergeAll(
+      Layer.succeed(Config.Service, fakeConfig(cfg)),
+      Layer.succeed(Session.Service, fakeSessions(sessionInfo)),
+      Layer.succeed(Truncate.Service, fakeTruncate()),
+      Layer.succeed(Agent.Service, fakeAgents()),
+    )
+  const runRead = (params: { ids: string[] }, cfg?: ConfigMemory.Info, messages: MessageV2.WithParts[] = []) =>
+    Effect.runPromise(
+      Effect.provide(
+        Effect.gen(function* () {
+          const def = yield* Tool.init(yield* MemoryReadTool)
+          return yield* def.execute(params, ctx(messages))
+        }),
+        toolServices(cfg),
+      ),
+    )
+  const runSearch = (params: { query?: string; offset?: number }, cfg?: ConfigMemory.Info) =>
+    Effect.runPromise(
+      Effect.provide(
+        Effect.gen(function* () {
+          const def = yield* Tool.init(yield* MemorySearchTool)
+          return yield* def.execute(params, ctx())
+        }),
+        toolServices(cfg),
+      ),
+    )
+
+  test("refuses to read when the memory feature is disabled", async () => {
+    const rows = MemoryStore.list(projectID)
+    const result = await runRead({ ids: rows.map((row) => row.id) }, { enabled: false })
+    expect(result.output).toContain("记忆功能当前已关闭")
+    expect(result.metadata.returned).toBe(0)
+  })
+
+  test("reads seeded memories and reports unmatched and over-batch ids explicitly", async () => {
+    MemoryStore.write({
+      projectID,
+      actions: Array.from({ length: 10 }, (_, i) => ({
+        action: "create" as const,
+        type: "project" as MemoryType,
+        topic: `tool_topic_${i}`,
+        content: `工具读取内容${i}`,
+        summary: `摘要${i}`,
+      })),
+      budget,
+    })
+    const rows = MemoryStore.list(projectID)
+    const result = await runRead({
+      ids: [rows[0].id.slice(0, 12), ...rows.slice(1, 7).map((row) => row.id), "ghost"],
+    })
+    // 7 个真实 ID + 1 个不存在的,恰好达单批上限:7 条返回 + 明确报告未匹配
+    expect(result.metadata.returned).toBe(7)
+    expect(result.output).toContain("1 个 ID 未匹配")
+    const over = await runRead({ ids: Array.from({ length: 12 }, (_, i) => rows[i % 10].id) })
+    expect(over.output).toContain("已忽略多余的 2 个")
+  })
+
+  test("search finds memories beyond the resident index, with paging", async () => {
+    MemoryStore.write({
+      projectID,
+      actions: Array.from({ length: 15 }, (_, i) => ({
+        action: "create" as const,
+        type: "project" as MemoryType,
+        topic: `deploy_note_${i}`,
+        content: `内容${i}`,
+        summary: `部署摘要${i}`,
+      })),
+      budget,
+    })
+    const hit = await runSearch({ query: "deploy_note_3" })
+    expect(hit.output).toContain("deploy_note_3")
+    expect(hit.output).toContain("memory_read")
+    // 空查询 → 最近一页(10 条),offset 翻页可见剩余
+    const page1 = await runSearch({})
+    expect(page1.metadata.returned).toBe(10)
+    const page2 = await runSearch({ offset: 10 })
+    expect(page2.metadata.returned).toBe(5)
+    const miss = await runSearch({ query: "不存在的关键词xyz" })
+    expect(miss.output).toContain("未检索到匹配")
+    const disabled = await runSearch({ query: "deploy" }, { enabled: false })
+    expect(disabled.output).toContain("记忆功能当前已关闭")
+  })
+})
+
+describe("searchRows", () => {
+  const row = (topic: string, summary: string) => ({ topic, summary, type: "project" }) as unknown as MemoryStore.Row
+
+  test("matches topic and summary case-insensitively, pages via offset", () => {
+    const rows = [row("pnpm_preference", "包管理"), row("NPM_Ban", "禁用"), row("other", "无关")]
+    expect(MemoryStore.searchRows(rows, "pnpm", 10)).toHaveLength(1)
+    expect(MemoryStore.searchRows(rows, "npm", 10)).toHaveLength(2)
+    expect(MemoryStore.searchRows(rows, "包管理", 10)).toHaveLength(1)
+    expect(MemoryStore.searchRows(rows, "", 2)).toHaveLength(2)
+    expect(MemoryStore.searchRows(rows, "", 2, 2)).toHaveLength(1)
+    expect(MemoryStore.searchRows(rows, "zzz", 10)).toHaveLength(0)
+  })
+})
+
+describe("memory tools availability (registration scope)", () => {
+  test("aligns with injection rules: unified switch + primary non-hidden agents", () => {
+    const primary = { name: "octo_ai", mode: "primary", hidden: false }
+    const subagent = { name: "explore", mode: "subagent", hidden: false }
+    const hidden = { name: "title", mode: "primary", hidden: true }
+    expect(memoryToolsAvailable(primary, undefined)).toBe(true)
+    expect(memoryToolsAvailable(subagent, undefined)).toBe(false)
+    expect(memoryToolsAvailable(hidden, undefined)).toBe(false)
+    expect(memoryToolsAvailable(primary, { enabled: false })).toBe(false)
+    process.env.OCTO_DISABLE_MEMORY = "1"
+    expect(memoryToolsAvailable(primary, { enabled: true })).toBe(false)
+    delete process.env.OCTO_DISABLE_MEMORY
+    expect(memoryToolsAvailable(primary, { enabled: true })).toBe(true)
   })
 })
 

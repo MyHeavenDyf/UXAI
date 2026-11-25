@@ -194,7 +194,8 @@ export const extract = Effect.fn("MemoryExtract.extract")(function* (input: {
     projectID: input.session.projectID,
     sourceSessionID: input.session.id,
     actions: result.actions,
-    budget: cfg?.budget_tokens,
+    // trim 用独立的持久化存储预算,与注入预算分离:注入成本变化不影响库内数据
+    budget: cfg?.storage_budget_tokens,
     version,
   })
   // 数据库写入失败:游标不得推进,下次触发重试本批,避免记忆永久丢失
