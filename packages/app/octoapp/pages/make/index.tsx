@@ -144,7 +144,6 @@ import { uploadZipPackage, codeArchiveDedupKey, startArchivePoll, pauseArchivePo
 import { isAssetLibraryLoggedIn } from "./utils/asset-upload"
 import { createIndexHtmlZip } from "./utils/html-assets-zip"
 import { getSubtypeConfig } from "./utils/subtype-config"
-import { AutoArchiveSelector } from "./components/auto-archive-selector"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限;
 // 2026-10 起图片上限统一 1MB,超过即自动压缩(见 addImageAttachment / utils/image-compression)
@@ -1202,7 +1201,7 @@ const sessionMessagesLoaded = createMemo(() => {
         // 自动归档不受视图切换守卫：后台 session 的 code 模式产物照常归档
         // （与版本基线全局监听同设计动机——切走不丢）
         for (const path of paths) {
-          handleCodeHtmlArtifactArchive(path)
+          handleCodeHtmlArtifactArchive(path, eventSessionID)
         }
         // 切走的 session：tab 直接丢弃（基线已记录，不补开）
         if (params.id !== eventSessionID) return
@@ -2495,18 +2494,22 @@ const sessionMessagesLoaded = createMemo(() => {
     void historyController.recordInitIfNeeded(pseudoHistoryTab(filePath))
   }
 
-  // ── 自动归档（html 产物生成落盘后自动打包 ZIP 归档上传，独立功能非资产库） ────────
 
-  /** 自动归档开关（localStorage 持久化，默认关闭——仅开启状态下生成的产物会归档） */
-  const [autoArchive, setAutoArchive] = createSignal<"on" | "off">(
-    localStorage.getItem("octo:make:auto-archive") === "on" ? "on" : "off",
-  )
 
-  function toggleAutoArchive(value: "on" | "off") {
-    setAutoArchive(value)
-    localStorage.setItem("octo:make:auto-archive", value)
-    tracker.interaction({ module: "design", name: "toggle-auto-archive", extend: JSON.stringify({ enabled: value === "on" }) })
+  /** 归档标题来源会话：沿 sync.session.get(sid)?.parentID 向上找根主会话——
+    */
+  const archiveRootSid = (sid: string): string => {
+    let current = sid
+    for (let depth = 0; depth < 5; depth++) {
+      const parentID = sync.session.get(current)?.parentID
+      if (!parentID) break
+      current = parentID
+    }
+    return current
   }
+
+  /** 会话展示标题*/
+  const sessionDisplayTitle = (sid: string) => sessionTitle(sync.session.get(sid)?.title) ?? "New session"
 
   const reportAutoArchiveResult = (info: { title: string; subtype?: string; mode: "normal" | "code"; resumed?: boolean }, result: AutoArchiveResult) => {
     tracker.interaction({
@@ -2537,8 +2540,8 @@ const sessionMessagesLoaded = createMemo(() => {
   /** html 产物自动落盘后回调（insight-turn onHtmlArtifactSaved）：
    *  开关开启 + 非 legacy subtype 时打包 index.html ZIP → uploadZipPackage 归档上传，
    *  toast 反馈成败；非登录态提示后跳过（不记去重，登录后新生成的产物可正常归档）。 */
-  function handleHtmlArtifactSaved(card: OutputCard, filePath: string) {
-    if (autoArchive() !== "on") return
+  function handleHtmlArtifactSaved(card: OutputCard, filePath: string, sessionID: string) {
+    if (!settings.general.cloudSyncPush()) return
     if (getSubtypeConfig(card.subtype).features.downloadUI === "legacy") return
     if (!isAssetLibraryLoggedIn()) {
       reportAutoArchiveResult({ title: card.title, subtype: card.subtype, mode: "normal" }, { success: false, message: "未登录" })
@@ -2548,12 +2551,13 @@ const sessionMessagesLoaded = createMemo(() => {
     if (autoArchiveReported.has(card.id)) return
     autoArchiveReported.add(card.id)
     const title = card.title.replace(/\.html?$/i, "")
+    const pageName = filePath.split(/[/\\]/).pop() ?? filePath
     void (async () => {
       tracker.interaction({ module: "design", name: "auto-archive-upload", extend: JSON.stringify({ mode: "normal" }) })
       let uploaded: AutoArchiveResult
       try {
         const zipBlob = await createIndexHtmlZip({ htmlContent: extractFileContent(card), htmlFilePath: filePath })
-        uploaded = await uploadZipPackage({ name: `${title}.zip`, zipBlob })
+        uploaded = await uploadZipPackage({ name: `${title}.zip`, zipBlob, sessionTitle: sessionDisplayTitle(archiveRootSid(sessionID)), pageName })
       } catch (err) {
         uploaded = { success: false, message: err instanceof Error ? err.message : String(err) }
       }
@@ -2567,10 +2571,12 @@ const sessionMessagesLoaded = createMemo(() => {
     })()
   }
 
-  /** code 工作区 html 产物自动归档（全局 SSE 监听器 session.idle 时触发）：
-   */
-  function handleCodeHtmlArtifactArchive(filePath: string) {
-    if (autoArchive() !== "on") return
+  /** code 工作区 html 产物自动归档（全局 SSE 监听器 session.idle */
+  const CODE_ARCHIVE_DEBOUNCE_MS = 10_000
+  const codeArchiveDebounce = new Map<string, ReturnType<typeof setTimeout>>()
+
+  function handleCodeHtmlArtifactArchive(filePath: string, sessionID: string) {
+    if (!settings.general.cloudSyncPush()) return
     if (!isAssetLibraryLoggedIn()) {
       reportAutoArchiveResult({ title: filePath.split(/[/\\]/).pop() ?? filePath, mode: "code" }, { success: false, message: "未登录" })
       showOctoToast({ title: "自动同步云端失败", description: "未登录" })
@@ -2584,35 +2590,44 @@ const sessionMessagesLoaded = createMemo(() => {
       console.log("[AutoArchive] code mode skipped: no desktop readFileBuffer", filePath)
       return
     }
-    void (async () => {
-      const info = { title: fileName.replace(/\.html?$/i, ""), subtype, mode: "code" as const }
-      let uploaded: AutoArchiveResult
-      try {
-        // code 模式磁盘权威：write 工具刚落盘的最终态；读盘失败即本轮产物未就绪，跳过
-        const buf = await readFileBuffer(filePath)
-        if (!buf) {
-          console.log("[AutoArchive] code mode skipped: file not readable", filePath)
-          return
-        }
-        const htmlContent = new TextDecoder().decode(buf)
-        const dedupKey = codeArchiveDedupKey(filePath, htmlContent)
-        if (autoArchiveReported.has(dedupKey)) return
-        autoArchiveReported.add(dedupKey)
-        // 漏斗尝试打点：去重登记后、构建 ZIP 前（文件不可读/去重命中的静默跳过不计尝试）
-        tracker.interaction({ module: "design", name: "auto-archive-upload", extend: JSON.stringify({ mode: "code" }) })
-        const zipBlob = await createIndexHtmlZip({ htmlContent, htmlFilePath: filePath })
-        uploaded = await uploadZipPackage({ name: `${info.title}.zip`, zipBlob })
-      } catch (err) {
-        uploaded = { success: false, message: err instanceof Error ? err.message : String(err) }
-      }
-      // 构建失败/上传失败即时提示（触发时必在 Make 页）；上传成功 → 轮询终态才 toast
-      if (!uploaded.success) {
-        reportAutoArchiveResult(info, uploaded)
-        showOctoToast({ title: "自动同步云端失败", description: uploaded.message })
-        return
-      }
-      startArchivePoll({ id: uploaded.id!, name: info.title, mode: "code", startedAt: Date.now() }, handleArchiveTerminal)
-    })()
+   
+    const existing = codeArchiveDebounce.get(filePath)
+    if (existing) clearTimeout(existing)
+    codeArchiveDebounce.set(
+      filePath,
+      setTimeout(() => {
+        codeArchiveDebounce.delete(filePath)
+        void (async () => {
+          const info = { title: fileName.replace(/\.html?$/i, ""), subtype, mode: "code" as const }
+          let uploaded: AutoArchiveResult
+          try {
+            // code 模式磁盘权威：write 工具刚落盘的最终态；读盘失败即本轮产物未就绪，跳过
+            const buf = await readFileBuffer(filePath)
+            if (!buf) {
+              console.log("[AutoArchive] code mode skipped: file not readable", filePath)
+              return
+            }
+            const htmlContent = new TextDecoder().decode(buf)
+            const dedupKey = codeArchiveDedupKey(filePath, htmlContent)
+            if (autoArchiveReported.has(dedupKey)) return
+            autoArchiveReported.add(dedupKey)
+            // 漏斗尝试打点：去重登记后、构建 ZIP 前（文件不可读/去重命中的静默跳过不计尝试）
+            tracker.interaction({ module: "design", name: "auto-archive-upload", extend: JSON.stringify({ mode: "code" }) })
+            const zipBlob = await createIndexHtmlZip({ htmlContent, htmlFilePath: filePath })
+            uploaded = await uploadZipPackage({ name: `${info.title}.zip`, zipBlob, sessionTitle: sessionDisplayTitle(archiveRootSid(sessionID)), pageName: fileName })
+          } catch (err) {
+            uploaded = { success: false, message: err instanceof Error ? err.message : String(err) }
+          }
+          // 构建失败/上传失败即时提示（执行时必在 Make 页）；上传成功 → 轮询终态才 toast
+          if (!uploaded.success) {
+            reportAutoArchiveResult(info, uploaded)
+            showOctoToast({ title: "自动同步云端失败", description: uploaded.message })
+            return
+          }
+          startArchivePoll({ id: uploaded.id!, name: info.title, mode: "code", startedAt: Date.now() }, handleArchiveTerminal)
+        })()
+      }, CODE_ARCHIVE_DEBOUNCE_MS),
+    )
   }
 
   // code 模式产物补偿扫描（catch-up）
@@ -2630,7 +2645,7 @@ const sessionMessagesLoaded = createMemo(() => {
             }
           }
         }
-        for (const path of paths) handleCodeHtmlArtifactArchive(path)
+        for (const path of paths) handleCodeHtmlArtifactArchive(path, sid)
       },
     ),
   )
@@ -2667,6 +2682,12 @@ const sessionMessagesLoaded = createMemo(() => {
   // 从 localStorage store 重启未终态任务,标 resumed),见 utils/auto-archive.ts。
   onMount(() => resumeArchivePolls(handleArchiveTerminal))
   onCleanup(pauseArchivePolls)
+
+  // code 模式归档防抖计时器随卸载清空。
+  onCleanup(() => {
+    for (const timer of codeArchiveDebounce.values()) clearTimeout(timer)
+    codeArchiveDebounce.clear()
+  })
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -6677,14 +6698,10 @@ onPreview={(url) => {
                                )
                                tracker.interaction({ module: "design", name: "select-design-system", extend: JSON.stringify({ designSystem: label ?? "none" }) })
                              }}
-                           />
-                           <AutoArchiveSelector
-                             value={autoArchive()}
-                             onChange={toggleAutoArchive}
-                           />
-                         </div>
- <IconButton
-                          data-action="prompt-submit"
+                            />
+                          </div>
+  <IconButton
+                           data-action="prompt-submit"
                           type="submit"
                           icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
@@ -7130,15 +7147,11 @@ onPreview={(url) => {
                        <DesignSystemSelector
                          options={designSystemOptions()}
                          selected={sessionDesignSystem()}
-                         displayOnly
-                       />
-                       <AutoArchiveSelector
-                         value={autoArchive()}
-                         onChange={toggleAutoArchive}
-                       />
-                      </div>
-<IconButton
-                       data-action="prompt-submit"
+                          displayOnly
+                        />
+                       </div>
+ <IconButton
+                        data-action="prompt-submit"
                        type="submit"
                        icon={effectiveBusy() ? "stop" : "arrow-up"}
                        variant="primary"

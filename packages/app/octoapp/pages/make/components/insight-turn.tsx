@@ -534,8 +534,8 @@ export function InsightTurn(props: {
   onRevertToMessage?: () => Promise<void> | void
   onRegenerateMessage?: () => Promise<void> | void
   onArtifactSaved?: (filePath: string) => void
-  /** html 类型产物自动落盘成功后回调（自动归档等后台流程的触发点） */
-  onHtmlArtifactSaved?: (card: OutputCard, filePath: string) => void
+  /** html 类型产物自动落盘成功后回调（自动归档等后台流程的触发点； */
+  onHtmlArtifactSaved?: (card: OutputCard, filePath: string, sessionID: string) => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1347,7 +1347,7 @@ const stateStatus = state.status as string | undefined
         if (filePath) {
           props.onArtifactSaved?.(filePath)
           // html 产物触发自动归档
-          if (card.type === "html") props.onHtmlArtifactSaved?.(card, filePath)
+          if (card.type === "html") props.onHtmlArtifactSaved?.(card, filePath, props.sessionID)
         }
         props.onFilesRefresh?.()
       }).catch(err => {

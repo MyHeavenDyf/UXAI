@@ -47,19 +47,40 @@ function currentUserId(): string | null {
 }
 
 /**
+ * WeLink 推送消息模板（服务端契约）——上传时作为 multipart 的 title/content 字段，
+ * 服务端推送 WeLink 应用号消息展示。sessionTitle 由调用方解析（缺失/自动名回退
+ * "New session"）；pageName 为上传页面原名（磁盘文件名，含 .html 扩展）。
+ */
+export function welinkTitle(sessionTitle: string): string {
+  return `您的Octo Agent应用【${sessionTitle}】生成任务已完成，请点击详情查看`
+}
+
+export function welinkContent(sessionTitle: string, pageName: string): string {
+  return `【对话】${sessionTitle} 【产物】${pageName}`
+}
+
+/**
  * 自动归档 ZIP 上传：POST {VITE_OCTO_BASE_URL}/userResearch/rest.root/report/asset/uploadPackage
  *
  * multipart 表单：uuid = localStorage.userInfo.userId，zipPackage = ZIP 文件流
- * （filename 经 sanitizeAssetFileName 兜底清洁）。不手动设置 Content-Type——
- * fetch + FormData 由浏览器生成 `multipart/form-data; boundary=...`，手动写死
- * （无 boundary）会导致服务端无法解析。
+ * （filename 经 sanitizeAssetFileName 兜底清洁），title/content = WeLink 推送消息
+ * （welinkTitle/welinkContent 模板拼接，消息文本不做 sanitize）。
+ * 不手动设置 Content-Type——fetch + FormData 由浏览器生成
+ * `multipart/form-data; boundary=...`，手动写死（无 boundary）会导致服务端无法解析。
  *
  * 响应为内网统一封装 {success, errorCode, errorMessage, content}：
  * 成功 {success:true, errorCode:0, errorMessage:null, content:<传送 id>}；
  * 失败 {success:false, errorCode:400, errorMessage:"用户uuid不存在", content:null}。
  * 上传成功仅代表服务端受理，归档完成与否由 waitArchiveProcessed 轮询终态决定。
  */
-export async function uploadZipPackage(options: { name: string; zipBlob: Blob }): Promise<AutoArchiveResult> {
+export async function uploadZipPackage(options: {
+  name: string
+  zipBlob: Blob
+  /** 会话标题（解析 + 回退后的展示名），供 WeLink 推送模板字段 */
+  sessionTitle: string
+  /** 上传页面原名（磁盘文件名，含 .html 扩展），供 WeLink 推送 content 字段 */
+  pageName: string
+}): Promise<AutoArchiveResult> {
   if (!isAssetLibraryLoggedIn()) return { success: false, message: "未登录" }
   const uuid = currentUserId()
   if (!uuid) return { success: false, message: "用户信息缺失" }
@@ -69,6 +90,8 @@ export async function uploadZipPackage(options: { name: string; zipBlob: Blob })
   const form = new FormData()
   form.append("uuid", uuid)
   form.append("zipPackage", options.zipBlob, sanitizeAssetFileName(options.name))
+  form.append("title", welinkTitle(options.sessionTitle))
+  form.append("content", welinkContent(options.sessionTitle, options.pageName))
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPLOAD_PACKAGE_TIMEOUT_MS)
