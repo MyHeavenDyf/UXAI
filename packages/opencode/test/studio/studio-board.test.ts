@@ -848,3 +848,133 @@ test.each(["stored", "legacy"])(
     })
   },
 )
+
+test("board image operations pin their source, validate snapshots and send native magnify, remove_bg and inpainting requests", async () => {
+  const requests: { task_type: string; args: { mode?: string; prompt?: string; generate_mode?: string; has_drawing?: boolean; image_base64?: string; num_image?: number; image_list?: { mode: string; image_base64: string }[] }; user: { idx: string } }[] = []
+  using upstream = Bun.serve({
+    hostname: "127.0.0.1", port: 0,
+    async fetch(request) {
+      const route = new URL(request.url).pathname
+      if (route === "/create") {
+        requests.push(await request.json() as (typeof requests)[number])
+        return Response.json({ resp_code: 200, task_id: `upscale-${requests.length}` })
+      }
+      if (route === "/cancel") return Response.json({ resp_code: 200, result: true })
+      if (route === "/history") return Response.json({ resp_code: 200, result: [] })
+      return Response.json({ resp_code: 200, result: { status: 1, progress: 10 } })
+    },
+  })
+  const values = {
+    IMAGE_CREATE_TASK_URL: new URL("/create", upstream.url).href,
+    IMAGE_QUERY_TASK_BASE_URL: new URL("/query/", upstream.url).href,
+    IMAGE_GET_HISTORY_URL: new URL("/history", upstream.url).href,
+    IMAGE_CANCEL_TASK_URL: new URL("/cancel", upstream.url).href,
+    IMAGE_USER_IDX: "upscale-test",
+  }
+  const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]))
+  using environment = {
+    [Symbol.dispose]() {
+      Object.entries(previous).forEach(([key, value]) => {
+        if (value === undefined) { delete process.env[key]; return }
+        process.env[key] = value
+      })
+    },
+  }
+  Object.entries(values).forEach(([key, value]) => { process.env[key] = value })
+  await using dir = await tmpdir()
+  await provideTestInstance({
+    directory: dir.path,
+    fn: async () => {
+      const id = session("board")
+      const source = newBoardCard("upscale-source", "image")
+      source.draft.prompt = "来源图片"
+      saveBoard(id, 0, { ...emptyBoard(), cards: [source] })
+      task(id, "upscale-original", "succeeded")
+      attachBoardGeneration(id, {
+        cardID: source.id, submissionID: crypto.randomUUID(), revision: 1,
+        snapshot: { prompt: source.draft.prompt, settings: source.draft.settings, references: [] },
+      }, "upscale-original")
+      const initial = getBoard(id)
+      initial.document.cards[0].cover = { generationID: "upscale-original", mediaID: "image-1" }
+      saveBoard(id, initial.revision, initial.document)
+      const bytes = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+      const sourceImage = `${dir.path}/.octo/${id}/uploads/upscale.png`
+      await Bun.write(sourceImage, Buffer.from(bytes, "base64"))
+      const compositeImage = `${dir.path}/.octo/${id}/uploads/composite.png`
+      const compositeBytes = Buffer.concat([Buffer.from(bytes, "base64"), Buffer.from("painted")]).toString("base64")
+      await Bun.write(compositeImage, Buffer.from(compositeBytes, "base64"))
+      task(id, "upscale-changed-cover", "succeeded")
+      const beforeCover = getBoard(id)
+      attachBoardGeneration(id, {
+        cardID: source.id, submissionID: crypto.randomUUID(), revision: beforeCover.revision,
+        snapshot: { prompt: source.draft.prompt, settings: source.draft.settings, references: [] },
+      }, "upscale-changed-cover")
+      const changedCover = getBoard(id)
+      changedCover.document.cards[0].cover = { generationID: "upscale-changed-cover", mediaID: "image-1" }
+      saveBoard(id, changedCover.revision, changedCover.document)
+      for (const mode of ["restoration_8k", "restoration", "super_resolution", "cutout", "qwen_image_edit", "erase", "prompt-only"] as const) {
+        const inpaint = mode === "qwen_image_edit" || mode === "erase" || mode === "prompt-only"
+        const capability = inpaint ? "image.inpaint" : mode === "cutout" ? "image.cutout" : "image.upscale"
+        const board = getBoard(id)
+        const child = newBoardCard(`upscale-${mode}`, "image", { x: 500, y: 100 })
+        child.draft.prompt = inpaint ? "修改指定区域" : mode === "cutout" ? "对当前图片进行抠图，移除背景并保留主体" : "将当前图片变清晰，提升分辨率和细节"
+        child.draft.settings.styleModel = "seedream-5-lite"
+        child.operation = {
+          ...(mode === "qwen_image_edit" || mode === "erase" || mode === "prompt-only" ? {
+            capability: "image.inpaint" as const, generateMode: mode === "erase" ? "erase" as const : "qwen_image_edit" as const,
+            compositeImage, hasDrawing: mode !== "prompt-only", brushSize: 40,
+          } : mode === "cutout" ? { capability: "image.cutout" as const } : { capability: "image.upscale" as const, mode }), sourceImage,
+          source: { sourceID: source.id, generationID: "upscale-original", mediaID: "image-1", title: source.title, image: "https://example.test/image.png", role: "reference" },
+        }
+        board.document.cards.push(child)
+        board.document.draftEdges.push({ id: `edge-${mode}`, sourceID: source.id, targetID: child.id, role: "reference", purpose: "derivation" })
+        if (child.operation.capability === "image.inpaint") {
+          const foreign = structuredClone(board.document)
+          const operation = foreign.cards.at(-1)!.operation!
+          if (operation.capability === "image.inpaint") operation.compositeImage = "/foreign/composite.png"
+          expect(() => saveBoard(id, board.revision, foreign)).toThrow("合成图不属于当前会话")
+        }
+        const saved = saveBoard(id, board.revision, board.document)
+        const submission: BoardSubmission = {
+          cardID: child.id, submissionID: crypto.randomUUID(), revision: saved.revision,
+          snapshot: { prompt: child.draft.prompt, settings: child.draft.settings, references: [], operation: child.operation },
+        }
+        expect(validateBoardSubmission(id, submission).card.operation?.source.generationID).toBe("upscale-original")
+        expect(boardDraftReferences(saved.document, child.id, () => "changed-cover")).toEqual([])
+        expect(() => validateBoardSubmission(id, {
+          ...submission, snapshot: { ...submission.snapshot, operation: { ...child.operation!, sourceImage: "/foreign/source.png" } },
+        })).toThrow("快照不一致")
+        const changed = structuredClone(saved.document)
+        changed.cards.find((card) => card.id === child.id)!.operation = {
+          ...child.operation,
+          sourceImage: sourceImage + ".changed",
+        }
+        expect(() => saveBoard(id, saved.revision, changed)).toThrow("任务历史")
+        const input = {
+          sessionID: id, capability, prompt: child.draft.prompt,
+          sourceImage: "https://example.test/wrong-source.png", extra: { mode: "wrong-mode", generateMode: "wrong-mode", compositeImage: "/foreign/composite.png", hasDrawing: false, userIdx: "current-upscale-user" }, board: submission,
+        } satisfies Parameters<typeof createGeneration>[0]
+        const accepted = await createGeneration(input)
+        expect((await createGeneration(input)).id).toBe(accepted.id)
+        for (const attempt of Array.from({ length: 100 }, (_, index) => index)) {
+          const row = Database.use((db) => db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, accepted.id)).get())
+          if (row?.provider_task_id) break
+          if (row?.status === "failed" || attempt === 99) throw new Error(`Upscale did not start: ${JSON.stringify(row?.result)}`)
+          await Bun.sleep(25)
+        }
+        expect(requests.at(-1)).toEqual({
+          task_type: inpaint ? "inpainting" : mode === "cutout" ? "remove_bg" : "magnify", user: { idx: "current-upscale-user" },
+          args: inpaint
+            ? { prompt: child.draft.prompt, has_drawing: mode !== "prompt-only", image_base64: compositeBytes,
+                generate_mode: mode === "erase" ? "erase" : "qwen_image_edit", num_image: 1 }
+            : mode === "cutout"
+            ? { num_image: 1, image_list: [{ mode: "new", image_base64: `data:image/png;base64,${bytes}` }] }
+            : { mode, image_base64: `data:image/png;base64,${bytes}` },
+        })
+        expect(getBoard(id).document.cards.find((card) => card.id === child.id)?.taskLinks[0].snapshot.operation).toEqual(child.operation)
+        await cancelGeneration(accepted.id)
+      }
+      expect(requests).toHaveLength(7)
+    },
+  })
+})

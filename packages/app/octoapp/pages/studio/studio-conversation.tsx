@@ -8,6 +8,7 @@ import { StudioResultCard } from "./studio-result-card"
 import { getDefaultDimensions, isStudioEditResult, isVideoMedia, getImageOrientation, STUDIO_VIDEO_RESOLUTION } from "./studio-shared"
 import { capabilityLabel, styleModelLabel } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
+import { StudioFullscreenImage } from "./studio-fullscreen-image"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import { StudioFileManager } from "./studio-file-manager"
 import {
@@ -451,22 +452,6 @@ export function StudioResultCanvas(props: {
     onCleanup(() => ro.disconnect())
   })
 
-  createEffect(() => {
-    const image = fullscreenImage()
-    const mountEl = props.fullscreenMount?.() || document.body
-    mountEl.style.overflow = image ? "hidden" : ""
-    if (!image) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); setFullscreenImage(null) }
-    }
-    document.addEventListener("keydown", onKeyDown)
-    onCleanup(() => {
-      const mountEl = props.fullscreenMount?.() || document.body
-      mountEl.style.overflow = ""
-      document.removeEventListener("keydown", onKeyDown)
-    })
-  })
-
   return (
     <>
       <Show when={shouldShowCanvas()} fallback={
@@ -811,16 +796,11 @@ export function StudioResultCanvas(props: {
         })()}
       </Show>
       {fullscreenImage() && (
-        <Portal mount={props.fullscreenMount?.() || document.body}>
-          <div class="studio-fullscreen-overlay" onClick={() => { tracker.interaction({ module: "studio", name: "canvas-fullscreen-close" }); setFullscreenImage(null) }}>
-            <button type="button" class="studio-fullscreen-close" onClick={(e) => { e.stopPropagation(); tracker.interaction({ module: "studio", name: "canvas-fullscreen-close" }); setFullscreenImage(null); }} aria-label="关闭全屏">
-              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-                <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
-            <img src={originalMediaSrc(fullscreenImage()!)} class="studio-fullscreen-image" alt="" />
-          </div>
-        </Portal>
+        <StudioFullscreenImage
+          src={originalMediaSrc(fullscreenImage()!)}
+          mount={props.fullscreenMount}
+          onClose={() => { tracker.interaction({ module: "studio", name: "canvas-fullscreen-close" }); setFullscreenImage(null) }}
+        />
       )}
       <Show when={props.downloadNotice?.() && noticePos()}>
         <Portal mount={props.videoPlayerMount()}>

@@ -2,84 +2,32 @@ import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type 
 import { tracker } from "@/utils/tracker"
 import type { StudioImage } from "./types"
 import type { StudioInpaintMode } from "./studio-shared"
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value))
-}
+import { createStudioInpaintDrawing, StudioInpaintCanvas, type StudioInpaintInput } from "./studio-inpaint-canvas"
 
 export function StudioInpaintEditor(props: {
   image: StudioImage
   busy: boolean
   onClose: () => void
   onDelete: () => void
-  onSubmit: (input: {
-    prompt: string
-    mode: StudioInpaintMode
-    brushSize: number
-    sourceImage: string
-    compositeImage: string
-    hasDrawing: boolean
-  }) => void
+  onSubmit: (input: StudioInpaintInput) => void
 }): JSX.Element {
   const [editMode, setEditMode] = createSignal<StudioInpaintMode>("qwen_image_edit")
   const [brushSize, setBrushSize] = createSignal(40)
   const [editorPrompt, setEditorPrompt] = createSignal("")
-  const [sourceSize, setSourceSize] = createSignal({ width: props.image.width ?? 0, height: props.image.height ?? 0 })
   const [displaySize, setDisplaySize] = createSignal({ width: 0, height: 0 })
-  const [undoList, setUndoList] = createSignal<string[]>([])
-  const [redoList, setRedoList] = createSignal<string[]>([])
-  const [hasDrawing, setHasDrawing] = createSignal(false)
   const [loadError, setLoadError] = createSignal("")
-  const [cursor, setCursor] = createSignal({ x: 0, y: 0, visible: false })
-  const sourceMaskCanvas = document.createElement("canvas")
-  let sourceImage: HTMLImageElement | undefined
+  const drawing = createStudioInpaintDrawing({
+    source: () => props.image.remoteUrl ?? props.image.url,
+    key: () => props.image.id,
+    brushSize,
+    busy: () => props.busy,
+  })
+  const sourceSize = () => drawing.state.size
+  const hasDrawing = () => drawing.state.hasDrawing
+  const clearMask = drawing.clear
+  const undoMask = drawing.undo
+  const redoMask = drawing.redo
   let canvasWrapRef!: HTMLDivElement
-  let maskCanvasRef!: HTMLCanvasElement
-  let drawing = false
-  let lastPoint: { x: number; y: number } | undefined
-
-  function renderMaskPreview() {
-    const context = maskCanvasRef?.getContext("2d")
-    if (!context) return
-    context.clearRect(0, 0, displaySize().width, displaySize().height)
-    if (!sourceMaskCanvas.width || !sourceMaskCanvas.height) return
-    context.drawImage(sourceMaskCanvas, 0, 0, displaySize().width, displaySize().height)
-  }
-
-  function resetMaskCanvas(width: number, height: number) {
-    sourceMaskCanvas.width = width
-    sourceMaskCanvas.height = height
-    const initialState = sourceMaskCanvas.toDataURL("image/png")
-    setUndoList([initialState])
-    setRedoList([])
-    setHasDrawing(false)
-    renderMaskPreview()
-  }
-
-  function updateHasDrawing() {
-    const context = sourceMaskCanvas.getContext("2d")
-    if (!context || !sourceMaskCanvas.width || !sourceMaskCanvas.height) {
-      setHasDrawing(false)
-      return false
-    }
-    const pixels = context.getImageData(0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height).data
-    const nextHasDrawing = pixels.some((value, index) => index % 4 === 3 && value > 0)
-    setHasDrawing(nextHasDrawing)
-    return nextHasDrawing
-  }
-
-  function restoreMaskState(state: string) {
-    const image = new Image()
-    image.onload = () => {
-      const context = sourceMaskCanvas.getContext("2d")
-      if (!context) return
-      context.clearRect(0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height)
-      context.drawImage(image, 0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height)
-      updateHasDrawing()
-      renderMaskPreview()
-    }
-    image.src = state
-  }
 
   function updateDisplaySize() {
     const width = sourceSize().width
@@ -104,16 +52,6 @@ export function StudioInpaintEditor(props: {
         setLoadError("")
         setEditorPrompt("")
         setEditMode("qwen_image_edit")
-        const image = new Image()
-        if (/^https?:\/\//i.test(props.image.url)) image.crossOrigin = "anonymous"
-        image.onload = () => {
-          sourceImage = image
-          setSourceSize({ width: image.naturalWidth, height: image.naturalHeight })
-          resetMaskCanvas(image.naturalWidth, image.naturalHeight)
-          requestAnimationFrame(updateDisplaySize)
-        }
-        image.onerror = () => setLoadError("图片加载失败")
-        image.src = props.image.url
       },
     ),
   )
@@ -125,141 +63,23 @@ export function StudioInpaintEditor(props: {
   })
 
   createEffect(() => {
-    displaySize()
-    requestAnimationFrame(renderMaskPreview)
+    sourceSize().width
+    sourceSize().height
+    requestAnimationFrame(updateDisplaySize)
   })
 
-  function toSourcePoint(event: PointerEvent) {
-    const rect = maskCanvasRef.getBoundingClientRect()
-    return {
-      x: clamp((event.clientX - rect.left) / rect.width * sourceMaskCanvas.width, 0, sourceMaskCanvas.width),
-      y: clamp((event.clientY - rect.top) / rect.height * sourceMaskCanvas.height, 0, sourceMaskCanvas.height),
-    }
-  }
-
-  function updateCursor(event: PointerEvent, visible: boolean) {
-    const rect = maskCanvasRef.getBoundingClientRect()
-    const x = event.clientX - rect.left
-    const y = event.clientY - rect.top
-    setCursor({
-      x,
-      y,
-      visible: visible && x >= 0 && y >= 0 && x <= rect.width && y <= rect.height,
-    })
-  }
-
-  function drawDot(point: { x: number; y: number }) {
-    const context = sourceMaskCanvas.getContext("2d")
-    if (!context) return
-    const scale = displaySize().width / sourceMaskCanvas.width
-    context.fillStyle = "rgba(137, 71, 213, 0.3)"
-    context.beginPath()
-    context.arc(point.x, point.y, brushSize() / Math.max(scale, 0.001) / 2, 0, Math.PI * 2)
-    context.fill()
-  }
-
-  function drawLine(from: { x: number; y: number }, to: { x: number; y: number }) {
-    const context = sourceMaskCanvas.getContext("2d")
-    if (!context) return
-    const scale = displaySize().width / sourceMaskCanvas.width
-    context.strokeStyle = "rgba(137, 71, 213, 0.3)"
-    context.lineCap = "round"
-    context.lineJoin = "round"
-    context.lineWidth = brushSize() / Math.max(scale, 0.001)
-    context.beginPath()
-    context.moveTo(from.x, from.y)
-    context.lineTo(to.x, to.y)
-    context.stroke()
-  }
-
-  function finishDrawing() {
-    if (!drawing) return
-    drawing = false
-    lastPoint = undefined
-    const nextState = sourceMaskCanvas.toDataURL("image/png")
-    setUndoList((items) => [...items, nextState])
-    setRedoList([])
-    updateHasDrawing()
-    renderMaskPreview()
-  }
-
-  function clearMask() {
-    const context = sourceMaskCanvas.getContext("2d")
-    if (!context) return
-    context.clearRect(0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height)
-    const initialState = sourceMaskCanvas.toDataURL("image/png")
-    setUndoList([initialState])
-    setRedoList([])
-    setHasDrawing(false)
-    renderMaskPreview()
-  }
-
-  function undoMask() {
-    const current = undoList().at(-1)
-    const previous = undoList().at(-2)
-    if (!current || !previous) return
-    setUndoList((items) => items.slice(0, -1))
-    setRedoList((items) => [...items, current])
-    restoreMaskState(previous)
-  }
-
-  function redoMask() {
-    const next = redoList().at(-1)
-    if (!next) return
-    setRedoList((items) => items.slice(0, -1))
-    setUndoList((items) => [...items, next])
-    restoreMaskState(next)
-  }
-
-  function handlePointerDown(event: PointerEvent) {
-    if (!sourceMaskCanvas.width || !sourceMaskCanvas.height || props.busy) return
-    event.preventDefault()
-    maskCanvasRef.setPointerCapture(event.pointerId)
-    drawing = true
-    lastPoint = toSourcePoint(event)
-    drawDot(lastPoint)
-    updateCursor(event, true)
-    renderMaskPreview()
-  }
-
-  function handlePointerMove(event: PointerEvent) {
-    updateCursor(event, true)
-    if (!drawing || !lastPoint) return
-    const nextPoint = toSourcePoint(event)
-    drawLine(lastPoint, nextPoint)
-    lastPoint = nextPoint
-    renderMaskPreview()
-  }
-
-  function handlePointerUp(event: PointerEvent) {
-    updateCursor(event, true)
-    if (maskCanvasRef.hasPointerCapture(event.pointerId)) maskCanvasRef.releasePointerCapture(event.pointerId)
-    finishDrawing()
-  }
-
-  function createCompositeImage() {
-    if (!sourceImage) throw new Error("图片尚未加载完成")
-    const canvas = document.createElement("canvas")
-    canvas.width = sourceSize().width
-    canvas.height = sourceSize().height
-    const context = canvas.getContext("2d")
-    if (!context) throw new Error("无法创建智能重绘画布")
-    context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
-    context.drawImage(sourceMaskCanvas, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL("image/png")
-  }
-
   function submit() {
-    const nextHasDrawing = updateHasDrawing()
+    drawing.finish()
+    const nextHasDrawing = drawing.state.hasDrawing
     // Allow one-click generation without painting as long as there is a prompt.
-    if ((!nextHasDrawing && !editorPrompt().trim()) || props.busy) return
+    if ((!nextHasDrawing && !editorPrompt().trim()) || props.busy || !drawing.state.ready) return
     try {
       props.onSubmit({
         prompt: editorPrompt().trim(),
         mode: editMode(),
         brushSize: brushSize(),
         sourceImage: props.image.remoteUrl ?? props.image.url,
-        compositeImage: createCompositeImage(),
+        compositeImage: drawing.composite(),
         hasDrawing: nextHasDrawing,
       })
     } catch (error) {
@@ -290,7 +110,7 @@ export function StudioInpaintEditor(props: {
         </div>
         <div ref={canvasWrapRef!} class="studio-inpaint-canvas-wrap">
           <Show when={displaySize().width && displaySize().height} fallback={
-            <div class="studio-inpaint-loading">{loadError() || "图片加载中..."}</div>
+            <div class="studio-inpaint-loading">{loadError() || drawing.state.error || "图片加载中..."}</div>
           }>
             <div
               class="studio-inpaint-stage"
@@ -302,34 +122,10 @@ export function StudioInpaintEditor(props: {
                 alt="Inpaint source"
                 draggable={false}
               />
-              <canvas
-                ref={maskCanvasRef!}
-                class="studio-inpaint-mask"
-                width={displaySize().width}
-                height={displaySize().height}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerUp}
-                onPointerLeave={(event) => {
-                  updateCursor(event, false)
-                  finishDrawing()
-                }}
-              />
-              <Show when={cursor().visible}>
-                <span
-                  class="studio-inpaint-cursor"
-                  style={{
-                    left: `${cursor().x}px`,
-                    top: `${cursor().y}px`,
-                    width: `${brushSize()}px`,
-                    height: `${brushSize()}px`,
-                  }}
-                />
-              </Show>
+              <StudioInpaintCanvas drawing={drawing} />
             </div>
           </Show>
-          <Show when={loadError()}>
+          <Show when={loadError() || drawing.state.error}>
             {(message) => <div class="studio-inpaint-error">{message()}</div>}
           </Show>
         </div>
@@ -371,7 +167,7 @@ export function StudioInpaintEditor(props: {
                 <button
                   type="button"
                   onClick={() => { tracker.interaction({ module: "studio", name: "inpaint-undo" }); undoMask() }}
-                  disabled={undoList().length < 2 || props.busy}
+                  disabled={drawing.state.undoCount === 0 || props.busy}
                   class="studio-inpaint-tool studio-inpaint-tool-undo"
                   aria-label="撤销"
                   title="撤销"
@@ -379,7 +175,7 @@ export function StudioInpaintEditor(props: {
                 <button
                   type="button"
                   onClick={() => { tracker.interaction({ module: "studio", name: "inpaint-redo" }); redoMask() }}
-                  disabled={redoList().length === 0 || props.busy}
+                  disabled={drawing.state.redoCount === 0 || props.busy}
                   class="studio-inpaint-tool studio-inpaint-tool-redo"
                   aria-label="重做"
                   title="重做"
@@ -425,7 +221,7 @@ export function StudioInpaintEditor(props: {
             <button type="button" class="studio-editor-delete" onClick={() => { tracker.interaction({ module: "studio", name: "inpaint-delete" }); props.onDelete() }}>删除</button>
             <button
               type="button"
-              disabled={(!hasDrawing() && !editorPrompt().trim()) || props.busy}
+              disabled={(!hasDrawing() && !editorPrompt().trim()) || props.busy || !drawing.state.ready}
               onClick={submit}
               class="studio-hd-create"
             >

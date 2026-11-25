@@ -5,6 +5,9 @@ import { render } from "solid-js/web"
 import {
   type BoardSettings,
   BoardSnapshot,
+  BOARD_UPSCALE_PROMPT,
+  BOARD_CUTOUT_PROMPT,
+  boardImageOperationName,
   boardFrameSourceCount,
   boardGenerationError,
   boardReferenceActive,
@@ -16,8 +19,14 @@ import { studioPermissionState } from "../studio-permission-store"
 import { defaultStudioStyleModel, studioModelUnavailableMessage } from "@opencode-ai/core/studio/model-availability"
 import { createBoardOperations } from "./studio-board-operations"
 import { isSeedreamStyleModel, referenceImageLimit, styleModelId } from "../data"
-import { resolveStudioMediaUrl } from "../studio-media"
-import type { StudioGenerationResult } from "../types"
+import { originalMediaSrc, resolveStudioMediaUrl } from "../studio-media"
+import { prepareStudioMediaDownload, saveStudioMediaDownload, type StudioHDMode, type StudioInpaintMode } from "../studio-shared"
+import { prepareStudioImageOperation, resizeStudioCompositeImage } from "../studio-edit-image"
+import { createStudioInpaintDrawing, studioInpaintPrompt, type StudioInpaintInput } from "../studio-inpaint-canvas"
+import { tracker } from "@/utils/tracker"
+import type { StudioGenerationResult, StudioImage } from "../types"
+import { StudioFullscreenImage } from "../studio-fullscreen-image"
+import { StudioVideoPlayer } from "../studio-video-player"
 import {
   boardResponse,
   boardBackup,
@@ -33,6 +42,7 @@ import {
   boardRebootable,
   boardMedia,
   boardCover,
+  boardDisplayedMedia,
   boardReferences,
   boardConnectionError,
   boardWheelZoom,
@@ -47,7 +57,10 @@ import {
   type BoardResults,
 } from "./studio-board-state"
 import { StudioBoardCardView } from "./studio-board-card"
+import { StudioBoardMediaToolbar } from "./studio-board-media-toolbar"
 import { StudioBoardComposer } from "./studio-board-composer"
+import { StudioBoardUpscale } from "./studio-board-upscale"
+import { StudioBoardInpaint } from "./studio-board-inpaint"
 import { StudioBoardResults } from "./studio-board-results"
 import { StudioBoardHeader, type BoardSessionPage } from "./studio-board-header"
 import type { ThumbnailMap } from "../session-thumbnail"
@@ -129,14 +142,27 @@ export default function StudioBoard(props: {
     notice: "",
     resultsCardID: "",
     inspectGenerationID: "",
+    fullscreenMedia: undefined as StudioImage | undefined,
     menuTab: "",
     zoom: 1,
     menu: undefined as
       | { x: number; y: number; point: { x: number; y: number }; sourceID?: string; previewID?: string }
       | undefined,
     anchor: { left: 0, top: 0, width: 544 },
+    mediaToolbarAnchor: { left: 0, top: 0 },
+    upscaleCardID: "",
+    cutoutCardID: "",
+    inpaint: undefined as { cardID: string; generationID: string; mediaID: string; image: string; url: string } | undefined,
+    inpaintMode: "qwen_image_edit" as StudioInpaintMode,
+    inpaintBrush: 40,
+    inpaintPrompt: "",
+    inpaintError: "",
+    inpaintAnchor: { left: 0, top: 0, width: 488 },
+    upscaleMode: "restoration_8k" as StudioHDMode,
+    derivedPreparing: false,
+    submissionErrors: {} as Record<string, string>,
     marquee: undefined as { x: number; y: number; width: number; height: number } | undefined,
-    historyPreviewIDs: [] as string[],
+    historyCoverIDs: [] as string[],
     suppressedFailureIDs: [] as string[],
     guides: {} as { x?: number; y?: number },
     draggingCard: false,
@@ -159,6 +185,7 @@ export default function StudioBoard(props: {
   const showMentionEntry = () =>
     selected()?.kind === "image" && isSeedreamStyleModel(selected()!.draft.settings.styleModel)
   const busy = () =>
+    state.derivedPreparing ||
     operations.busy() ||
     state.document.cards.some((card) => card.taskLinks.some((link) => boardBusy(state.results[link.generationID])))
   const awaitingRecovery = () =>
@@ -171,7 +198,21 @@ export default function StudioBoard(props: {
   const backupKey = (id = state.sessionID) => `studio.board.backup:${scope.http.url}:${scope.directory}:${id ?? "new"}`
   const current = (card: BoardCard) => state.results[card.currentGenerationID ?? ""]
   const locked = (card: BoardCard) => !!operations.state[card.id] || boardBusy(current(card))
-  const editingBlocked = (card: BoardCard) => state.exiting || awaitingRecovery() || locked(card)
+  const editingBlocked = (card: BoardCard) => state.exiting || awaitingRecovery() || locked(card) || state.derivedPreparing
+  const inpaintDrawing = createStudioInpaintDrawing({
+    source: () => state.inpaint?.url,
+    key: () => state.inpaint && `${state.inpaint.generationID}:${state.inpaint.mediaID}`,
+    brushSize: () => state.inpaintBrush,
+    busy: () => busy() || awaitingRecovery(),
+  })
+  createEffect(() => {
+    const edit = state.inpaint
+    if (!edit) return
+    const card = selected()
+    const media = card && boardMedia(card, state.results).find((item) => item.media === boardDisplayedMedia(card, state.results))
+    if (card?.id !== edit.cardID || media?.generationID !== edit.generationID || media?.mediaID !== edit.mediaID)
+      setState("inpaint", undefined)
+  })
   let board!: HTMLDivElement
   let canvas!: HTMLDivElement
   let uploadInput: HTMLInputElement | undefined
@@ -202,6 +243,207 @@ export default function StudioBoard(props: {
     setState("notice", message)
     noticeTimer = setTimeout(() => setState("notice", ""), 3500)
   }
+  async function downloadMedia(card: BoardCard) {
+    const media = boardDisplayedMedia(card, state.results)
+    if (!media) return
+    const source = mediaURL(originalMediaSrc(media))
+    if (!source) return
+    const prepared = await prepareStudioMediaDownload({
+      source,
+      fallbackMime: card.kind === "video" ? "video/mp4" : "image/png",
+    })
+    tracker.interaction({
+      module: "studio",
+      name: "download",
+      extend: JSON.stringify({ name: prepared.label, url: source }),
+    })
+    const result = await saveStudioMediaDownload({ source, ...prepared })
+    if (disposed) return
+    if (result.saved) notify("下载成功")
+    if (result.fallback) notify("部分文件无法保存，已转交浏览器下载，请注意浏览器下载列表")
+  }
+  function toggleUpscale() {
+    const card = selected()
+    if (!card || card.kind !== "image" || editingBlocked(card) || !boardDisplayedMedia(card, state.results)) return
+    setState("menuTab", "")
+    setState("inpaint", undefined)
+    setState("upscaleCardID", state.upscaleCardID === card.id ? "" : card.id)
+    setState("upscaleMode", "restoration_8k")
+    updateAnchor()
+  }
+  function toggleInpaint() {
+    const card = selected()
+    if (!card || card.kind !== "image" || busy() || editingBlocked(card)) return
+    if (state.inpaint?.cardID === card.id) {
+      setState("inpaint", undefined)
+      return
+    }
+    const item = boardMedia(card, state.results).find((item) => item.media === boardDisplayedMedia(card, state.results))
+    const url = item && mediaURL(originalMediaSrc(item.media))
+    if (!item || !url) return
+    batch(() => {
+      setState("upscaleCardID", "")
+      setState("menuTab", "")
+      setState("inpaintMode", "qwen_image_edit")
+      setState("inpaintBrush", 40)
+      setState("inpaintPrompt", "")
+      setState("inpaintError", "")
+      setState("inpaint", { cardID: card.id, generationID: item.generationID, mediaID: item.mediaID, image: originalMediaSrc(item.media), url })
+    })
+    updateAnchor()
+  }
+  function generateInpaint() {
+    if (!state.inpaint || busy() || !inpaintDrawing.state.ready) return
+    inpaintDrawing.finish()
+    if (!inpaintDrawing.state.hasDrawing && !state.inpaintPrompt.trim()) return
+    try {
+      generateDerived("image.inpaint", {
+        prompt: state.inpaintPrompt.trim(), mode: state.inpaintMode, brushSize: state.inpaintBrush,
+        sourceImage: state.inpaint.image, compositeImage: inpaintDrawing.composite(), hasDrawing: inpaintDrawing.state.hasDrawing,
+      })
+    } catch (error) {
+      setState("inpaintError", boardErrorMessage(error))
+    }
+  }
+  async function submitDerived(card: BoardCard, retry = false) {
+    if (!card.operation || disposed) return
+    operations.start(card.id, "creating")
+    setState("submissionErrors", card.id, "")
+    const snapshot = BoardSnapshot.parse({ ...card.draft, references: [], operation: card.operation })
+    await persistBoard(retry)
+    if (disposed || !state.sessionID) return
+    await submit({
+      sessionID: state.sessionID,
+      capability: card.operation.capability,
+      prompt: snapshot.prompt,
+      extra: { userIdx: props.userIdx },
+      board: { cardID: card.id, submissionID: crypto.randomUUID(), revision: state.revision, snapshot },
+    })
+  }
+  function retryDerived(card: BoardCard) {
+    if (busy() || editingBlocked(card) || !card.operation || card.currentGenerationID) return
+    void enqueueWrite(() => submitDerived(card, true)).catch((error: unknown) => {
+      operations.finish(card.id)
+      setState("submissionErrors", card.id, boardErrorMessage(error))
+      notify(boardErrorMessage(error))
+    })
+  }
+  function generateDerived(capability: "image.upscale" | "image.cutout" | "image.inpaint", input?: StudioInpaintInput) {
+    const source = selected()
+    if (!source || source.kind !== "image" || busy() || editingBlocked(source) || state.saveError) return
+    const item = boardMedia(source, state.results).find((item) => item.media === boardDisplayedMedia(source, state.results))
+    const url = item && mediaURL(originalMediaSrc(item.media))
+    if (!item || !url) return
+    if (capability === "image.inpaint" && !input) return
+    const mode = state.upscaleMode
+    const name = boardImageOperationName(capability)
+    const sourceRef = {
+      sourceID: source.id,
+      generationID: item.generationID,
+      mediaID: item.mediaID,
+      title: source.title,
+      image: originalMediaSrc(item.media),
+      role: "reference" as const,
+    }
+    const matches = () => {
+      const card = state.document.cards.find((card) => card.id === source.id)
+      const displayed = card && boardMedia(card, state.results).find((item) => item.media === boardDisplayedMedia(card, state.results))
+      return !disposed && !state.exiting &&
+        (capability === "image.inpaint" ? state.inpaint?.cardID : capability === "image.upscale" ? state.upscaleCardID : state.cutoutCardID) === source.id &&
+        displayed?.generationID === sourceRef.generationID && displayed.mediaID === sourceRef.mediaID
+    }
+    batch(() => {
+      if (capability === "image.cutout") {
+        setState("inpaint", undefined)
+        setState("upscaleCardID", "")
+        setState("cutoutCardID", source.id)
+        setState("menuTab", "")
+      }
+      setState("derivedPreparing", true)
+      setState("inpaintError", "")
+    })
+    void enqueueWrite(async () => {
+      const prepared = await prepareStudioImageOperation(url, capability)
+      const composite = input ? await resizeStudioCompositeImage(input.compositeImage, prepared.sourceImage) : undefined
+      if (!matches()) return
+      const sessionID = props.demo ? undefined : await ensureSession()
+      if (!props.demo && !sessionID) throw new Error("无法创建画布会话")
+      const uploads = props.demo ? [] : await Promise.allSettled([
+        { data: prepared.sourceImage, name: `${capability.replace("image.", "")}-source.jpg` },
+        ...(composite ? [{ data: composite, name: "inpaint-composite.png" }] : []),
+      ].map((image) => request<{ path: string }>("/artifact/upload", "POST", {
+        sessionId: sessionID,
+        filename: `${crypto.randomUUID()}-${image.name}`,
+        content: image.data.slice(image.data.indexOf(",") + 1),
+      })))
+      const failed = uploads.find((upload) => upload.status === "rejected")
+      if (failed) throw failed.reason
+      const uploaded = uploads.flatMap((upload) => upload.status === "fulfilled" ? [upload.value] : [])
+      if (!matches()) return
+      if (!props.demo && (!uploaded[0]?.path || (composite && !uploaded[1]?.path))) throw new Error("上传失败，未返回素材路径")
+      const origin = { x: source.position.x + (cardSizes.get(source.id)?.width ?? WIDTH) + 120, y: source.position.y }
+      const position = Array.from({ length: state.document.cards.length + 1 }, (_, index) => ({
+        x: origin.x,
+        y: origin.y + index * (HEIGHT + 40),
+      })).find((point) => state.document.cards.every((card) =>
+        point.x + WIDTH + 40 < card.position.x ||
+        point.x > card.position.x + (cardSizes.get(card.id)?.width ?? WIDTH) + 40 ||
+        point.y + HEIGHT + 24 < card.position.y ||
+        point.y > card.position.y + (cardSizes.get(card.id)?.height ?? HEIGHT) + 24,
+      ))!
+      const card = newBoardCard(crypto.randomUUID(), "image", position)
+      card.title = `${name} ${String(state.document.cards.filter((card) => card.operation?.capability === capability).length + 1).padStart(2, "0")}`
+      card.operation = {
+        ...(capability === "image.inpaint" ? {
+          capability, generateMode: input!.mode, brushSize: input!.brushSize,
+          hasDrawing: input!.hasDrawing, compositeImage: uploaded[1]?.path ?? composite!,
+        } : capability === "image.upscale" ? { capability, mode } : { capability }),
+        source: sourceRef,
+        sourceImage: uploaded[0]?.path ?? prepared.sourceImage,
+      }
+      card.draft.prompt = input ? studioInpaintPrompt(input) : capability === "image.upscale" ? BOARD_UPSCALE_PROMPT : BOARD_CUTOUT_PROMPT
+      card.draft.settings = { ...card.draft.settings, aspectRatio: prepared.aspectRatio, count: 1 }
+      const edge = { id: crypto.randomUUID(), sourceID: source.id, targetID: card.id, role: "reference" as const, purpose: "derivation" as const }
+      batch(() => {
+        setState("document", "cards", (cards) => [...cards, card])
+        setState("document", "draftEdges", (edges) => [...edges, edge])
+      })
+      mountCard(card)
+      graph?.addEdge({ ...edgeStyle, id: edge.id, source: cardTerminal(source.id, "output"), target: cardTerminal(card.id, "reference") })
+      select(card.id)
+      const node = graph?.getCellById(card.id)
+      if (node?.isNode()) {
+        const point = graph!.localToClient(node.getBBox().center)
+        const bounds = board.getBoundingClientRect()
+        if (point.x + node.size().width * state.zoom / 2 > bounds.right - 32 || point.y + node.size().height * state.zoom / 2 > bounds.bottom - 32)
+          graph!.centerCell(node)
+      }
+      tracker.interaction({ module: "studio", name: capability.replace("image.", ""), extend: JSON.stringify({
+        ...(capability === "image.upscale" ? { mode } : {}),
+        ...(input ? { mode: input.mode, brushSize: input.brushSize, hasDrawing: input.hasDrawing, hasCustomPrompt: !!input.prompt } : {}),
+        hasSourceImage: true, isUploadedImage: false,
+      }) })
+      if (props.demo) {
+        simulate(card.id, BoardSnapshot.parse({ ...card.draft, references: [], operation: card.operation }))
+        return
+      }
+      await submitDerived(card).catch((error: unknown) => {
+        operations.finish(card.id)
+        setState("submissionErrors", card.id, boardErrorMessage(error))
+        throw error
+      })
+    }).catch((error: unknown) => {
+      if (!disposed) {
+        if (capability === "image.inpaint") setState("inpaintError", boardErrorMessage(error))
+        notify(boardErrorMessage(error, `${name}提交失败，请重试`))
+      }
+    }).finally(() => {
+      if (!disposed) {
+        setState("derivedPreparing", false)
+        setState("cutoutCardID", "")
+      }
+    })
+  }
   function updateAnchor() {
     cancelAnimationFrame(frame)
     frame = requestAnimationFrame(() => {
@@ -216,6 +458,19 @@ export default function StudioBoard(props: {
         left: point.x - bounds.left - width / 2,
         top: point.y - bounds.top + 16,
         width,
+      })
+      const bottomLeft = graph.localToClient(node.getBBox().bottomLeft)
+      const inpaintWidth = Math.min(488, bounds.width - 32)
+      setState("inpaintAnchor", {
+        left: Math.max(16, Math.min(bounds.width - inpaintWidth - 16, bottomLeft.x - bounds.left)),
+        top: Math.max(80, Math.min(bounds.height - 202, bottomLeft.y - bounds.top + 12)),
+        width: inpaintWidth,
+      })
+      const top = graph.localToClient(node.getBBox().topCenter)
+      const toolbarMargin = Math.min((selected()?.kind === "video" ? 176 : 581) / 2 + 16, bounds.width / 2)
+      setState("mediaToolbarAnchor", {
+        left: Math.max(toolbarMargin, Math.min(bounds.width - toolbarMargin, top.x - bounds.left)),
+        top: top.y - bounds.top - 12,
       })
       updateDropdown()
     })
@@ -237,6 +492,11 @@ export default function StudioBoard(props: {
     dropdown.style.visibility = "visible"
   }
   function select(id: string, multiple = false) {
+    if (selected()?.id !== id || multiple) {
+      setState("upscaleCardID", "")
+      setState("cutoutCardID", "")
+      setState("inpaint", undefined)
+    }
     if (!multiple) setState("selectedIDs", id ? [id] : [])
     if (multiple)
       setState("selectedIDs", (ids) => (ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]))
@@ -403,7 +663,7 @@ export default function StudioBoard(props: {
     setState("document", "draftEdges", (edges) => edges.filter((item) => item.id !== id))
   }
   function removeCard(id: string) {
-    if (awaitingRecovery()) return
+    if (awaitingRecovery() || state.derivedPreparing) return
     const card = state.document.cards.find((item) => item.id === id)
     if (!card || locked(card)) {
       notify("请先确认活动任务结束")
@@ -442,6 +702,7 @@ export default function StudioBoard(props: {
         .filter((port) => port.id !== "output")
         .forEach((port) => {
           const blocked =
+            !!card.operation ||
             editingBlocked(card) ||
             !boardReferenceActive(card.kind, card.draft.settings, port.id!) ||
             (port.id !== "reference" && !!boardFrameSourceCount(state.document, card.id, port.id!))
@@ -486,7 +747,7 @@ export default function StudioBoard(props: {
                   selected={state.selectedIDs.includes(id)}
                   locked={locked(value())}
                   editingBlocked={editingBlocked(value())}
-                  historyPreview={state.historyPreviewIDs.includes(id)}
+                  historyCover={state.historyCoverIDs.includes(id)}
                   failureSuppressed={state.suppressedFailureIDs.includes(value().currentGenerationID ?? "")}
                   rebootBlocked={busy() || awaitingRecovery()}
                   mediaURL={mediaURL}
@@ -502,6 +763,11 @@ export default function StudioBoard(props: {
                   onOperate={(action) => void operate(id, action)}
                   onRefresh={() => void reconcile(id)}
                   onRemove={() => removeCard(id)}
+                  submissionError={value().operation && !value().currentGenerationID && !locked(value())
+                    ? state.submissionErrors[id] || `${boardImageOperationName(value().operation!.capability)}任务尚未提交，可重新提交`
+                    : undefined}
+                  onRetry={() => retryDerived(value())}
+                  inpaint={state.inpaint?.cardID === id ? inpaintDrawing : undefined}
                   onResults={() => {
                     setState("resultsCardID", id)
                     setState("inspectGenerationID", "")
@@ -626,7 +892,7 @@ export default function StudioBoard(props: {
         reconcileStore(Object.fromEntries(Object.entries(state.results).filter(([id]) => generations.has(id)))),
       )
       setState("suppressedFailureIDs", (ids) => ids.filter((id) => generations.has(id)))
-      setState("historyPreviewIDs", (ids) => ids.filter((id) => cards.has(id)))
+      setState("historyCoverIDs", (ids) => ids.filter((id) => cards.has(id)))
       setState("savedDocumentJSON", boardDocumentJSON(response.document))
       setState("revision", response.revision)
       setState("document", normalizeBoardDraft(response.document))
@@ -657,6 +923,7 @@ export default function StudioBoard(props: {
   function accept(result: StudioGenerationResult) {
     if (disposed || (state.results[result.id]?.updatedAt ?? 0) > (result.updatedAt ?? 0)) return
     if (!state.document.cards.some((card) => card.taskLinks.some((link) => link.generationID === result.id))) return
+    const wasBusy = boardBusy(state.results[result.id])
     setState("results", result.id, result)
     state.document.cards
       .filter((card) => card.taskLinks.some((link) => link.visible && link.generationID === result.id))
@@ -667,7 +934,12 @@ export default function StudioBoard(props: {
         const first = images.find((image) => image.generationID === result.id)
         if (first && !card.cover)
           updateCard(card.id, { cover: { generationID: first.generationID, mediaID: first.mediaID } })
-        if (first && card.currentGenerationID === result.id && card.preview?.generationID !== result.id)
+        if (
+          first &&
+          card.currentGenerationID === result.id &&
+          card.preview?.generationID !== result.id &&
+          (!card.preview || wasBusy)
+        )
           updateCard(card.id, { preview: { generationID: first.generationID, mediaID: first.mediaID } })
       })
     updatePorts()
@@ -1116,7 +1388,7 @@ export default function StudioBoard(props: {
       return
     }
     const snapshot = BoardSnapshot.parse({ prompt: card.draft.prompt.trim(), settings, references: refs })
-    setState("historyPreviewIDs", (ids) => ids.filter((id) => id !== card.id))
+    setState("historyCoverIDs", (ids) => ids.filter((id) => id !== card.id))
     if (props.demo) {
       simulate(card.id, snapshot)
       return
@@ -1168,7 +1440,7 @@ export default function StudioBoard(props: {
     accept({
       id,
       status: "running",
-      capability: "image.generate",
+      capability: snapshot.operation?.capability ?? "image.generate",
       prompt: snapshot.prompt,
       provider: "internel",
       taskId: id,
@@ -1217,7 +1489,7 @@ export default function StudioBoard(props: {
       (action === "reboot" && !previousOperationID && (!boardRebootable(result) || busy()))
     )
       return
-    setState("historyPreviewIDs", (ids) => ids.filter((id) => id !== cardID))
+    setState("historyCoverIDs", (ids) => ids.filter((id) => id !== cardID))
     if (props.demo) {
       tokens.set(result.id, (tokens.get(result.id) ?? 0) + 1)
       clearTimeout(timers.get(result.id))
@@ -1420,7 +1692,7 @@ export default function StudioBoard(props: {
     graph.on("edge:mouseenter", ({ edge }) => flow(edge))
     graph.on("edge:mouseleave", () => stopFlow())
     const wheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) < 0.1 || state.menu) return
+      if (Math.abs(event.deltaY) < 0.1 || state.menu || inpaintDrawing.state.drawing) return
       event.preventDefault()
       wheelDelta += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? board.clientHeight : 1)
       wheelPoint = { x: event.clientX, y: event.clientY }
@@ -1446,6 +1718,7 @@ export default function StudioBoard(props: {
       setState("menuTab", "")
     }
     const down = (event: PointerEvent) => {
+      if (state.fullscreenMedia || board.querySelector(".studio-video-player.fullscreen")) return
       dismissDropdown(event)
       if (
         event.target instanceof Element &&
@@ -1600,6 +1873,7 @@ export default function StudioBoard(props: {
       tabindex={-1}
       aria-label="Studio 画布"
       onKeyDown={(event) => {
+        if (state.fullscreenMedia || board.querySelector(".studio-video-player.fullscreen")) return
         if (awaitingRecovery()) return
         if (event.key === "Escape" && state.menuTab) {
           setState("menuTab", "")
@@ -1759,8 +2033,57 @@ export default function StudioBoard(props: {
           </div>
         )}
       </Show>
+      <Show when={selected()}>
+        {(card) => (
+          <Show
+            when={
+              !locked(card()) &&
+              (!boardFailed(current(card())) ||
+                state.historyCoverIDs.includes(card().id) ||
+                state.suppressedFailureIDs.includes(card().currentGenerationID ?? "")) &&
+              boardMedia(card(), state.results).length > 0
+            }
+          >
+            <StudioBoardMediaToolbar
+              kind={card().kind}
+              anchor={state.mediaToolbarAnchor}
+              hidden={state.draggingCard}
+              onDownload={() => void downloadMedia(card())}
+              upscaleActive={state.upscaleCardID === card().id}
+              upscaleBlocked={editingBlocked(card())}
+              onUpscale={toggleUpscale}
+              cutoutActive={state.cutoutCardID === card().id}
+              cutoutBlocked={busy() || editingBlocked(card()) || !!state.saveError}
+              onCutout={() => generateDerived("image.cutout")}
+              inpaintActive={state.inpaint?.cardID === card().id}
+              inpaintBlocked={busy() || editingBlocked(card()) || !!state.saveError}
+              onInpaint={toggleInpaint}
+            />
+          </Show>
+        )}
+      </Show>
+      <Show when={selected() && state.upscaleCardID === selected()!.id}>
+        <StudioBoardUpscale
+          anchor={state.anchor}
+          mode={state.upscaleMode}
+          hidden={state.draggingCard}
+          blocked={busy() || awaitingRecovery() || !!state.saveError}
+          preparing={state.derivedPreparing}
+          onMode={(mode) => setState("upscaleMode", mode)}
+          onGenerate={() => generateDerived("image.upscale")}
+        />
+      </Show>
+      <Show when={selected() && state.inpaint?.cardID === selected()!.id}>
+        <StudioBoardInpaint anchor={state.inpaintAnchor} drawing={inpaintDrawing}
+          mode={state.inpaintMode} brushSize={state.inpaintBrush} prompt={state.inpaintPrompt}
+          hidden={state.draggingCard} blocked={busy() || awaitingRecovery() || !!state.saveError}
+          preparing={state.derivedPreparing} error={state.inpaintError}
+          onMode={(mode) => setState("inpaintMode", mode)} onBrush={(size) => setState("inpaintBrush", size)}
+          onPrompt={(prompt) => setState("inpaintPrompt", prompt)} onCancel={() => setState("inpaint", undefined)}
+          onGenerate={generateInpaint} />
+      </Show>
       {/* Keep card identity stable while popup cleanup commits its local inputs. */}
-      <Show when={selected()} keyed>
+      <Show when={selected() && !selected()!.operation && state.upscaleCardID !== selected()!.id && state.cutoutCardID !== selected()!.id && state.inpaint?.cardID !== selected()!.id ? selected() : undefined} keyed>
         {(card) => (
           <StudioBoardComposer
             card={card}
@@ -1866,17 +2189,43 @@ export default function StudioBoard(props: {
                   mediaURL={mediaURL}
                   onClose={() => setState("resultsCardID", "")}
                   onInspect={(generationID) => setState("inspectGenerationID", generationID)}
-                  onPreview={(preview) => {
-                    if (awaitingRecovery()) return
-                    setState("historyPreviewIDs", (ids) => [...ids.filter((id) => id !== item().id), item().id])
-                    editCard(item().id, { preview, currentGenerationID: item().currentGenerationID })
+                  onPreview={(media) => {
+                    board.querySelectorAll("video").forEach((video) => video.pause())
+                    setState("fullscreenMedia", media)
                   }}
-                  onCover={(cover) => editCard(item().id, { cover })}
+                  onCover={(cover) => {
+                    if (awaitingRecovery()) return
+                    setState("historyCoverIDs", (ids) => [...ids.filter((id) => id !== item().id), item().id])
+                    editCard(item().id, { cover, preview: cover })
+                  }}
                 />
               )}
             </Show>
           )
         }}
+      </Show>
+      <Show when={state.fullscreenMedia} keyed>
+        {(media) => (
+          <Show
+            when={media.kind === "video"}
+            fallback={
+              <StudioFullscreenImage
+                src={mediaURL(originalMediaSrc(media)) ?? ""}
+                mount={() => board}
+                onClose={() => setState("fullscreenMedia", undefined)}
+              />
+            }
+          >
+            <StudioVideoPlayer
+              src={mediaURL(originalMediaSrc(media)) ?? ""}
+              poster={mediaURL(media.thumbnailUrl)}
+              mount={() => board}
+              inline
+              initialFullscreen
+              onExitFullscreen={() => setState("fullscreenMedia", undefined)}
+            />
+          </Show>
+        )}
       </Show>
       <Show when={state.marquee}>
         {(rect) => (

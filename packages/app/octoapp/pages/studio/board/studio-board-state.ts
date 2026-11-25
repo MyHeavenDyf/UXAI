@@ -96,6 +96,11 @@ export function boardCover(card: BoardCard, results: BoardResults): StudioImage 
     (item) => item.generationID === card.cover?.generationID && item.mediaID === card.cover.mediaID,
   )?.media
 }
+export function boardDisplayedMedia(card: BoardCard, results: BoardResults) {
+  return boardMedia(card, results).find(
+    (item) => item.generationID === card.preview?.generationID && item.mediaID === card.preview.mediaID,
+  )?.media ?? boardCover(card, results)
+}
 export function boardReferences(document: BoardDocument, targetID: string, results: BoardResults): BoardReference[] {
   return boardDraftReferences(document, targetID, (source) => {
     const image = source && boardCover(source, results)

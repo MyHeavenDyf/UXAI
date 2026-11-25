@@ -29,10 +29,39 @@ export const BoardReference = z.object({
   image: z.string().min(1),
   role: z.enum(["reference", "firstFrame", "lastFrame"]).default("reference"),
 })
+export const BoardUpscale = z.object({
+  capability: z.literal("image.upscale"),
+  mode: z.enum(["restoration_8k", "restoration", "super_resolution"]),
+  source: BoardReference,
+  sourceImage: z.string().min(1),
+})
+export const BoardImageOperation = z.discriminatedUnion("capability", [
+  BoardUpscale,
+  z.object({
+    capability: z.literal("image.cutout"),
+    source: BoardReference,
+    sourceImage: z.string().min(1),
+  }),
+  z.object({
+    capability: z.literal("image.inpaint"),
+    source: BoardReference,
+    sourceImage: z.string().min(1),
+    compositeImage: z.string().min(1),
+    generateMode: z.enum(["qwen_image_edit", "erase"]),
+    hasDrawing: z.boolean(),
+    brushSize: z.number().int().min(10).max(126),
+  }),
+])
+export function boardImageOperationName(capability: z.infer<typeof BoardImageOperation>["capability"]) {
+  return capability === "image.upscale" ? "变清晰" : capability === "image.cutout" ? "抠图" : "智能重绘"
+}
+export const BOARD_UPSCALE_PROMPT = "将当前图片变清晰，提升分辨率和细节"
+export const BOARD_CUTOUT_PROMPT = "对当前图片进行抠图，移除背景并保留主体"
 export const BoardSnapshot = z.object({
   prompt: z.string(),
   settings: BoardSettings,
   references: z.array(BoardReference),
+  operation: BoardImageOperation.optional(),
 })
 export const BoardTaskLink = z.object({
   generationID: z.string(),
@@ -60,6 +89,7 @@ export const BoardCard = z.object({
   kind: z.enum(["image", "video"]),
   title: z.string().max(200),
   position: point,
+  operation: BoardImageOperation.optional(),
   draft: z.object({
     prompt: z.string().max(20000),
     settings: BoardSettings,
@@ -75,6 +105,7 @@ export const BoardEdge = z.object({
   sourceID: z.string(),
   targetID: z.string(),
   role: z.enum(["reference", "firstFrame", "lastFrame"]).default("reference"),
+  purpose: z.literal("derivation").optional(),
 })
 export const BoardDocument = z.object({
   schemaVersion: z.literal(1),
@@ -115,7 +146,7 @@ export function recoverBoardDraft(remote: BoardDocument, local: BoardDocument): 
     ...remote.draftEdges.filter((edge) => !local.cards.some((card) => card.id === edge.targetID)),
   ]
   candidates.forEach((edge) => {
-    if (!boardEdgeError(document, edge.sourceID, edge.targetID, edge.role)) document.draftEdges.push(edge)
+    if (!boardEdgeError(document, edge.sourceID, edge.targetID, edge.role, edge.purpose)) document.draftEdges.push(edge)
   })
   return document
 }
@@ -156,6 +187,16 @@ export function boardReferenceActive(kind: BoardCard["kind"], settings: BoardSet
 }
 
 export function boardGenerationError(kind: BoardCard["kind"], snapshot: BoardSnapshot) {
+  if (snapshot.operation) {
+    const name = boardImageOperationName(snapshot.operation.capability)
+    if (kind !== "image") return `${name}只能生成图片卡片`
+    if (snapshot.references.length || snapshot.settings.count !== 1) return `${name}仅支持单张源图`
+    if (snapshot.operation.capability === "image.inpaint")
+      return !snapshot.prompt.trim() || snapshot.prompt.length > 2000 ? "请输入不超过 2000 字的重绘提示词" : undefined
+    if (snapshot.prompt !== (snapshot.operation.capability === "image.upscale" ? BOARD_UPSCALE_PROMPT : BOARD_CUTOUT_PROMPT))
+      return `${name}任务提示词不一致`
+    return
+  }
   const settings = snapshot.settings
   const unavailableModelMessage = kind === "image" && studioModelUnavailableMessage(settings.styleModel)
   if (unavailableModelMessage) return unavailableModelMessage
@@ -197,7 +238,10 @@ export function boardDraftReferences(
   return uniqueBoardReferences([
     ...document.draftEdges
       .filter(
-        (edge) => edge.targetID === targetID && boardReferenceActive(target.kind, target.draft.settings, edge.role),
+        (edge) =>
+          edge.purpose !== "derivation" &&
+          edge.targetID === targetID &&
+          boardReferenceActive(target.kind, target.draft.settings, edge.role),
       )
       .flatMap((edge) => {
         const source = document.cards.find((card) => card.id === edge.sourceID)
@@ -235,12 +279,20 @@ export function boardFrameSourceCount(document: BoardDocument, cardID: string, r
   )
 }
 
-export function boardEdgeError(document: BoardDocument, sourceID: string, targetID: string, role = "reference") {
+export function boardEdgeError(
+  document: BoardDocument,
+  sourceID: string,
+  targetID: string,
+  role = "reference",
+  purpose?: "derivation",
+) {
   if (sourceID === targetID) return "不能连接到自身"
   const source = document.cards.find((card) => card.id === sourceID)
   const target = document.cards.find((card) => card.id === targetID)
-  if (source?.kind !== "image" || !source.cover) return "请选择有效的上游图片封面"
+  if (source?.kind !== "image" || (!source.cover && purpose !== "derivation")) return "请选择有效的上游图片封面"
   if (!target) return "目标卡片不存在"
+  if (purpose === "derivation" && target.operation?.source.sourceID !== sourceID) return "派生连线与任务来源不一致"
+  if (purpose !== "derivation" && target.operation) return "派生卡片不接受参考图连线"
   if (target.kind === "image" && role !== "reference") return "图片卡片仅支持参考图"
   if (
     document.draftEdges.some((edge) => edge.sourceID === sourceID && edge.targetID === targetID && edge.role === role)

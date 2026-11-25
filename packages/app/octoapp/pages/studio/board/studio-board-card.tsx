@@ -1,7 +1,7 @@
 import { createEffect, createMemo, on, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import {
-  boardCover,
+  boardDisplayedMedia,
   boardFailed,
   boardMedia,
   boardRebootable,
@@ -12,6 +12,7 @@ import {
 import type { BoardOperation } from "./studio-board-operations"
 import { studioGenerationFailureMessage, studioGenerationProgress, studioGenerationQueueLabel } from "../studio-shared"
 import { StudioVideoPlayer } from "../studio-video-player"
+import { StudioInpaintCanvas, type StudioInpaintDrawing } from "../studio-inpaint-canvas"
 
 export function StudioBoardCardView(props: {
   card: BoardCard
@@ -20,7 +21,7 @@ export function StudioBoardCardView(props: {
   selected: boolean
   locked: boolean
   editingBlocked: boolean
-  historyPreview: boolean
+  historyCover: boolean
   failureSuppressed: boolean
   rebootBlocked: boolean
   mediaURL: (value?: string) => string | undefined
@@ -31,10 +32,13 @@ export function StudioBoardCardView(props: {
   onPlay: (video: HTMLVideoElement) => void
   onSize?: (size: { width: number; height: number }) => void
   playerMount?: () => HTMLElement
+  submissionError?: string
+  onRetry?: () => void
+  inpaint?: StudioInpaintDrawing
 }) {
   const current = () => props.results[props.card.currentGenerationID ?? ""]
-  const hasFailure = () => !props.operation && !props.failureSuppressed && boardFailed(current())
-  const showFailure = () => !props.historyPreview && hasFailure()
+  const hasFailure = () => !props.operation && (!!props.submissionError || (!props.failureSuppressed && boardFailed(current())))
+  const showFailure = () => !props.historyCover && hasFailure()
   const needsRefresh = () => props.operation === "unknown" || (!props.operation && current()?.status === "abnormal")
   const cancellable = () => !props.operation && ["creating", "queued", "running"].includes(current()?.status ?? "")
   const operationLabel = () =>
@@ -55,14 +59,7 @@ export function StudioBoardCardView(props: {
     if (current()?.status === "creating") return "创建中"
     if (needsRefresh()) return "状态异常"
   }
-  const shownMedia = createMemo(() => {
-    const items = boardMedia(props.card, props.results)
-    return (
-      items.find(
-        (item) => item.generationID === props.card.preview?.generationID && item.mediaID === props.card.preview.mediaID,
-      )?.media ?? boardCover(props.card, props.results)
-    )
-  })
+  const shownMedia = createMemo(() => boardDisplayedMedia(props.card, props.results))
   const source = () => props.mediaURL(shownMedia()?.url)
   const dimensions = new Map<string, { width: number; height: number }>()
   const [media, setMedia] = createStore({ width: 300, height: 300 })
@@ -102,6 +99,7 @@ export function StudioBoardCardView(props: {
         selected: props.selected,
         "studio-board-card-image": props.card.kind === "image",
         "studio-board-card-video": props.card.kind === "video",
+        inpainting: !!props.inpaint,
       }}
       aria-label={props.card.title}
       on:pointerdown={(event) => {
@@ -130,7 +128,7 @@ export function StudioBoardCardView(props: {
         </button>
       </header>
       <div class="studio-board-card-media" classList={{ "has-status": props.locked || showFailure() }}>
-        <Show when={props.locked || (hasFailure() && boardRebootable(current()))}>
+        <Show when={props.locked || props.submissionError || (hasFailure() && boardRebootable(current()))}>
           <div class="studio-board-card-task-actions">
             <Show when={statusLabel()}>
               <span class="studio-board-card-status" role="status">
@@ -173,6 +171,17 @@ export function StudioBoardCardView(props: {
                 重新生成
               </button>
             </Show>
+            <Show when={props.submissionError && !props.locked}>
+              <button
+                type="button"
+                on:click={(event) => {
+                  event.stopPropagation()
+                  props.onRetry?.()
+                }}
+              >
+                重新提交
+              </button>
+            </Show>
           </div>
         </Show>
         <Show
@@ -208,7 +217,7 @@ export function StudioBoardCardView(props: {
                   on:pointerdown={(event) => event.stopPropagation()}
                   on:mousedown={(event) => event.stopPropagation()}
                 >
-                  {studioGenerationFailureMessage(current())}
+                  {props.submissionError ?? studioGenerationFailureMessage(current())}
                 </span>
               </Show>
             </div>
@@ -252,6 +261,9 @@ export function StudioBoardCardView(props: {
               </Show>
             )}
           </Show>
+        </Show>
+        <Show when={props.inpaint}>
+          {(drawing) => <StudioInpaintCanvas drawing={drawing()} />}
         </Show>
       </div>
       <footer classList={{ empty: (props.locked || showFailure()) && !boardMedia(props.card, props.results).length }}>

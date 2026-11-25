@@ -13,7 +13,7 @@ export const boardResponse = z.object({
 })
 export const boardGenerationRequest = z.object({
   sessionID: z.string().min(1),
-  capability: z.enum(["image.generate", "video.generate"]),
+  capability: z.enum(["image.generate", "video.generate", "image.upscale", "image.cutout", "image.inpaint"]),
   prompt: z.string().min(1),
   extra: z.object({ userIdx: z.string().optional() }).catchall(z.unknown()).optional(),
   board: BoardSubmission,

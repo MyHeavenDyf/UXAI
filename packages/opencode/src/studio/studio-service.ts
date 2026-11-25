@@ -2853,7 +2853,7 @@ async function createGenerationImpl(request: StudioGenerationRequest): Promise<S
         ...request,
         imageTool: "internel",
         prompt: snapshot.prompt.trim(),
-        sourceImage: undefined,
+        sourceImage: snapshot.operation?.sourceImage,
         refinedPrompt: undefined,
         effectivePrompt: undefined,
         styleModel: snapshot.settings.styleModel,
@@ -2863,6 +2863,12 @@ async function createGenerationImpl(request: StudioGenerationRequest): Promise<S
         extra: {
           userIdx: request.extra?.userIdx,
           skipPromptRefine: true,
+          ...(snapshot.operation?.capability === "image.upscale" ? { mode: snapshot.operation.mode } : {}),
+          ...(snapshot.operation?.capability === "image.inpaint" ? {
+            generateMode: snapshot.operation.generateMode,
+            compositeImage: snapshot.operation.compositeImage,
+            hasDrawing: snapshot.operation.hasDrawing,
+          } : {}),
           width: snapshot.settings.isCustom ? snapshot.settings.width : undefined,
           height: snapshot.settings.isCustom ? snapshot.settings.height : undefined,
           ...(request.capability === "video.generate" ? {
@@ -2887,7 +2893,7 @@ async function createGenerationImpl(request: StudioGenerationRequest): Promise<S
     const prior = previousBoardSubmission(sessionID, input.board)
     if (prior) return generationSnapshot(loadGenerationRecord(prior)!)
     const submission = validateBoardSubmission(sessionID, input.board)
-    if (input.capability !== (submission.card.kind === "image" ? "image.generate" : "video.generate"))
+    if (input.capability !== (submission.card.operation?.capability ?? (submission.card.kind === "image" ? "image.generate" : "video.generate")))
       throw new Error("卡片类型与生成能力不一致")
     if (input.prompt.trim() !== submission.input.snapshot.prompt.trim()) throw new Error("提示词与提交快照不一致")
   }

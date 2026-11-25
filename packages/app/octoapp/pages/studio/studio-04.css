@@ -299,6 +299,13 @@
   cursor: none;
   touch-action: none;
 }
+.studio-inpaint-drawing {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  z-index: 2;
+}
 
 .studio-inpaint-cursor {
   position: absolute;

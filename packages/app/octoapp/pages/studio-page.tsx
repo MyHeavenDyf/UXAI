@@ -1,3 +1,4 @@
+import { adjustStudioImageForEdit as adjustImageForEdit, prepareStudioUpscaleImage, prepareStudioImageOperation, resizeStudioCompositeImage } from "./studio/studio-edit-image"
 import "./studio/studio.css"
 import "./studio/board/studio-board-entry.css"
 import { clearStudioPermissionCache, ensureStudioPermission, onStudioLoginSuccess, studioPermissionState } from "./studio/studio-permission-store"
@@ -79,6 +80,7 @@ import { StudioComposer, StudioIntro, type StudioComposerInputApi, type StudioCo
 import { StudioConversation, StudioDetails, StudioEmptyState, StudioResultCanvas, StudioWorkspaceUpload } from "./studio/studio-conversation"
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
+import { studioInpaintPrompt, type StudioInpaintInput } from "./studio/studio-inpaint-canvas"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
 import { StudioStyleTemplateDeleteDialog } from "./studio/studio-style-template-delete-dialog"
@@ -5082,31 +5084,18 @@ function StudioPageContent() {
     })
   }
 
-  function submitInpaint(input: {
-    prompt: string
-    mode: StudioInpaintMode
-    brushSize: number
-    sourceImage: string
-    compositeImage: string
-    hasDrawing: boolean
-  }) {
+  function submitInpaint(input: StudioInpaintInput) {
     if (recommendationMode.taskBlocked()) return
     const canRestore = recommendationMode.capture()
     const canRestoreInput = captureDraft()
 
     async function doSubmit() {
-      let sourceUrl = input.sourceImage
-      let compositeData = input.compositeImage
-
-      // Auto-adjust original image (not local upload) if exceeds limits
-      if (!workspaceImage()) {
-        sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 300 })
-
-        // Resize composite image to match if source was adjusted
-        if (sourceUrl !== input.sourceImage) {
-          compositeData = await resizeCompositeImage(input.compositeImage, sourceUrl)
-        }
-      }
+      const prepared = workspaceImage()
+        ? { sourceImage: input.sourceImage, aspectRatio: await probeImageAspectRatio(input.sourceImage) }
+        : await prepareStudioImageOperation(input.sourceImage, "image.inpaint")
+      const compositeData = prepared.sourceImage === input.sourceImage
+        ? input.compositeImage
+        : await resizeStudioCompositeImage(input.compositeImage, prepared.sourceImage)
 
       tracker.interaction({
         module: "studio",
@@ -5120,16 +5109,13 @@ function StudioPageContent() {
         }),
       })
       // 智能重绘保留源图比例，探测实际宽高以避免结果被默认为 3:4
-      const sourceAspectRatio = await probeImageAspectRatio(sourceUrl)
       if (!canRestore() || !canRestoreInput()) return
       void runGeneration({
         inputPolicy: "preserve",
         capability: "image.inpaint",
-        sourceImage: sourceUrl,
-        aspectRatio: sourceAspectRatio,
-        prompt: input.prompt || (input.hasDrawing
-          ? input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"
-          : input.mode === "erase" ? "消除图中的物体" : "重绘图片"),
+        sourceImage: prepared.sourceImage,
+        aspectRatio: prepared.aspectRatio,
+        prompt: studioInpaintPrompt(input),
         extra: {
           generateMode: input.mode,
           compositeImage: compositeData,
@@ -5138,82 +5124,8 @@ function StudioPageContent() {
       })
     }
 
-    void doSubmit()
-  }
-
-  async function resizeCompositeImage(sourceDataUrl: string, targetDataUrl: string): Promise<string> {
-    const [compositeImg, targetImg] = await Promise.all([
-      new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image()
-        img.onload = () => resolve(img)
-        img.onerror = () => reject(new Error("Failed to load composite image"))
-        img.src = sourceDataUrl
-      }),
-      new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image()
-        img.crossOrigin = "anonymous"
-        img.onload = () => resolve(img)
-        img.onerror = () => reject(new Error("Failed to load target image"))
-        img.src = targetDataUrl
-      }),
-    ])
-
-    const canvas = document.createElement("canvas")
-    canvas.width = targetImg.naturalWidth
-    canvas.height = targetImg.naturalHeight
-    const ctx = canvas.getContext("2d")!
-    ctx.drawImage(compositeImg, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL("image/png")
-  }
-
-  async function adjustImageForEdit(
-    sourceUrl: string,
-    opts: { maxSize: number; maxDimension: number; minSide: number },
-  ): Promise<string> {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const image = new Image()
-      image.crossOrigin = "anonymous"
-      image.onload = () => resolve(image)
-      image.onerror = () => reject(new Error("Failed to load image for adjustment"))
-      image.src = sourceUrl
-    })
-    let w = img.naturalWidth
-    let h = img.naturalHeight
-
-    // Scale down if either dimension exceeds maxDimension
-    if (w > opts.maxDimension || h > opts.maxDimension) {
-      const scale = opts.maxDimension / Math.max(w, h)
-      w = Math.round(w * scale)
-      h = Math.round(h * scale)
-    }
-
-    // Scale up if min side is below minimum
-    if (opts.minSide > 0 && Math.min(w, h) < opts.minSide) {
-      const scale = opts.minSide / Math.min(w, h)
-      w = Math.round(w * scale)
-      h = Math.round(h * scale)
-    }
-
-    const canvas = document.createElement("canvas")
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext("2d")!
-    ctx.drawImage(img, 0, 0, w, h)
-
-    // Compress if file size exceeds maxSize
-    let quality = 0.92
-    let blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality))
-    while (blob && blob.size > opts.maxSize && quality > 0.1) {
-      quality -= 0.1
-      blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality))
-    }
-
-    if (!blob) return sourceUrl
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = () => reject(new Error("Failed to read adjusted image"))
-      reader.readAsDataURL(blob)
+    void doSubmit().catch((error: unknown) => {
+      showFloatingNotice("error", error instanceof Error ? error.message : "图片处理失败，请重试")
     })
   }
 
@@ -5222,22 +5134,23 @@ function StudioPageContent() {
     if (!image || recommendationMode.taskBlocked()) return
     const canRestore = recommendationMode.capture()
     const canRestoreInput = captureDraft()
-    let sourceUrl = image.remoteUrl ?? image.url
-
-    // Auto-adjust original image (not local upload) if exceeds limits
-    if (!workspaceImage()) {
-      sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 20 * 1024 * 1024, maxDimension: 7500, minSide: 0 })
-    }
+    const sourceUrl = image.remoteUrl ?? image.url
+    const prepared = workspaceImage()
+      ? { sourceImage: sourceUrl, aspectRatio: await probeImageAspectRatio(sourceUrl) }
+      : await prepareStudioUpscaleImage(sourceUrl).catch((error: unknown) => {
+          showFloatingNotice("error", error instanceof Error ? error.message : "图片处理失败，请重试")
+          return undefined
+        })
+    if (!prepared) return
 
     tracker.interaction({ module: "studio", name: "upscale", extend: JSON.stringify({ mode: input.mode, hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     // 变清晰保留源图比例，探测实际宽高以避免结果被默认为 3:4
-    const sourceAspectRatio = await probeImageAspectRatio(sourceUrl)
     if (!canRestore() || !canRestoreInput()) return
     void runGeneration({
       inputPolicy: "preserve",
       capability: "image.upscale",
-      sourceImage: sourceUrl,
-      aspectRatio: sourceAspectRatio,
+      sourceImage: prepared.sourceImage,
+      aspectRatio: prepared.aspectRatio,
       prompt: "将当前图片变清晰，提升分辨率和细节",
       extra: {
         mode: input.mode,
@@ -5250,22 +5163,23 @@ function StudioPageContent() {
     if (!image || recommendationMode.taskBlocked()) return
     const canRestore = recommendationMode.capture()
     const canRestoreInput = captureDraft()
-    let sourceUrl = image.remoteUrl ?? image.url
-
-    // Auto-adjust original image (not local upload) if exceeds limits
-    if (!workspaceImage()) {
-      sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 50 })
-    }
+    const sourceUrl = image.remoteUrl ?? image.url
+    const prepared = workspaceImage()
+      ? { sourceImage: sourceUrl, aspectRatio: await probeImageAspectRatio(sourceUrl) }
+      : await prepareStudioImageOperation(sourceUrl, "image.cutout").catch((error: unknown) => {
+          showFloatingNotice("error", error instanceof Error ? error.message : "图片处理失败，请重试")
+          return undefined
+        })
+    if (!prepared) return
 
     tracker.interaction({ module: "studio", name: "cutout", extend: JSON.stringify({ hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     // 抠图保留源图比例，探测实际宽高以避免结果被默认为 3:4
-    const sourceAspectRatio = await probeImageAspectRatio(sourceUrl)
     if (!canRestore() || !canRestoreInput()) return
     void runGeneration({
       inputPolicy: "preserve",
       capability: "image.cutout",
-      sourceImage: sourceUrl,
-      aspectRatio: sourceAspectRatio,
+      sourceImage: prepared.sourceImage,
+      aspectRatio: prepared.aspectRatio,
       prompt: "对当前图片进行抠图，移除背景并保留主体",
     })
   }

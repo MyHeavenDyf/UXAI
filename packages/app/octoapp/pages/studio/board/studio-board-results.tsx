@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js"
 import { boardMedia, type BoardCard, type BoardResults } from "./studio-board-state"
 import { styleModelLabel } from "../data"
+import type { StudioImage } from "../types"
 
 export function StudioBoardResults(props: {
   card: BoardCard
@@ -12,7 +13,7 @@ export function StudioBoardResults(props: {
   mediaURL: (value?: string) => string | undefined
   onClose: () => void
   onInspect: (generationID: string) => void
-  onPreview: (reference: NonNullable<BoardCard["preview"]>) => void
+  onPreview: (media: StudioImage) => void
   onCover: (reference: NonNullable<BoardCard["cover"]>) => void
 }) {
   return (
@@ -41,8 +42,7 @@ export function StudioBoardResults(props: {
                 </button>
                 <button
                   type="button"
-                  disabled={props.blocked}
-                  onClick={() => props.onPreview({ generationID: ref.generationID, mediaID: ref.mediaID })}
+                  onClick={() => props.onPreview(ref.media)}
                 >
                   预览
                 </button>

@@ -17,6 +17,8 @@ export function StudioVideoPlayer(props: {
   class?: string
   mount: () => HTMLElement
   inline?: boolean
+  initialFullscreen?: boolean
+  onExitFullscreen?: () => void
   onMetadata?: (media: { width: number; height: number; duration: number }) => void
   onPlay?: (video: HTMLVideoElement) => void
 }): JSX.Element {
@@ -28,7 +30,7 @@ export function StudioVideoPlayer(props: {
   const [volume, setVolume] = createSignal(1)
   const [muted, setMuted] = createSignal(false)
   const [audioPreferenceTouched, setAudioPreferenceTouched] = createSignal(false)
-  const [fullscreen, setFullscreen] = createSignal(false)
+  const [fullscreen, setFullscreen] = createSignal(props.initialFullscreen ?? false)
   const [controlsVisible, setControlsVisible] = createSignal(true)
   const [focused, setFocused] = createSignal(false)
   const [error, setError] = createSignal("")
@@ -162,6 +164,7 @@ export function StudioVideoPlayer(props: {
   function exitFullscreen() {
     setFullscreen(false)
     setControlsVisible(true)
+    props.onExitFullscreen?.()
   }
 
   function toggleFullscreen() {

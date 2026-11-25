@@ -1,12 +1,17 @@
 import { expect, test } from "bun:test"
 import { STUDIO_STYLE_MODEL_CONFIG, defaultStudioStyleModel } from "../src/studio/model-availability"
 import {
+  BoardDocument,
   BoardSnapshot,
+  BOARD_UPSCALE_PROMPT,
+  BOARD_CUTOUT_PROMPT,
+  boardEdgeError,
   boardDraftReferences,
   boardGenerationError,
   uniqueBoardReferences,
   emptyBoard,
   newBoardCard,
+  recoverBoardDraft,
 } from "../src/studio-board"
 
 test.each([
@@ -203,4 +208,46 @@ test("video references use their own limit and reject material from the wrong mo
   expect(boardGenerationError("video", { ...snapshot, references: [frame, { ...frame, image: "/second.png" }] })).toBe(
     "每个首尾帧槽位仅支持一张图片",
   )
+})
+
+test.each(["image.upscale", "image.cutout", "image.inpaint"] as const)("%s provenance survives parsing and recovery without becoming a live reference", (capability) => {
+  const name = capability === "image.upscale" ? "变清晰" : capability === "image.cutout" ? "抠图" : "智能重绘"
+  const source = newBoardCard("source", "image")
+  source.cover = { generationID: "changed-cover", mediaID: "new-image" }
+  const child = newBoardCard("derived", "image")
+  child.operation = {
+    ...(capability === "image.inpaint" ? {
+      capability, generateMode: "erase" as const, brushSize: 40, hasDrawing: true,
+      compositeImage: ".octo/session/uploads/composite.png",
+    } : capability === "image.upscale" ? { capability, mode: "restoration_8k" as const } : { capability }),
+    source: { sourceID: source.id, generationID: "original", mediaID: "original-image", title: "来源", image: "https://example.test/original.png", role: "reference" },
+    sourceImage: ".octo/session/uploads/prepared.jpg",
+  }
+  child.draft.prompt = capability === "image.inpaint" ? "消除涂抹区域内的物体" : capability === "image.upscale" ? BOARD_UPSCALE_PROMPT : BOARD_CUTOUT_PROMPT
+  child.draft.settings.styleModel = "seedream-5-lite"
+  const document = BoardDocument.parse({
+    ...emptyBoard(), cards: [source, child],
+    draftEdges: [{ id: "derived-edge", sourceID: source.id, targetID: child.id, role: "reference", purpose: "derivation" }],
+  })
+  expect(boardDraftReferences(document, child.id, () => "https://example.test/new.png")).toEqual([])
+  expect(boardEdgeError({ ...document, draftEdges: [] }, source.id, child.id)).toBe("派生卡片不接受参考图连线")
+  expect(recoverBoardDraft(document, structuredClone(document)).draftEdges).toEqual(document.draftEdges)
+  expect(document.cards[1].operation).toEqual(child.operation)
+  const snapshot = BoardSnapshot.parse({ ...child.draft, references: [], operation: child.operation })
+  expect(boardGenerationError("image", snapshot)).toBeUndefined()
+  expect(boardGenerationError("video", snapshot)).toBe(`${name}只能生成图片卡片`)
+  expect(boardGenerationError("image", { ...snapshot, settings: { ...snapshot.settings, count: 2 } })).toBe(`${name}仅支持单张源图`)
+  if (capability !== "image.inpaint")
+    expect(boardGenerationError("image", { ...snapshot, prompt: "其他提示词" })).toBe(`${name}任务提示词不一致`)
+  if (capability === "image.inpaint") {
+    expect(boardGenerationError("image", { ...snapshot, prompt: "修改指定对象" })).toBeUndefined()
+    expect(boardGenerationError("image", { ...snapshot, prompt: " " })).toContain("提示词")
+    expect(boardGenerationError("image", { ...snapshot, prompt: "字".repeat(2001) })).toContain("2000")
+    expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...child.operation, generateMode: "invalid" } }).success).toBe(false)
+    expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...child.operation, brushSize: 127 } }).success).toBe(false)
+    expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...child.operation, compositeImage: "" } }).success).toBe(false)
+  }
+  if (capability === "image.upscale")
+    expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...child.operation, mode: "invalid" } }).success).toBe(false)
+  if (capability === "image.cutout") expect(snapshot.operation).not.toHaveProperty("mode")
 })

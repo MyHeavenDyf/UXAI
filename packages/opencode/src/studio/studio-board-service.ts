@@ -7,6 +7,7 @@ import {
   boardFrameSourceCount,
   boardDraftReferences,
   boardGenerationError,
+  boardImageOperationName,
   emptyBoard,
 } from "@opencode-ai/core/studio-board"
 import { and, eq, inArray, Database } from "@/storage/db"
@@ -119,6 +120,7 @@ export function saveBoard(sessionID: string, revision: number, value: unknown) {
       if (
         card &&
         (card.kind !== old.kind ||
+          JSON.stringify(card.operation) !== JSON.stringify(old.operation) ||
           card.currentGenerationID !== old.currentGenerationID ||
           JSON.stringify(card.taskLinks) !== JSON.stringify(old.taskLinks))
       )
@@ -139,6 +141,25 @@ export function saveBoard(sessionID: string, revision: number, value: unknown) {
       if (["firstFrame", "lastFrame"].some((role) => boardFrameSourceCount(document, card.id, role) > 1))
         throw new BoardError("同一帧槽位不能存在多个来源")
       const uploads = path.join(Instance.directory, ".octo", sessionID, "uploads")
+      if (card.operation) {
+        const name = boardImageOperationName(card.operation.capability)
+        if (card.kind !== "image") throw new BoardError(`${name}只能生成图片卡片`)
+        if (!path.resolve(Instance.directory, card.operation.sourceImage).startsWith(uploads + path.sep))
+          throw new BoardError(`${name}输入不属于当前会话`)
+        if (card.operation.capability === "image.inpaint" &&
+          !path.resolve(Instance.directory, card.operation.compositeImage).startsWith(uploads + path.sep))
+          throw new BoardError("智能重绘合成图不属于当前会话")
+        const source = media(sessionID, card.operation.source)
+        if ((source.kind ?? "image") !== "image" || (source.remoteUrl ?? source.url) !== card.operation.source.image)
+          throw new BoardError(`${name}来源图片不一致`)
+        if (!previous.document.cards.some((old) => old.id === card.id)) {
+          const origin = document.cards.find((item) => item.id === card.operation!.source.sourceID)
+          if (!origin?.taskLinks.some((link) => link.visible && link.generationID === card.operation!.source.generationID))
+            throw new BoardError(`${name}来源不属于上游卡片`)
+          if (!document.draftEdges.some((edge) => edge.purpose === "derivation" && edge.sourceID === origin.id && edge.targetID === card.id))
+            throw new BoardError(`${name}卡片缺少来源连线`)
+        }
+      }
       card.draft.assets.forEach((asset) => {
         const resolved = path.resolve(Instance.directory, asset.url)
         if (!resolved.startsWith(uploads + path.sep)) throw new BoardError("上传素材不属于当前会话")
@@ -163,6 +184,7 @@ export function saveBoard(sessionID: string, revision: number, value: unknown) {
         edge.sourceID,
         edge.targetID,
         edge.role,
+        edge.purpose,
       )
       if (error) throw new BoardError(error)
     })
@@ -205,7 +227,7 @@ export function previousBoardSubmission(sessionID: string, input: BoardSubmissio
   const link = getBoard(sessionID)
     .document.cards.find((card) => card.id === input.cardID)
     ?.taskLinks.find((item) => item.submissionID === input.submissionID)
-  if (!link || JSON.stringify(link.snapshot) !== JSON.stringify(input.snapshot))
+  if (!link || JSON.stringify(link.snapshot) !== JSON.stringify(BoardSubmission.parse(input).snapshot))
     throw new BoardError("不能使用同一提交标识修改输入", 409)
   return row.generation_id
 }
@@ -244,6 +266,8 @@ export function validateBoardSubmission(sessionID: string, value: unknown) {
   if (pending) throw new BoardError("已有重启操作等待核对", 409)
   const error = boardGenerationError(card.kind, input.snapshot)
   if (error) throw new BoardError(error)
+  if (JSON.stringify(card.operation) !== JSON.stringify(input.snapshot.operation))
+    throw new BoardError("变清晰参数与提交快照不一致")
   if (
     card.draft.prompt.trim() !== input.snapshot.prompt.trim() ||
     JSON.stringify(card.draft.settings) !== JSON.stringify(input.snapshot.settings)

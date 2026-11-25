@@ -4,7 +4,7 @@ import solid from "vite-plugin-solid"
 import { createComponent } from "solid-js"
 import { render } from "solid-js/web"
 import { createStore } from "solid-js/store"
-import { BoardDocument, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
+import { BoardDocument, BOARD_CUTOUT_PROMPT, BOARD_UPSCALE_PROMPT, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
 import { STUDIO_STYLE_MODEL_CONFIG, defaultStudioStyleModel } from "@opencode-ai/core/studio/model-availability"
 import { styleModelLabel } from "../data"
 import { clearStudioPermissionCache, ensureStudioPermission } from "../studio-permission-store"
@@ -58,6 +58,7 @@ async function setup(
     seedream?: boolean
     backup?: boolean
     accepted?: boolean
+    acceptedResult?: StudioGenerationResult
     concurrent?: boolean
     reboot?: boolean
     running?: boolean
@@ -66,6 +67,7 @@ async function setup(
     demo?: boolean
     document?: BoardDocument
     results?: Record<string, StudioGenerationResult>
+    media?: Record<string, Response>
     revision?: number
     userIdx?: string
     createResponse?: Promise<string | undefined>
@@ -92,6 +94,7 @@ async function setup(
   const exits: string[] = []
   const uploads: string[] = []
   const loads: string[] = []
+  const downloads: string[] = []
   let creationFailures = options.creationFailures ?? 0
   let saveFailures = options.saveFailures ?? 0
   let loadFailures = options.loadFailures ?? 0
@@ -126,6 +129,11 @@ async function setup(
   const fetch = spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
       async (input: RequestInfo | URL, init?: RequestInit) => {
+        const media = options.media?.[String(input)]
+        if (media) {
+          downloads.push(String(input))
+          return media.clone()
+        }
         const path = new URL(String(input), "http://board.test").pathname
         const generation = options.results?.[path.replace("/studio/generations/", "")]
         if (generation && (!init?.method || init.method === "GET")) return Response.json(generation)
@@ -178,6 +186,7 @@ async function setup(
                 ...failed,
                 id: "accepted-new",
                 status: options.acceptedRunning ? "running" : "failed",
+                ...options.acceptedResult,
               })
             if (submission.revision !== stored.revision)
               return Response.json({ error: "提交版本冲突" }, { status: 409 })
@@ -203,6 +212,7 @@ async function setup(
               ...failed,
               id: "accepted-new",
               status: options.acceptedRunning ? "running" : "failed",
+              ...options.acceptedResult,
             })
           }
           return Response.json(
@@ -217,6 +227,7 @@ async function setup(
             ...failed,
             id: "accepted-new",
             status: options.acceptedRunning ? "running" : "failed",
+            ...options.acceptedResult,
           })
         if (path === "/studio/generations/source-success")
           return Response.json({
@@ -234,7 +245,8 @@ async function setup(
           uploads.push(String(init?.body))
           return (
             options.uploadResponses?.[uploads.length - 1] ??
-            Response.json({ path: "/test/.octo/test-board/uploads/frame.png" })
+            Response.json({ path: String(init?.body).includes("inpaint-composite")
+              ? "/test/.octo/test-board/uploads/composite.png" : "/test/.octo/test-board/uploads/frame.png" })
           )
         }
         return Response.json({})
@@ -337,6 +349,7 @@ async function setup(
     exits,
     uploads,
     loads,
+    downloads,
     dispose: () => {
       unmount()
       container.remove()
@@ -405,7 +418,7 @@ test.each(["image", "video"] as const)("%s card uses real task status without ch
           return this.locked
         },
         selected: false,
-        historyPreview: false,
+        historyCover: false,
         failureSuppressed: false,
         rebootBlocked: false,
         mediaURL: (url) => url,
@@ -503,7 +516,7 @@ test.each(["image", "video"] as const)("%s card uses real task status without ch
 })
 
 test.each(["image", "video"] as const)(
-  "%s card resizes the graph to decoded media and follows historical previews",
+  "%s card resizes the graph to decoded media and follows cover changes",
   async (kind) => {
     const card = newBoardCard("actual-ratio", kind, { x: 100, y: 100 })
     card.currentGenerationID = "real-size"
@@ -566,20 +579,20 @@ test.each(["image", "video"] as const)(
       expect(node.querySelector("foreignObject")?.getAttribute("height")).toBe("230")
       expect(node.querySelector(".x6-port-input")?.getAttribute("transform")).toBe("matrix(1,0,0,1,-21,115)")
       const wideAnchor = value.container.querySelector<HTMLDivElement>(".studio-board-composer")!.style.top
-      const preview = (index: number) => {
+      const cover = (index: number) => {
         node.querySelector<HTMLButtonElement>("footer button")!.click()
         const figure = value.container.querySelectorAll<HTMLElement>(".studio-board-results figure")[index]
-        button(figure, "预览").click()
+        button(figure, figure.textContent?.includes("当前封面") ? "当前封面" : "设为封面").click()
         button(value.container.querySelector<HTMLElement>(".studio-board-results")!, "关闭").click()
       }
-      preview(1)
+      cover(1)
       expect(node.querySelector(kind === "image" ? "img" : "video")?.getAttribute("src")).toContain("/tall.")
       decode(800, 1200)
       await Bun.sleep(30)
       expect(node.querySelector("foreignObject")?.getAttribute("width")).toBe("204")
       expect(node.querySelector("foreignObject")?.getAttribute("height")).toBe("330")
       expect(value.container.querySelector<HTMLDivElement>(".studio-board-composer")!.style.top).not.toBe(wideAnchor)
-      preview(0)
+      cover(0)
       await Bun.sleep(30)
       expect(node.querySelector("foreignObject")?.getAttribute("width")).toBe("304")
       expect(node.querySelector("foreignObject")?.getAttribute("height")).toBe("230")
@@ -589,6 +602,267 @@ test.each(["image", "video"] as const)(
     }
   },
 )
+
+test.each(["image", "video"] as const)(
+  "%s result preview is full-screen and only choosing a cover changes the card",
+  async (kind) => {
+    const card = newBoardCard("preview-source", kind)
+    card.draft.prompt = "尚未提交的新输入"
+    card.currentGenerationID = "preview-result"
+    card.cover = { generationID: "preview-result", mediaID: "first" }
+    card.preview = { ...card.cover }
+    card.taskLinks = [
+      {
+        generationID: "preview-result",
+        submissionID: crypto.randomUUID(),
+        visible: true,
+        snapshot: { prompt: "这次生成的输入", settings: { ...card.draft.settings }, references: [] },
+      },
+    ]
+    const value = await setup({
+      document: {
+        ...emptyBoard(),
+        cards: [card, newBoardCard("preview-target", "image", { x: 500, y: 0 })],
+        draftEdges:
+          kind === "image"
+            ? [{ id: "preview-edge", sourceID: card.id, targetID: "preview-target", role: "reference" }]
+            : [],
+      },
+      results: {
+        "preview-result": {
+          id: "preview-result",
+          status: "succeeded",
+          capability: kind === "image" ? "image.generate" : "video.generate",
+          provider: "internel",
+          model: "seedream-5-pro",
+          prompt: "这次生成的输入",
+          aspectRatio: "1:1",
+          createdAt: 1,
+          images: ["first", "second"].map((id) => ({
+            id,
+            kind,
+            url: `https://example.test/${id}.${kind === "video" ? "mp4" : "png"}`,
+            remoteUrl: `https://example.test/original-${id}.${kind === "video" ? "mp4" : "png"}`,
+            thumbnailUrl: `https://example.test/thumb-${id}.png`,
+          })),
+        },
+      },
+    })
+    try {
+      const cardMedia = () =>
+        value.container.querySelector(".studio-board-card-media")!.querySelector(kind === "image" ? "img" : "video")!
+      const initial = cardMedia().getAttribute("src")
+      const source = value.container.querySelector('[data-cell-id="preview-source"]')!
+      source.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      source.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      const open = () => button(value.container, "查看结果 2").click()
+      open()
+      const figures = value.container.querySelectorAll<HTMLElement>(".studio-board-results figure")
+      button(figures[1], "本次输入").click()
+      expect(value.container.querySelector(".studio-board-results details")?.textContent).toContain("这次生成的输入")
+      button(figures[1], "预览").click()
+      const preview =
+        kind === "image"
+          ? value.container.querySelector(".studio-fullscreen-image")!
+          : value.container.querySelector(".studio-video-player.fullscreen video")!
+      expect(preview.getAttribute("src")).toContain("/original-second.")
+      expect(cardMedia().getAttribute("src")).toBe(initial)
+      preview.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, shiftKey: true, clientX: 30, clientY: 30 }))
+      document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 200, clientY: 200 }))
+      expect(value.container.querySelector(".studio-board-marquee")).toBeNull()
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
+      value.container.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }))
+      expect(value.container.querySelectorAll(".studio-board-card")).toHaveLength(2)
+      if (kind === "video") await (preview as HTMLVideoElement).play()
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      expect(value.container.querySelector(".studio-fullscreen-image, .studio-video-player.fullscreen")).toBeNull()
+      expect(value.container.querySelector(".studio-board-results")).not.toBeNull()
+      if (kind === "video") expect((preview as HTMLVideoElement).paused).toBe(true)
+      await Bun.sleep(550)
+      expect(value.saves).toHaveLength(0)
+      expect(value.stored.document.cards[0]).toMatchObject({
+        cover: card.cover,
+        preview: card.preview,
+        draft: card.draft,
+      })
+
+      button(figures[1], "设为封面").click()
+      expect(cardMedia().getAttribute("src")).toContain("/second.")
+      expect(button(figures[1], "当前封面")).not.toBeNull()
+      button(value.container, "关闭").click()
+      await Bun.sleep(550)
+      expect(value.stored.document.cards[0]).toMatchObject({
+        cover: { generationID: "preview-result", mediaID: "second" },
+        preview: { generationID: "preview-result", mediaID: "second" },
+        currentGenerationID: "preview-result",
+        draft: card.draft,
+      })
+      if (kind === "image") {
+        const node = value.container.querySelector('[data-cell-id="preview-target"]')!
+        node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+        node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+        expect(value.container.querySelector(".studio-board-composer img")?.getAttribute("src")).toContain(
+          "/original-second.",
+        )
+      }
+    } finally {
+      value.dispose()
+    }
+  },
+)
+
+test.each(
+  (["image", "video"] as const).flatMap((kind) =>
+    (["saved", "cancelled", "fetch-failed", "write-failed"] as const).map((outcome) => [kind, outcome] as const),
+  ),
+)(
+  "%s toolbar download follows the displayed original media and handles %s",
+  async (kind, outcome) => {
+    const card = newBoardCard("download-card", kind)
+    card.currentGenerationID = "download-result"
+    card.cover = { generationID: "download-result", mediaID: "cover" }
+    card.preview = outcome === "cancelled" ? undefined : { generationID: "download-result", mediaID: "preview" }
+    card.taskLinks = [{
+      generationID: "download-result",
+      submissionID: crypto.randomUUID(),
+      visible: true,
+      snapshot: { prompt: "图片下载", settings: { ...card.draft.settings }, references: [] },
+    }]
+    const extension = kind === "video" ? "mp4" : "png"
+    const filename = kind === "video" ? "original.mp4" : "original.webp"
+    const source = outcome === "cancelled"
+      ? `http://board.test/artifact/serve?directory=%2Ftest&path=cover.${extension}&sessionId=test-board`
+      : `https://example.test/original-preview.${extension}`
+    const value = await setup({
+      document: { ...emptyBoard(), cards: [card] },
+      results: {
+        "download-result": {
+          id: "download-result",
+          status: "succeeded",
+          capability: kind === "video" ? "video.generate" : "image.generate",
+          provider: "internel",
+          model: "seedream-5-pro",
+          prompt: "图片下载",
+          aspectRatio: "1:1",
+          createdAt: 1,
+          images: [
+            { id: "cover", kind, url: `.octo/test-board/cover.${extension}` },
+            { id: "preview", kind, url: `https://example.test/cached-preview.${extension}`, remoteUrl: source },
+          ],
+        },
+      },
+      media: {
+        [source]: new Response(outcome === "fetch-failed" ? null : new Uint8Array([1, 2, 3]), {
+          status: outcome === "fetch-failed" ? 503 : 200,
+          headers: {
+            "content-type": kind === "video" ? "video/mp4" : "image/webp",
+            "content-disposition": `attachment; filename="${filename}"`,
+          },
+        }),
+      },
+    })
+    const api = Object.getOwnPropertyDescriptor(window, "api")
+    const picks: string[] = []
+    const writes: { path: string; bytes: number[] }[] = []
+    const links: { href: string; label: string }[] = []
+    const click = spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      links.push({ href: this.href, label: this.download })
+    })
+    Object.defineProperty(window, "api", {
+      configurable: true,
+      value: {
+        saveFilePicker: async (options: { defaultPath: string }) => {
+          picks.push(options.defaultPath)
+          return outcome === "cancelled" ? null : `/downloads/${filename}`
+        },
+        writeFileBuffer: async (path: string, buffer: ArrayBuffer) => {
+          if (outcome === "write-failed") throw new Error("Disk unavailable")
+          writes.push({ path, bytes: [...new Uint8Array(buffer)] })
+        },
+      },
+    })
+    try {
+      const node = value.container.querySelector(".x6-node")!
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      const toolbar = value.container.querySelector<HTMLElement>(".studio-board-media-toolbar")!
+      expect(toolbar.getAttribute("aria-label")).toBe(kind === "video" ? "视频操作" : "图片操作")
+      expect([...toolbar.querySelectorAll("button")].map((item) => item.textContent)).toEqual(
+        kind === "video" ? ["再次生成", "下载"]
+          : ["再次生成", "视频生成", "变清晰", "抠图", "智能重绘", "扩图", "下载"],
+      )
+      button(toolbar, "再次生成").click()
+      expect(value.downloads).toEqual([])
+      button(toolbar, "下载").click()
+      await Bun.sleep(30)
+      expect(value.downloads).toEqual([source])
+      expect(picks).toEqual(outcome === "fetch-failed" ? [] : [filename])
+      expect(writes).toEqual(outcome === "saved" ? [{ path: `/downloads/${filename}`, bytes: [1, 2, 3] }] : [])
+      expect(links).toEqual(
+        outcome === "fetch-failed" || outcome === "write-failed"
+          ? [{ href: source, label: outcome === "fetch-failed" ? `original-preview.${extension}` : filename }]
+          : [],
+      )
+      expect(value.container.querySelector(".studio-board-notice")?.textContent ?? "").toBe(
+        outcome === "saved" ? "下载成功"
+          : outcome === "cancelled" ? ""
+          : "部分文件无法保存，已转交浏览器下载，请注意浏览器下载列表",
+      )
+      expect(value.container.querySelector(".studio-board-composer")).not.toBeNull()
+      expect(value.requests).toEqual([])
+      expect(value.saves).toEqual([])
+    } finally {
+      if (api) Object.defineProperty(window, "api", api)
+      if (!api) Reflect.deleteProperty(window, "api")
+      click.mockRestore()
+      value.dispose()
+    }
+  },
+)
+
+test.each(["image", "video"] as const)("reopening a %s card preserves its chosen historical cover", async (kind) => {
+  const card = newBoardCard("saved-cover", kind)
+  card.currentGenerationID = "latest"
+  card.cover = { generationID: "historical", mediaID: "historical" }
+  card.preview = { ...card.cover }
+  card.taskLinks = ["historical", "latest"].map((generationID) => ({
+    generationID,
+    submissionID: crypto.randomUUID(),
+    visible: true,
+    snapshot: { prompt: generationID, settings: { ...card.draft.settings }, references: [] },
+  }))
+  const value = await setup({
+    document: { ...emptyBoard(), cards: [card] },
+    results: Object.fromEntries(
+      ["historical", "latest"].map((id) => [
+        id,
+        {
+          id,
+          status: "succeeded",
+          capability: kind === "image" ? "image.generate" : "video.generate",
+          provider: "internel",
+          model: "seedream-5-pro",
+          prompt: id,
+          aspectRatio: "1:1",
+          createdAt: id === "latest" ? 2 : 1,
+          images: [{ id, kind, url: `https://example.test/${id}.${kind === "video" ? "mp4" : "png"}` }],
+        },
+      ]),
+    ),
+  })
+  try {
+    expect(
+      value.container
+        .querySelector(".studio-board-card-media")
+        ?.querySelector(kind === "image" ? "img" : "video")
+        ?.getAttribute("src"),
+    ).toContain("/historical.")
+    expect(value.stored.document.cards[0].cover).toEqual(card.cover)
+    expect(value.stored.document.cards[0].preview).toEqual(card.preview)
+  } finally {
+    value.dispose()
+  }
+})
 
 test.each(["other-board", undefined])("switching to %s waits for current card edits to save", async (id) => {
   const response = Promise.withResolvers<void>()
@@ -1190,7 +1464,7 @@ test("an unresolved frame edge still disables uploading into the same slot", asy
   }
 })
 
-test("historical preview leaves the current failed task reboot available", async () => {
+test("full-screen preview preserves failure state and choosing a historical cover keeps reboot available", async () => {
   const card = newBoardCard("history-card", "image")
   card.currentGenerationID = "old-failed"
   card.cover = { generationID: "source-success", mediaID: "source-image" }
@@ -1205,6 +1479,10 @@ test("historical preview leaves the current failed task reboot available", async
     expect(button(value.container, "重新生成").disabled).toBe(false)
     button(value.container, "查看结果 1").click()
     button(value.container, "预览").click()
+    expect(value.container.querySelector(".studio-fullscreen-image")).not.toBeNull()
+    expect(value.container.textContent).toContain("原任务失败原因")
+    button(value.container, "关闭全屏").click()
+    button(value.container, "当前封面").click()
     button(value.container, "关闭").click()
     expect(value.container.querySelector(".studio-board-card-media img")).not.toBeNull()
     expect(value.container.textContent).not.toContain("原任务失败原因")
@@ -2735,3 +3013,250 @@ test("X6 rejects references to an operation-locked card and accepts them again a
     addNode.mockRestore()
   }
 })
+
+test.each([
+  ["image.upscale", "restoration_8k"],
+  ["image.upscale", "restoration"],
+  ["image.upscale", "super_resolution"],
+  ["image.upscale", "uncertain"],
+  ["image.upscale", "save-failed"],
+  ["image.upscale", "rejected"],
+  ["image.cutout", "success"],
+  ["image.cutout", "uncertain"],
+  ["image.cutout", "save-failed"],
+  ["image.cutout", "rejected"],
+  ["image.cutout", "prepare-failed"],
+  ["image.inpaint", "redraw"],
+  ["image.inpaint", "erase"],
+  ["image.inpaint", "prompt-only"],
+  ["image.inpaint", "uncertain"],
+  ["image.inpaint", "save-failed"],
+  ["image.inpaint", "rejected"],
+  ["image.inpaint", "prepare-failed"],
+  ["image.inpaint", "upload-failed"],
+] as const)(
+  "%s %s creates a connected result card, preserves the source draft and supports further editing",
+  async (capability, scenario) => {
+    const mode = scenario === "restoration" || scenario === "super_resolution" ? scenario : "restoration_8k"
+    const prompt = capability === "image.inpaint"
+      ? scenario === "erase" ? "消除涂抹区域内的物体" : scenario === "prompt-only" ? "把花瓶改成台灯" : "重绘所选区域"
+      : capability === "image.cutout" ? BOARD_CUTOUT_PROMPT : BOARD_UPSCALE_PROMPT
+    const source = newBoardCard("upscale-source", "image", { x: 100, y: 100 })
+    source.draft.prompt = "保留原来的提示词"
+    source.cover = { generationID: "source-result", mediaID: "cover" }
+    source.preview = { generationID: "source-result", mediaID: "shown" }
+    source.currentGenerationID = "source-result"
+    source.taskLinks = [{
+      generationID: "source-result", submissionID: crypto.randomUUID(), visible: true,
+      snapshot: { prompt: source.draft.prompt, settings: source.draft.settings, references: [] },
+    }]
+    const originalImage = Object.getOwnPropertyDescriptor(globalThis, "Image")!
+    const NativeImage = globalThis.Image
+    const images: string[] = []
+    const sizes: { width: number; height: number }[] = []
+    Object.defineProperty(globalThis, "Image", {
+      configurable: true,
+      value: class extends NativeImage {
+        get naturalWidth() { return 12000 }
+        get naturalHeight() { return 6000 }
+        set src(value: string) {
+          images.push(value)
+          queueMicrotask(() => this.dispatchEvent(new Event(scenario === "prepare-failed" ? "error" : "load")))
+        }
+      },
+    })
+    const blob = spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(function (this: HTMLCanvasElement, callback) {
+      sizes.push({ width: this.width, height: this.height })
+      callback(new Blob(["prepared-source"], { type: "image/jpeg" }))
+    })
+    const dataURL = spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(`data:image/png;base64,${btoa("composite-image")}`)
+    const uploadResponse = Promise.withResolvers<Response>()
+    const options: Parameters<typeof setup>[0] = {
+      uploadResponses: scenario === "upload-failed" ? [
+        Promise.resolve(Response.json({ error: "原图上传失败" }, { status: 503 })), uploadResponse.promise,
+      ] : undefined,
+      accepted: scenario !== "rejected",
+      reject: scenario === "uncertain" ? "network" : undefined,
+      saveFailures: scenario === "save-failed" ? 1 : undefined,
+      document: { ...emptyBoard(), cards: [source] },
+      acceptedResult: {
+        id: "accepted-new", status: "succeeded", capability, provider: "internel",
+        model: capability === "image.inpaint" ? "inpainting" : capability === "image.cutout" ? "remove_bg" : "magnify", prompt, aspectRatio: "16:9", createdAt: 2,
+        images: [{ id: "upscaled-image", url: "https://example.test/upscaled.png", width: 8000, height: 4000 }],
+      },
+      results: {
+        "source-result": {
+          id: "source-result", status: "succeeded", capability: "image.generate", provider: "internel",
+          model: "seedream-5-pro", prompt: source.draft.prompt, aspectRatio: "16:9", createdAt: 1,
+          images: [
+            { id: "cover", url: "https://example.test/cover.png" },
+            { id: "shown", url: "https://example.test/preview.png", remoteUrl: "https://example.test/original.png" },
+          ],
+        },
+      },
+    }
+    let value = await setup(options)
+    try {
+      const node = value.container.querySelector('[data-cell-id="upscale-source"]')!
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      button(value.container, "变清晰").click()
+      expect(button(value.container, "变清晰").getAttribute("aria-pressed")).toBe("true")
+      expect(value.container.querySelector(".studio-board-composer")).toBeNull()
+      if (capability === "image.upscale") {
+        const option = value.container.querySelector<HTMLInputElement>(`input[value="${mode}"]`)!
+        option.checked = true
+        option.dispatchEvent(new Event("change", { bubbles: true }))
+        const generate = button(value.container, "生成")
+        generate.click()
+        generate.click()
+      }
+      if (capability === "image.cutout") {
+        const cutout = button(value.container, "抠图")
+        cutout.click()
+        expect(cutout.getAttribute("aria-pressed")).toBe("true")
+        expect(cutout.disabled).toBe(true)
+        expect(button(value.container, "变清晰").getAttribute("aria-pressed")).toBe("false")
+        expect(value.container.querySelector(".studio-board-upscale, .studio-board-composer")).toBeNull()
+        cutout.click()
+      }
+      if (capability === "image.inpaint") {
+        button(value.container, "智能重绘").click()
+        expect(button(value.container, "智能重绘").getAttribute("aria-pressed")).toBe("true")
+        expect(button(value.container, "变清晰").getAttribute("aria-pressed")).toBe("false")
+        expect(value.container.querySelector(".studio-board-upscale, .studio-board-composer")).toBeNull()
+        await Bun.sleep(20)
+        if (scenario === "prepare-failed") {
+          expect(value.container.querySelector('[role="alert"]')?.textContent).toContain("图片加载失败")
+        }
+        if (scenario !== "prepare-failed") {
+          const generate = button(value.container, "生成")
+          expect(generate.disabled).toBe(true)
+          const canvas = value.container.querySelector<HTMLCanvasElement>("canvas.studio-inpaint-mask")!
+          canvas.setPointerCapture = () => {}
+          canvas.hasPointerCapture = () => false
+          canvas.getBoundingClientRect = () => new DOMRect(10, 20, 300, 150)
+          if (scenario !== "prompt-only") {
+            canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1, clientX: 100, clientY: 80 }))
+            canvas.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: 150, clientY: 90 }))
+            canvas.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientX: 150, clientY: 90 }))
+            expect(button(value.container, "撤销").disabled).toBe(false)
+            button(value.container, "撤销").click()
+            expect(generate.disabled).toBe(true)
+            button(value.container, "重做").click()
+            expect(generate.disabled).toBe(false)
+          }
+          if (scenario === "prompt-only") {
+            const prompt = value.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="智能重绘提示词"]')!
+            prompt.value = "把花瓶改成台灯"
+            prompt.dispatchEvent(new Event("input", { bubbles: true }))
+          }
+          if (scenario === "erase") {
+            const erase = value.container.querySelector<HTMLInputElement>('input[value="erase"]')!
+            erase.checked = true
+            erase.dispatchEvent(new Event("change", { bubbles: true }))
+          }
+          generate.click()
+          generate.click()
+        }
+      }
+      await Bun.sleep(80)
+      if (scenario === "upload-failed") {
+        expect(value.uploads).toHaveLength(2)
+        expect(value.requests).toHaveLength(0)
+        expect(value.container.querySelectorAll(".studio-board-card")).toHaveLength(1)
+        expect(button(value.container, "处理中…").disabled).toBe(true)
+        uploadResponse.resolve(Response.json({ path: "/test/.octo/test-board/uploads/composite.png" }))
+        await Bun.sleep(50)
+        expect(button(value.container, "生成").disabled).toBe(false)
+        expect(value.container.querySelector('[role="alert"]')?.textContent).toContain("原图上传失败")
+        expect(value.requests).toHaveLength(0)
+        expect(value.stored.document.cards).toEqual([source])
+        return
+      }
+      if (scenario === "prepare-failed") {
+        expect(value.requests).toHaveLength(0)
+        expect(value.uploads).toHaveLength(0)
+        expect(value.stored.document.cards).toEqual([source])
+        expect(value.container.querySelectorAll(".studio-board-card")).toHaveLength(1)
+        if (capability === "image.cutout") {
+          expect(button(value.container, "抠图").getAttribute("aria-pressed")).toBe("false")
+          expect(value.container.querySelector(".studio-board-composer")).not.toBeNull()
+        }
+        if (capability === "image.inpaint") {
+          expect(button(value.container, "生成").disabled).toBe(true)
+          button(value.container, "取消").click()
+          expect(value.container.querySelector(".studio-board-composer")).not.toBeNull()
+        }
+        return
+      }
+      if (scenario === "save-failed" || scenario === "rejected") {
+        expect(value.requests).toHaveLength(scenario === "rejected" ? 1 : 0)
+        expect(value.container.querySelectorAll(".studio-board-card")).toHaveLength(2)
+        options.accepted = true
+        button(value.container, "重新提交").click()
+        await Bun.sleep(80)
+      }
+      if (scenario === "uncertain") {
+        expect(value.requests).toHaveLength(1)
+        const pending = structuredClone(value.requests[0])
+        expect(JSON.parse(localStorage.getItem("studio.board.backup:http://board.test:/test:test-board")!).pending[0]).toEqual(pending)
+        options.reject = undefined
+        button(value.container, "刷新状态").click()
+        await Bun.sleep(80)
+        expect(value.requests[1]).toEqual(pending)
+      }
+      expect(value.requests).toHaveLength(scenario === "uncertain" || scenario === "rejected" ? 2 : 1)
+      expect(value.stored.document.cards).toHaveLength(2)
+      expect(images[0]).toBe("https://example.test/original.png")
+      expect(sizes).toEqual([{ width: 7500, height: 3750 }])
+      expect(value.uploads).toHaveLength(capability === "image.inpaint" ? 2 : 1)
+      const child = value.stored.document.cards.find((card) => card.id !== source.id)!
+      expect(child.position.x).toBeGreaterThan(source.position.x + 304)
+      expect(child.operation).toMatchObject({
+        capability, ...(capability === "image.upscale" ? { mode } : {}),
+        source: { sourceID: source.id, generationID: "source-result", mediaID: "shown", image: "https://example.test/original.png" },
+        sourceImage: "/test/.octo/test-board/uploads/frame.png",
+      })
+      expect(value.stored.document.draftEdges).toEqual([{
+        id: expect.any(String), sourceID: source.id, targetID: child.id, role: "reference", purpose: "derivation",
+      }])
+      expect(value.requests[0]).toMatchObject({
+        capability, prompt,
+        board: { cardID: child.id, snapshot: { operation: child.operation, references: [], settings: { count: 1, aspectRatio: "16:9" } } },
+      })
+      if (capability === "image.cutout") expect(child.operation).not.toHaveProperty("mode")
+      if (capability === "image.inpaint") expect(child.operation).toMatchObject({
+        generateMode: scenario === "erase" ? "erase" : "qwen_image_edit", brushSize: 40,
+        hasDrawing: scenario !== "prompt-only", compositeImage: "/test/.octo/test-board/uploads/composite.png",
+      })
+      expect(value.stored.document.cards[0]).toEqual(source)
+      expect(value.container.querySelector(".studio-board-composer")).toBeNull()
+      expect(value.container.querySelector(".studio-board-upscale")).toBeNull()
+      expect(value.container.querySelector(".studio-board-media-toolbar")).not.toBeNull()
+      button(value.container, "变清晰").click()
+      expect(value.container.querySelector(".studio-board-upscale")).not.toBeNull()
+      button(value.container, "变清晰").click()
+      expect(value.container.querySelector(".studio-board-upscale")).toBeNull()
+      expect(value.container.querySelector(".studio-board-composer")).toBeNull()
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      expect(value.container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(source.draft.prompt)
+      const restored = { ...options, reject: undefined, document: structuredClone(value.stored.document), revision: value.stored.revision }
+      value.dispose()
+      value = await setup(restored)
+      const restoredChild = value.container.querySelector(`[data-cell-id="${child.id}"]`)!
+      restoredChild.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      restoredChild.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      expect(value.container.querySelector(".studio-board-media-toolbar")).not.toBeNull()
+      expect(value.container.querySelector(".studio-board-composer, .studio-board-upscale")).toBeNull()
+      expect(value.stored.document.cards.find((card) => card.id === child.id)?.operation).toEqual(child.operation)
+    } finally {
+      Object.defineProperty(globalThis, "Image", originalImage)
+      blob.mockRestore()
+      dataURL.mockRestore()
+      uploadResponse.resolve(Response.json({ path: "/test/.octo/test-board/uploads/composite.png" }))
+      value.dispose()
+    }
+  },
+)
