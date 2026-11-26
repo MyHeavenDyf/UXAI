@@ -71,7 +71,7 @@ export function usePortableSessionActions(input: {
         sessionID: session.id,
         path: output,
         operationID,
-        ...(workspaceKind() === "code" ? { scope: "project" as const } : {}),
+        ...(session.agent !== "octo_insight" && workspaceKind() === "code" ? { scope: "project" as const } : {}),
       })
       .then((result) => {
         showToast({
