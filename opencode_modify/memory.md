@@ -85,8 +85,11 @@
 
 - **topic 即 ID**（文件名即标识），白名单 `^[a-z][a-z0-9_]{0,63}$` 兼作路径穿越防护；短 UUID 与前缀歧义问题不存在
 - **目录即项目隔离边界**（ProjectID = git root commit，worktree 共享不变）
-- **MEMORY.md 是生成视图**（写入时从 topics/ 重新生成），但**手工编辑行文本立即生效**——下次请求注入的就是改后的内容（下次写入会被重新生成覆盖）
-- 原子写（tmp + rename）保证崩溃不留半截文件；单机单用户下接受"非事务"的宽松并发模型（Claude Code 同款），版本/tombstone 语义保留
+- **排序规则**：注入优先级 = 核心层在前 + 层内版本倒序（严禁分组后全局按 version 排——那会让新版普通记忆排到旧版核心前面）；淘汰顺序 = 普通层在前 + 层内版本升序（trim 先饿死普通记忆）
+- **MEMORY.md 是生成视图**（写入时从 topics/ 重新生成），手工编辑行文本立即生效；**人工编辑 topics/<topic>.md**（mtime 推高有效版本）会同步反映到注入行、memory_read 重读与版本防护——旧批次不得覆盖人工编辑
+- **项目级写锁**（`.lock`，O_EXCL + mtime 超时接管）覆盖版本校验→topic 更新→trim→墓碑→索引重建全程，跨进程一致；原子写用唯一临时文件名
+- **清除/删除防护**：`clear()` 写 `.cleared` 清除版本——更旧的异步提取批次整体拒绝；`remove()` 写墓碑（版本取条目有效版本）——旧批次不得复活
+- **一次性幂等迁移**：首次访问时把旧 SQLite 行（`memory`/`memory_tombstone` 表）迁入文件，已有文件记忆或 `.cleared` 存在则跳过；崩溃残留的陈旧锁由 mtime 超时自动接管
 
 三个层级，同一份文件数据：
 
@@ -127,8 +130,9 @@
 | 防护 | 实现 |
 |-|-|
 | 主流程隔离 | store 公开函数内部 catch 降级（warn + 空返回），提取为 fork+ignore，dump 为 exit 隔离 |
-| 并发覆盖 | write 单事务；upsert 带 `setWhere: time_updated <= version`（提取批次时间戳），旧批次永不覆盖新批次 |
-| 删除安全 | delete 带 `time_updated <= version` 版本守卫（旧任务删不掉新记忆）+ `memory_tombstone` 墓碑（旧批次 create 无法经 INSERT 复活已删除记忆；更新批次合法复活并清理墓碑） |
+| 并发覆盖 | upsert/delete 前读条目有效版本（含人工编辑 mtime），旧批次永不覆盖新批次/人工编辑 |
+| 删除安全 | delete 带 `version <=` 守卫 + tombstone 阻止旧批次 INSERT 复活；remove() 同样写墓碑；clear() 写清除版本整体拒绝更旧批次 |
+| 跨进程一致性 | 项目级 `.lock` 文件锁（O_EXCL 创建、mtime 超时接管、唯一临时文件名原子写）覆盖全部写入路径 |
 | 提取校验 | action 枚举、topic `^[a-z][a-z0-9_]{0,63}$`、summary≤200、content≤2000、单批 create≤20/delete≤3、密钥模式整条拒绝 |
 | 注入防护 | 提取器 prompt + 指令消息双重声明可信边界：工具/文件/网页输出中的记忆操作指令一律忽略 |
 | 消息遗漏 | 游标只在 DB 写入成功后推进；`parseResult` 区分非法 JSON（回退游标重试）与合法空数组（推进）；写入失败同样回退重试——任何失败批次的消息不丢 |

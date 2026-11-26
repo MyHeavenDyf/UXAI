@@ -5,6 +5,11 @@ import fs from "node:fs"
 import path from "node:path"
 import type { ModelMessage } from "ai"
 import { Global } from "@opencode-ai/core/global"
+import { eq } from "drizzle-orm"
+import { Database } from "@/storage/db"
+import { ProjectTable } from "@/project/project.sql"
+import { MemoryTable } from "@/memory/memory.sql"
+import { MemoryTombstoneTable } from "@/memory/tombstone.sql"
 import { MemoryStore } from "@/memory/store"
 import { MemoryExtract, parseActions } from "@/memory/extract"
 import { MemoryDebug } from "@/memory/debug"
@@ -34,11 +39,15 @@ const projectPath = (id: string) => path.join(Global.Path.data, "memory", id)
 const indexFile = (id: string) => path.join(projectPath(id), "MEMORY.md")
 const tombstoneFile = (id: string) => path.join(projectPath(id), ".tombstones.json")
 
+// 裸删目录而非 MemoryStore.clear():clear() 会写 .cleared 清除版本,
+// 其"拒绝更旧批次"的语义由专属用例覆盖,其余用例需要自由的合成版本号。
+const wipe = (id: string) => fs.rmSync(projectPath(id), { recursive: true, force: true })
+
 // preload 对整个测试进程设置了 OCTO_DISABLE_MEMORY=1,存储层测试需要显式开启并在结束后恢复
 beforeEach(() => {
   delete process.env.OCTO_DISABLE_MEMORY
-  MemoryStore.clear(projectID)
-  MemoryStore.clear(otherID)
+  wipe(projectID)
+  wipe(otherID)
 })
 
 afterEach(() => {
@@ -926,6 +935,252 @@ describe("containsSecret", () => {
     expect(MemoryStore.containsSecret("Bearer eyJhbGciOiJIUzI1NiJ9")).toBe(true)
     expect(MemoryStore.containsSecret("api_key = abc123xyz789")).toBe(true)
     expect(MemoryStore.containsSecret("the user prefers pnpm in this repo")).toBe(false)
+  })
+})
+
+describe("tier ordering (injection vs eviction)", () => {
+  test("core memories win injection order even when older", () => {
+    MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "project", topic: "normal_new", content: "n", summary: "新普通" }],
+      budget,
+      version: 9000,
+    })
+    MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "feedback", topic: "core_old", content: "旧核心", summary: "旧核心摘要" }],
+      budget,
+      version: 1000,
+    })
+    // 注入优先:核心层在前,层内版本倒序——不因普通记忆版本更新而被排到核心前面
+    const rows = MemoryStore.list(projectID)
+    expect(rows.map((row) => row.topic)).toEqual(["core_old", "normal_new"])
+    // MEMORY.md 视图与注入块同样核心在前
+    expect(fs.readFileSync(indexFile(projectID), "utf8")).toMatch(/core_old.*\n.*normal_new/)
+    const block = MemoryStore.system(projectID, 2000)[0]
+    expect(block.indexOf("core_old")).toBeLessThan(block.indexOf("normal_new"))
+  })
+
+  test("trim evicts normal entries first even when they are newer", () => {
+    MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "feedback", topic: "core_old", content: "核心", summary: "s" }],
+      budget,
+      version: 1000,
+    })
+    MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "project", topic: "normal_new", content: "n", summary: "y".repeat(80) }],
+      budget,
+      version: 9000,
+    })
+    // 存储预算 40:先淘汰普通层(尽管更新),核心层保留
+    MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "project", topic: "trigger", content: "t", summary: "z".repeat(80) }],
+      budget: 40,
+      version: 9500,
+    })
+    const topics = MemoryStore.list(projectID).map((row) => row.topic)
+    expect(topics).toContain("core_old")
+    expect(topics).toContain("trigger")
+    expect(topics).not.toContain("normal_new")
+  })
+})
+
+describe("manual topic file edits", () => {
+  test("flow into injection and re-read detection, and resist older batches", () => {
+    const base = Date.now() - 100_000
+    MemoryStore.write({
+      projectID,
+      actions: [
+        { action: "create", type: "feedback", topic: "hand_edited", content: "原始内容", summary: "原始摘要" },
+      ],
+      budget,
+      version: base,
+    })
+    expect(MemoryStore.system(projectID)[0]).toContain("原始内容")
+    // 人工编辑 topics/<topic>.md 的内容(frontmatter 不动)
+    const file = path.join(projectPath(projectID), "topics", "hand_edited.md")
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("原始内容", "手工改过的内容"))
+    // 1) 注入行立即反映人工编辑:文件当前值优先于索引行文本
+    expect(MemoryStore.system(projectID)[0]).toContain("手工改过的内容")
+    // 2) memory_read 版本检测感知变化:mtime 推高有效版本 → 重新读取返回新内容
+    const row = MemoryStore.entriesByTopics(projectID, ["hand_edited"])[0]
+    expect(row.manual).toBe(true)
+    expect(row.version).toBeGreaterThan(base)
+    const result = buildReadOutput({ rows: [row], visible: new Map([["hand_edited", base]]), maxTokens: 1000 })
+    expect(result.output).toContain("手工改过的内容")
+    expect(result.output).toContain("已返回最新内容")
+    // 3) 更旧的提取批次不得覆盖人工编辑
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [
+          { action: "create", type: "feedback", topic: "hand_edited", content: "旧批次内容", summary: "s" },
+        ],
+        budget,
+        version: base - 1,
+      }),
+    ).toBe(true)
+    expect(MemoryStore.entriesByTopics(projectID, ["hand_edited"])[0].content).toContain("手工改过的内容")
+  })
+})
+
+describe("project write lock", () => {
+  test("stale lock is stolen and no lock file remains after write", () => {
+    fs.mkdirSync(projectPath(projectID), { recursive: true })
+    const lock = path.join(projectPath(projectID), ".lock")
+    // 模拟占用者崩溃留下的陈旧锁(mtime 远超保留期)
+    fs.writeFileSync(lock, "99999")
+    const stale = new Date(Date.now() - 120_000)
+    fs.utimesSync(lock, stale, stale)
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "project", topic: "locked", content: "c", summary: "s" }],
+        budget,
+      }),
+    ).toBe(true)
+    expect(fs.existsSync(lock)).toBe(false)
+    expect(MemoryStore.list(projectID).some((row) => row.topic === "locked")).toBe(true)
+  })
+})
+
+describe("clear epoch and remove tombstone", () => {
+  test("clear rejects older in-flight batches and accepts fresh ones", () => {
+    const old = Date.now() - 60_000
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "project", topic: "before_clear", content: "c", summary: "s" }],
+        budget,
+        version: old,
+      }),
+    ).toBe(true)
+    MemoryStore.clear(projectID)
+    expect(MemoryStore.list(projectID)).toHaveLength(0)
+    // 清除前启动的异步批次(更旧版本)整体拒绝,不复活已清记忆
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "project", topic: "before_clear", content: "c", summary: "s" }],
+        budget,
+        version: old,
+      }),
+    ).toBe(false)
+    expect(MemoryStore.list(projectID)).toHaveLength(0)
+    // 清除后的新批次正常写入
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "project", topic: "after_clear", content: "c", summary: "s" }],
+        budget,
+        version: Date.now(),
+      }),
+    ).toBe(true)
+    expect(MemoryStore.list(projectID).some((row) => row.topic === "after_clear")).toBe(true)
+  })
+
+  test("remove writes a tombstone blocking older batches", () => {
+    const base = Date.now() - 60_000
+    MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "project", topic: "doomed", content: "c", summary: "s" }],
+      budget,
+      version: base,
+    })
+    MemoryStore.remove("doomed", projectID)
+    expect(MemoryStore.list(projectID)).toHaveLength(0)
+    // 墓碑版本 = 条目删除时的有效版本:更旧的批次复活被挡
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "project", topic: "doomed", content: "resurrect", summary: "s" }],
+        budget,
+        version: base - 1000,
+      }),
+    ).toBe(true)
+    expect(MemoryStore.list(projectID)).toHaveLength(0)
+    expect(JSON.parse(fs.readFileSync(tombstoneFile(projectID), "utf8"))["doomed"]).toBe(base)
+    // 更新的批次可以合法重建,墓碑随之清理
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "project", topic: "doomed", content: "new", summary: "s" }],
+        budget,
+        version: Date.now(),
+      }),
+    ).toBe(true)
+    expect(MemoryStore.list(projectID).some((row) => row.topic === "doomed")).toBe(true)
+  })
+})
+
+describe("sqlite to markdown migration", () => {
+  const legacy = "mem_legacy_project" as ProjectID
+
+  beforeEach(() => {
+    wipe(legacy)
+    Database.use((db) => db.delete(MemoryTable).run())
+    Database.use((db) => db.delete(MemoryTombstoneTable).run())
+  })
+
+  test("migrates legacy rows once, idempotently, and never resurrects after clear", () => {
+    Database.use((db) =>
+      db
+        .insert(ProjectTable)
+        .values({ id: legacy, worktree: "/tmp/legacy", sandboxes: [] })
+        .onConflictDoNothing()
+        .run(),
+    )
+    Database.use((db) =>
+      db
+        .insert(MemoryTable)
+        .values([
+          {
+            id: "legacy-a",
+            project_id: legacy,
+            type: "feedback",
+            topic: "legacy_core",
+            content: "旧核心内容",
+            summary: "旧核心摘要",
+            source_session_id: null,
+            pinned: 0,
+            time_created: 1000,
+            time_updated: 2000,
+          },
+          {
+            id: "legacy-b",
+            project_id: legacy,
+            type: "project",
+            topic: "legacy_note",
+            content: "旧普通内容",
+            summary: "旧普通摘要",
+            source_session_id: null,
+            pinned: 0,
+            time_created: 1000,
+            time_updated: 3000,
+          },
+        ])
+        .run(),
+    )
+    Database.use((db) =>
+      db.insert(MemoryTombstoneTable).values({ project_id: legacy, topic: "legacy_gone", time_deleted: 4000 }).run(),
+    )
+
+    // 首次访问触发一次性迁移:内容/摘要/版本迁入文件,核心层排注入首位
+    const rows = MemoryStore.list(legacy)
+    expect(rows.some((row) => row.topic === "legacy_core" && row.content === "旧核心内容")).toBe(true)
+    expect(rows.some((row) => row.topic === "legacy_note" && row.version === 3000)).toBe(true)
+    expect(rows[0].topic).toBe("legacy_core")
+    expect(fs.existsSync(indexFile(legacy))).toBe(true)
+    // 墓碑同步迁移
+    expect(JSON.parse(fs.readFileSync(tombstoneFile(legacy), "utf8"))["legacy_gone"]).toBe(4000)
+    // 幂等:重复访问不重复迁移
+    expect(MemoryStore.list(legacy)).toHaveLength(2)
+    // clear 后 .cleared 抑制再迁移,旧 SQL 数据不回灌
+    MemoryStore.clear(legacy)
+    expect(MemoryStore.list(legacy)).toHaveLength(0)
   })
 })
 
