@@ -92,7 +92,9 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
       const recursive = ctx.query.recursive ?? false
 
       const root = path.join(instance.directory, ".octo", ctx.query.sessionId, category)
-      const relativeDir = category === "outputs" && recursive ? "" : sanitizePath(subPath)
+      const outputSegments = category === "outputs" && !recursive ? subPath.split(/[\\/]+/).filter(Boolean) : []
+      if (outputSegments.some((segment) => segment === ".." || segment === ".")) return { files: [] }
+      const relativeDir = category === "outputs" ? outputSegments.join("/") : sanitizePath(subPath)
       const targetDir = path.join(root, relativeDir)
 
       if (category === "outputs" && relativeDir) {

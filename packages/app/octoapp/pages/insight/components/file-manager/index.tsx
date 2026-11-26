@@ -234,7 +234,9 @@ function FileManagerInner(props: {
   createEffect(on(() => props.refreshKey, () => { void refresh() }, { defer: true }))
 
   // ── 上传 ────────────────────────────────────────────────────────
-  const uploadPath = () => store().currentCategory === "uploads" ? store().currentPath : ""
+  function uploadPath() {
+    return store().currentCategory === "uploads" ? store().currentPath : ""
+  }
   // 大文件完整性:桌面端走 tryStreamUpload(主进程 fs.copyFile 流式拷贝,与 make design-files-panel 同款),
   // 不把整文件读成 base64 塞进 JSON body。仅在拿不到真实本地路径(剪贴板内存 blob)/ 非桌面端时,
   // 才回退到下面的 base64 over HTTP。

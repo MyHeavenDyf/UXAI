@@ -39,23 +39,25 @@ describe("file HttpApi", () => {
     const sessionId = "ses_insight_folders"
     const sessionDir = path.join(tmp.path, ".octo", sessionId)
     await Promise.all([
-      Bun.write(path.join(sessionDir, "outputs", "report", "charts", "sales.txt"), "generated"),
+      Bun.write(path.join(sessionDir, "outputs", "report", "charts~draft..final", "sales.txt"), "generated"),
       Bun.write(path.join(sessionDir, "uploads", "report", "source.txt"), "uploaded"),
     ])
 
-    const [root, report, charts, uploads, recursive] = await Promise.all([
+    const [root, report, charts, uploads, recursive, invalid] = await Promise.all([
       request(InsightPaths.files, tmp.path, { sessionId, category: "outputs" }),
       request(InsightPaths.files, tmp.path, { sessionId, category: "outputs", path: "report" }),
-      request(InsightPaths.files, tmp.path, { sessionId, category: "outputs", path: "report/charts" }),
+      request(InsightPaths.files, tmp.path, { sessionId, category: "outputs", path: "report/charts~draft..final" }),
       request(InsightPaths.files, tmp.path, { sessionId, category: "uploads", path: "report" }),
       request(InsightPaths.files, tmp.path, { sessionId, category: "outputs", recursive: "true" }),
+      request(InsightPaths.files, tmp.path, { sessionId, category: "outputs", path: "report/.." }),
     ])
 
     expect(await root.json()).toMatchObject({ files: [{ name: "report", isFolder: true, relativePath: "report", size: 0 }] })
-    expect(await report.json()).toMatchObject({ files: [{ name: "charts", isFolder: true, relativePath: "report/charts" }] })
-    expect(await charts.json()).toMatchObject({ files: [{ name: "sales.txt", isFolder: false, relativePath: "report/charts/sales.txt" }] })
+    expect(await report.json()).toMatchObject({ files: [{ name: "charts~draft..final", isFolder: true, relativePath: "report/charts~draft..final" }] })
+    expect(await charts.json()).toMatchObject({ files: [{ name: "sales.txt", isFolder: false, relativePath: "report/charts~draft..final/sales.txt" }] })
     expect(await uploads.json()).toMatchObject({ files: [{ name: "source.txt", isFolder: false, relativePath: "report/source.txt" }] })
-    expect(await recursive.json()).toMatchObject({ files: [{ name: "sales.txt", isFolder: false, relativePath: "report/charts/sales.txt" }] })
+    expect(await recursive.json()).toMatchObject({ files: [{ name: "sales.txt", isFolder: false, relativePath: "report/charts~draft..final/sales.txt" }] })
+    expect(await invalid.json()).toEqual({ files: [] })
   })
 
   test("serves read endpoints", async () => {
