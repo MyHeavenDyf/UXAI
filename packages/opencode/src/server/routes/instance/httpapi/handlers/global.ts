@@ -13,6 +13,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { RootHttpApi } from "../api"
 import { GlobalUpgradeInput } from "../groups/global"
+import { getUpdateReadiness } from "@/update/readiness"
 
 const log = Log.create({ service: "server" })
 
@@ -153,6 +154,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     })
 
     return handlers
+      .handle("updateReadiness", () => getUpdateReadiness)
       .handle("health", health)
       .handleRaw("event", event)
       .handle("configGet", configGet)

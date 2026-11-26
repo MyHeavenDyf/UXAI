@@ -69,6 +69,7 @@ export type Platform = {
 
   /** Check for a downloadable desktop update */
   checkUpdate?(): Promise<UpdateInfo>
+  checkUpdateReadiness?(): Promise<{ ready: boolean; reason?: string }>
 
   /** Install the downloaded update using the platform restart flow */
   updateAndRestart?(onProgress?: (percent: number) => void): Promise<void>

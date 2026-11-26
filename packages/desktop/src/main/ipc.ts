@@ -211,6 +211,7 @@ type Deps = {
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string; releaseNotes?: string; forceUpdate?: boolean }>
+  checkUpdateReadiness: () => Promise<{ ready: boolean; reason?: string }>
   installUpdate: () => Promise<void> | void
   setBackgroundColor: (color: string) => void
   // jk-j60099994-replace-with-ipc-2-start
@@ -428,6 +429,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.on("loading-window-complete", () => deps.loadingWindowComplete())
   ipcMain.handle("run-updater", (_event: IpcMainInvokeEvent, alertOnFail: boolean) => deps.runUpdater(alertOnFail))
   ipcMain.handle("check-update", () => deps.checkUpdate())
+  ipcMain.handle("check-update-readiness", () => deps.checkUpdateReadiness())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
   // jk-j60099994-replace-with-ipc-3-start

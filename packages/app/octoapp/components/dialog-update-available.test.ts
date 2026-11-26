@@ -98,6 +98,7 @@ test("forced Windows update remains locked and allows retry after download failu
     upgrade().click()
     await Bun.sleep(10)
     expect(upgrade().textContent).toBe("重试下载")
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe("download failed")
     expect(upgrade().disabled).toBe(false)
     upgrade().click()
     await Bun.sleep(10)

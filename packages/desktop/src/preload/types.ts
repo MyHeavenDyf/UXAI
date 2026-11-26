@@ -214,6 +214,7 @@ export type ElectronAPI = {
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string; releaseNotes?: string; forceUpdate?: boolean }>
+  checkUpdateReadiness: () => Promise<{ ready: boolean; reason?: string }>
   installUpdate: () => Promise<void>
   onUpdateDownloadProgress: (callback: (percent: number) => void) => () => void
   onResume: (callback: () => void) => () => void
