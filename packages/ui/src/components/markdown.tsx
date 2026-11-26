@@ -349,7 +349,7 @@ function decorate(
   markCodeLinks(root)
 }
 
-function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels) {
+function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels, onCopy: () => void) {
   const timeouts = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>()
 
   const updateLabel = (button: HTMLButtonElement) => {
@@ -376,6 +376,7 @@ function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels) {
     if (existing) clearTimeout(existing)
     const timeout = setTimeout(() => setCopyState(button, labels, false), 2000)
     timeouts.set(button, timeout)
+    onCopy()
   }
 
   const buttons = Array.from(root.querySelectorAll('[data-slot="markdown-copy-button"]'))
@@ -410,7 +411,7 @@ function updateCodeExpandState(root: HTMLElement) {
   }
 }
 
-function setupCodeExpandHandlers(root: HTMLDivElement) {
+function setupCodeExpandHandlers(root: HTMLDivElement, onToggle: (expanded: boolean) => void) {
   const observer = new ResizeObserver(() => updateCodeExpandState(root))
   observer.observe(root)
 
@@ -431,6 +432,7 @@ function setupCodeExpandHandlers(root: HTMLDivElement) {
       const label = wrapper.querySelector('[data-slot="markdown-code-expand-label"]')
       if (label) label.textContent = "收起"
     }
+    onToggle(!isExpanded)
   }
   root.addEventListener("click", handleClick)
 
@@ -459,10 +461,14 @@ export function Markdown(
     class?: string
     classList?: Record<string, boolean>
     onOpenLocalFile?: (filePath: string) => void
+    onCodeCopy?: () => void
+    onCodeToggle?: (expanded: boolean) => void
     projectDir?: string
   },
 ) {
-  const [local, others] = splitProps(props, ["text", "cacheKey", "streaming", "class", "classList", "onOpenLocalFile", "projectDir"])
+  const [local, others] = splitProps(props, [
+    "text", "cacheKey", "streaming", "class", "classList", "onOpenLocalFile", "onCodeCopy", "onCodeToggle", "projectDir",
+  ])
   const marked = useMarked()
   const i18n = useI18n()
   const [root, setRoot] = createSignal<HTMLDivElement>()
@@ -555,12 +561,13 @@ export function Markdown(
     updateCodeExpandState(container)
 
     if (!copyCleanup)
-      copyCleanup = setupCodeCopy(container, () => ({
-        copy: i18n.t("ui.message.copy"),
-        copied: i18n.t("ui.message.copied"),
-      }))
+      copyCleanup = setupCodeCopy(
+        container,
+        () => ({ copy: i18n.t("ui.message.copy"), copied: i18n.t("ui.message.copied") }),
+        () => local.onCodeCopy?.(),
+      )
     if (!expandCleanup)
-      expandCleanup = setupCodeExpandHandlers(container)
+      expandCleanup = setupCodeExpandHandlers(container, (expanded) => local.onCodeToggle?.(expanded))
   })
 
   onCleanup(() => {

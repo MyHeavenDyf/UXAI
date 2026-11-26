@@ -12,6 +12,21 @@
 
 > 历史分组表保留在下方；完整代码盘点见 [2026-10-15 清单](./tracking-inventory-2026-10-15.md)，该基线为 80 个唯一 name。本次新增 18 个 name，按相同范围合计 98 个；旧表中的历史入口不能作为当前覆盖全集。
 
+## 需求 150：文件管理与对话交互
+
+| name | extend | 实现位置 |
+| --- | --- | --- |
+| result-copy-content | tabType、viewMode，代码块复制另带 source=code-block | result-viewer/action-bar.tsx、result-viewer/source-code-view.tsx |
+| result-code-toggle | tabType、action=open/close | result-viewer/source-code-view.tsx |
+| toggle-right-panel | action=open/close | index.tsx，对话区文件管理按钮 |
+| files-refresh | — | file-manager/index.tsx，刷新与失败重试 |
+| files-group-mode | mode=kind/modified | file-manager/toolbar.tsx |
+| files-filter | kinds 数组，清除时为空 | file-manager/toolbar.tsx |
+| files-sort | key=kind/mtime、dir=asc/desc | file-manager/index.tsx |
+| files-section-toggle | section=generated/uploaded、action=open/close | file-manager/index.tsx |
+| group-show-more | — | sidebar.tsx，通过 GroupedSidebar 回调触发 |
+| message-copy | sessionId | insight-turn.tsx，通过 SessionTurn 的用户消息复制回调触发 |
+
 ## 2026-10-20 HTML 画布编辑（已接入，待真实画布联调）
 
 命名及结果映射见 [实施方案](./tracking-plan.md#2026-10-20-html-画布编辑124)。新增 5 个事件名，module=insight。
