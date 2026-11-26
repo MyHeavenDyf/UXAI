@@ -976,11 +976,13 @@ test("octo_design/octo_code subagents carry design/code toolset", async () => {
       expect(evalPerm(design, "edit")).toBe("ask")
       expect(evalPerm(code, "write")).toBe("allow")
       expect(evalPerm(code, "edit")).toBe("ask")
-      // 防套娃 + 子代理不与用户交互
+      // 防套娃 + 子代理默认不与用户交互
       expect(evalPerm(design, "task")).toBe("deny")
       expect(evalPerm(code, "task")).toBe("deny")
-      expect(evalPerm(design, "question")).toBe("deny")
-      expect(evalPerm(code, "question")).toBe("deny")
+      // question 唯一例外:skill 在子会话内加载执行,需要用户确认的 skill(fastui 等)
+      // 必须能在子会话里问——应答走前端树感知 dock,使用范围由提示词收窄
+      expect(evalPerm(design, "question")).toBe("allow")
+      expect(evalPerm(code, "question")).toBe("allow")
       // 路由转发 skill 名后由子代理自行加载,skill 必须可用
       expect(evalPerm(design, "skill")).toBe("allow")
       // pixso MCP 绑定随设计职责移交 design
@@ -1021,9 +1023,12 @@ test("plan agent is task-dispatchable by octo_make and explores read-only", asyn
   })
 })
 
-// octo_make 放开 question 给 skill 用(fastui 等在已有工程/新建之间让用户选);全局 defaults 仍是 deny,
-// 只放开 octo_make 自己,别的 agent 别跟着变。路由架构下同理:skill 在主会话执行,question 通道
-// 由路由持有,子代理(octo_design/octo_code)仍 deny(上方用例已断言)。
+// octo_make 与两个子代理放开 question 给 skill 用(fastui 等在已有工程/新建之间让用户选)。
+// skill 由子代理在子会话内加载执行(路由提示词「skill 由子代理加载」),子代理不放开的话
+// skill 的确认流程直接断——question 被 deny 时工具从模型工具列表整个摘掉,模型面对
+// 不存在的工具行为不可控。应答走前端树感知 dock(sessionTreeRequest 连子会话一起扫),
+// 断连重播见 question/pending-registry;使用范围由三份提示词收窄为「仅 skill 明确要求时」。
+// 全局 defaults 仍是 deny,general 等别的 agent 不跟着变。
 test("octo_make allows question for skill-driven confirmation; defaults stay deny", async () => {
   await using tmp = await tmpdir()
   await WithInstance.provide({

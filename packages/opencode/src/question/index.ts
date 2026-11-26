@@ -6,6 +6,7 @@ import { SessionID, MessageID } from "@/session/schema"
 import { zod } from "@/util/effect-zod"
 import * as Log from "@opencode-ai/core/util/log"
 import { withStatics } from "@/util/schema"
+import { trackPendingAsk, untrackPendingAsk } from "./pending-registry"
 import { QuestionID } from "./schema"
 
 const log = Log.create({ service: "question" })
@@ -169,12 +170,19 @@ export const layer = Layer.effect(
         tool: input.tool,
       })
       pending.set(id, { info, deferred })
+      trackPendingAsk(id, {
+        directory: yield* InstanceState.directory,
+        project: (yield* InstanceState.context).project.id,
+        workspace: yield* InstanceState.workspaceID,
+        info,
+      })
       yield* bus.publish(Event.Asked, info)
 
       return yield* Effect.ensuring(
         Deferred.await(deferred),
         Effect.sync(() => {
           pending.delete(id)
+          untrackPendingAsk(id)
         }),
       )
     })

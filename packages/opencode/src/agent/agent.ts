@@ -390,9 +390,11 @@ export const layer = Layer.effect(
                 internel_image_generate: "deny",
                 lsp: "deny",
                 plan_exit: "deny",
-                // 放开给 skill 用(fastui 等需要让用户在已有工程/新建之间选择);skill 在主会话
-                // 执行,question 通道由路由持有,子代理仍 deny。使用范围由 octo_make.txt 收窄为
-                // 「仅 skill 明确要求时」
+                // skill 在子会话内加载执行(路由提示词「skill 由子代理加载」),需要用户
+                // 确认的 skill(fastui 等让用户在已有工程/新建间选择)必须能在子会话里问;
+                // 应答通道走前端 sessionTreeRequest 树感知 dock(与 plan 子会话同链路),
+                // 断连重播见 question/pending-registry。使用范围由子代理提示词收窄为
+                // 「仅 skill 明确要求时」,其余反问一律禁止
                 question: "allow",
                 // skill 不能 deny：deny 会让 session.command 的 @skill 模板注入整链路报错
               }),
@@ -422,8 +424,10 @@ export const layer = Layer.effect(
                 internel_image_generate: "deny",
                 lsp: "deny",
                 plan_exit: "deny",
-                // 子代理不与用户交互:task prompt 五段式已带全部输入,反问没有应答通道
-                question: "deny",
+                // 子代理默认不与用户交互(task prompt 五段式带全部输入);唯一例外是
+                // skill 明确要求向用户确认(见 octo_design.txt 收窄条款)——应答通道
+                // 走前端树感知 dock(sessionTreeRequest 连子会话一起扫),断连有重播
+                question: "allow",
               }),
               user,
             ),
@@ -454,7 +458,9 @@ export const layer = Layer.effect(
                 internel_image_generate: "deny",
                 lsp: "deny",
                 plan_exit: "deny",
-                question: "deny",
+                // 与 octo_design 同款:仅 skill 明确要求向用户确认时可用(见
+                // octo_code.txt 收窄条款),应答通道走前端树感知 dock
+                question: "allow",
               }),
               user,
             ),

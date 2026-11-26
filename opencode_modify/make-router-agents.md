@@ -299,3 +299,28 @@ dev 侧 4 个 PR：#1195/#1196 insight 输入框弹窗互斥修复 + 文件管�
 **PR #1201 规范修正（同日）**：pr-standards bot 于 02:20Z 报 4 项不合规（2 小时自动关闭窗口）。核实 workflow 源码（pr-standards.yml）发现 feat/docs/refactor 标题跳过 issue 检查 → 无需建 issue（仓库 Issues 本就禁用）。标题改 `feat(make): octo_make 路由化改造,设计/开发需求派发 octo_design/octo_code 子代理`，正文按模板补齐（Type 勾 New feature、What/Verify 实内容、Checklist 双勾），03:25Z bot 回复「now meets our contributing guidelines」+ needs:compliance 标签清除。
 
 验证：packages/app 328 单测全过、typecheck 过。P1-1b 的失败注入场景（restoreFilesBefore throw）无现成单测，走代码路径审查（catch→restoreFailed→第二循环 continue）。
+
+---
+
+## 第七批：子任务 question 放开（方案1：最小放行 + 提示词收窄 + 断连恢复）
+
+**背景**：路由子任务的 skill（如 fastui 会在「已有工程/新建」间让用户选择）在子会话加载执行时可能要求向用户确认，但 octo_design/octo_code 的 question 权限是 deny 且提示词写死「禁止反问」——子会话里 skill 一调 question 即权限拒绝。经三方案对比选定方案1（最小放行 + 提示词收窄 + 断连恢复对齐 permission 机制），不做树感知应答通道改造（前端已有 sessionTreeRequest BFS 树扫描，plan 子会话 question 走的就是这条链路，octo_design/octo_code 子会话同样有 parentID 自然接入）。
+
+**① agent.ts 权限放开**：octo_design/octo_code 的 question 从 `deny` 改 `allow`（agent.ts:422-458 两处），注释同步修正为「唯一例外是 skill 明确要求向用户确认，应答走前端树感知 dock（sessionTreeRequest 连子会话一起扫），断连有 pending 重播」。octo_make 原有 allow 不变，注释从「skill 在主会话执行」修正为「skill 在子会话内加载执行」——这与第五批确定的 skill 流转实际路径一致。
+
+**② 提示词收窄（防滥用）**：三处提示词加 skill 例外条款。octo_design.txt/octo_code.txt：「除『skill 明确要求向用户确认』外你无法与用户对话」+「仅当已加载的 skill 明确要求调用 question 工具时才可调用（按 skill 给定的问题与选项原样提问），除此之外一律禁止反问」；octo_make.txt 派发段把「plan 子代理可能提问」扩为「子代理（plan/octo_design/octo_code）可能提问（如 skill 要求用户确认选项）」。
+
+**③ question pending 注册表（对齐 permission/pending-registry 同款结构）**：新建 `src/question/pending-registry.ts`（module 级 Map<QuestionID, {directory, project, workspace, info}>，emitPendingAsks 遍历重播到 GlobalBus）；question/index.ts 的 `ask` 在 pending.set 后 `trackPendingAsk`、Effect.ensuring 清理时 `untrackPendingAsk`。
+
+**④ 断连重播接线（两个全局 SSE 连接点都要）**：Hono 后端 `server/routes/global.ts` streamEvents 在 emitPendingAsks()（permission 重播）旁加 emitPendingQuestionAsks()；httpapi 后端 `server/routes/instance/httpapi/handlers/global.ts` eventResponse 同款。两处语义：新 /global/event 连接建立即重播挂起的 question.asked，断连窗口丢事件的客户端靠重连恢复，否则服务端 Deferred 无限等待、子会话永久卡死。
+
+**测试**：新增 `test/question/pending-replay.test.ts` 6 例（track/untrack、重播封包带 directory/project、回复后不再重播）；agent.test.ts 补 octo_design/octo_code question=allow 断言；octo-make-prompt.test.ts 补三提示词 skill 例外条款断言。question 全套 14/14 过，agent+prompt 62/62 过，typecheck 过。
+
+**E2E（2026-11-26，desktop dev + CDP 9222 实测全链路通）**：
+- 手工构造路由真实派发形态：在 `D:\octoAI\test\test_project2`（app 当前实例目录）建父会话 + 子会话（octo_design、parentID 挂父、五段式任务 prompt 带【skill 约束】指向临时测试 skill question-e2e-test——skill 第一步强制 question 工具问「Dark/Light」，第二步按答案写 test.html）。
+- 链路验证：子会话内 skill 加载成功 → question 工具真实调用（真实 sidecar 构建里 permission allow 生效）→ question.asked 事件到 app → make 页 dock 渲染（sessionTreeRequest BFS 扫到子会话）→ 选 Dark + 点提交（dock 是两步：先选选项再提交）→ question.reply → 子会话续跑 → test.html 落盘且内容与 skill 模板逐字一致（`<h1>Test page: Dark</h1>`、背景 #222）+ artifact 链接正常。
+- SSE 重播实测：另起 curl 连 /global/event（全新连接），先收到重播的 question.asked（封包 directory/project 正确、qid/sessionID 指向子会话）与挂起的 permission.asked——④ 的重播在真实构建生效（sidecar 经 predev.ts 自动重编，bundle 内 trackPendingAsk2/emitPendingAsks2 均在）。
+- 恢复路径实测：页面 reload 后 renderer 收到重播 question.asked + bootstrap question.list sweep + warmSessions 把子会话 merge 进 store（临时 HMR 诊断观察，已撤）。
+- 踩坑记录：①`/event` 是实例级平面事件流（无重播），全局重播在 `/global/event`，早期「无重播」结论是用错端点 + head 截断看漏；②E2E 会话必须建在 app 当前实例目录（localStorage octo-project-selection 可能过期误导，实际以 sidecar 实例目录为准）；③POST /session/:id/message 的 model 必须是 `{providerID, modelID}` 对象；④bundler 会重命名别名导入（emitPendingAsks as emitPendingQuestionAsks → bundle 里成 emitPendingAsks2），grep bundle 验证时认调用点不认函数名。
+
+测试后清理：临时 skill（skill_config.json 注册 + `~/.config/octo/skill/question-e2e-test/`）已撤、D:\octoAI\test\question-e2e 产物目录已删、临时诊断代码已撤（git diff 复核）。

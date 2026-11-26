@@ -37,6 +37,14 @@ describe("octo_make 路由提示词", () => {
     expect(PROMPT_OCTO_MAKE).toContain("禁止自己生成 <artifact> 标签")
   })
 
+  test("子代理 question 收窄条款:仅 skill 明确要求时可问", () => {
+    // skill 由子代理在子会话内加载执行,需要用户确认的 skill(fastui 等)靠这条通道;
+    // 三份提示词必须同时收窄,防止子代理把 question 当通用反问工具滥用
+    expect(PROMPT_OCTO_MAKE).toContain("子代理（plan/octo_design/octo_code）可能通过 question 工具向用户提问")
+    expect(PROMPT_OCTO_DESIGN).toContain("仅当已加载的 skill 明确要求调用 question 工具向用户确认时才可调用")
+    expect(PROMPT_OCTO_CODE).toContain("唯一例外：已加载的 skill 明确要求调用 question 工具向用户确认时")
+  })
+
   test("plan 派发契约:三目标派发 + 计划只读交付 + question 不代答 + 按计划执行回附方案", () => {
     expect(PROMPT_OCTO_MAKE).toContain("subagent_type 分别为 octo_design / octo_code / plan")
     // plan 的交付形式是纯文本计划,不写文件

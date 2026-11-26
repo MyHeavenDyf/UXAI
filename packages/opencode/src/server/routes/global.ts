@@ -7,6 +7,7 @@ import { BusEvent } from "@/bus/bus-event"
 import { SyncEvent } from "@/sync"
 import { GlobalBus } from "@/bus/global"
 import { emitPendingAsks } from "@/permission/pending-registry"
+import { emitPendingAsks as emitPendingQuestionAsks } from "@/question/pending-registry"
 import { Bus } from "@/bus"
 import { AppRuntime } from "@/effect/app-runtime"
 import { AsyncQueue } from "@/util/queue"
@@ -139,6 +140,8 @@ export const GlobalRoutes = lazy(() =>
           // 冻结/断连期间发布到死连接的 permission.asked 事件客户端永远收不到,
           // 服务端又在无限等待应答(Deferred 无超时),不重播就永久卡死。
           emitPendingAsks()
+          // question 同款重播:子代理 question(挂起的 task 子会话)断连丢失同样永久卡死
+          emitPendingQuestionAsks()
           return () => GlobalBus.off("event", handler)
         })
       },
