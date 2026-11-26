@@ -101,6 +101,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
     >
       <GroupedSidebar
         onNavigation={(target) => trackInsight("navigation-open", { target, source: "sidebar" })}
+        onShowMoreGroups={() => trackInsight("group-show-more")}
         namespace="insight"
         routePrefix="/insight"
         agentFilter="octo_insight"

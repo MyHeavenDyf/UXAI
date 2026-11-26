@@ -1117,6 +1117,16 @@ function InsightContent() {
   const toggleSidebarDrawer = () => { setPanelOverlayOpen(false); setSidebarOverlayOpen((v) => !v) }
   const togglePanelDrawer = () => { setSidebarOverlayOpen(false); setPanelOverlayOpen((v) => !v) }
 
+  function toggleFilesPanel() {
+    if (rightCollapsed()) {
+      togglePanelDrawer()
+      trackInsight("toggle-right-panel", { action: panelOverlayOpen() ? "open" : "close" })
+      return
+    }
+    setPanelCollapsed((v) => !v)
+    trackInsight("toggle-right-panel", { action: panelCollapsed() ? "close" : "open" })
+  }
+
   // 面板挂载/聊天宽度直接跟 panelInline(无过渡动画,鲁棒性优先,状态无从 desync)。
 
   /** 打开/激活产物时统一清掉手动收起态,确保面板滑入(即便之前被收起) */
@@ -2742,10 +2752,12 @@ function InsightContent() {
   }
 
   const { request, gate } = useUploadRiskGate({ module: "insight" })
+  const [lastOpenedPopover, setLastOpenedPopover] = createSignal<"addon" | "model">()
   const addonScope = () => JSON.stringify([projectDir(), params.id, projectSelection()?.product?.id])
   const renderAddonMenu = () => (
     <Show when={addonScope()} keyed>{_scope =>
       <InsightAddonMenu
+        closeWhen={lastOpenedPopover() === "model"} onOpen={() => setLastOpenedPopover("addon")}
         directory={projectDir()} sessionId={params.id} productId={projectSelection()?.product?.id}
         editor={() => pmRefWelcome?.isAlive() ? pmRefWelcome : pmRefConv?.isAlive() ? pmRefConv : undefined}
         skills={insightSkills()} skillsLoading={skillsLoading()} loadSkills={loadInsightSkills}
@@ -2928,6 +2940,8 @@ function InsightContent() {
                         {renderAddonMenu()}
 
                         <ModelSelectorPopover
+                          closeWhen={lastOpenedPopover() === "addon"}
+                          onOpen={() => setLastOpenedPopover("model")}
                           onModelSelect={(model) => trackInsight("model-select", { sessionId: params.id, ...model })}
                           model={local.model} riskDialog={MakeModelRiskDialog}
                           triggerAs="button"
@@ -2996,7 +3010,7 @@ function InsightContent() {
                 panelToggle={!!params.id ? (
                   <button
                     type="button"
-                    onClick={() => { if (rightCollapsed()) togglePanelDrawer(); else setPanelCollapsed((v) => !v) }}
+                    onClick={toggleFilesPanel}
                     title="文件管理"
                     class="flex items-center justify-center size-6 rounded-md transition-colors cursor-pointer hover:bg-black/5 active:bg-black/10"
                     style={{ color: "var(--octo-text-secondary)" }}
@@ -3171,6 +3185,8 @@ function InsightContent() {
                     {renderAddonMenu()}
 
                     <ModelSelectorPopover
+                      closeWhen={lastOpenedPopover() === "addon"}
+                      onOpen={() => setLastOpenedPopover("model")}
                       onModelSelect={(model) => trackInsight("model-select", { sessionId: params.id, ...model })}
                       model={local.model} riskDialog={MakeModelRiskDialog}
                       triggerAs="button"
