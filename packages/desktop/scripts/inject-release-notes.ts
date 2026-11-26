@@ -3,6 +3,7 @@
 import { $ } from "bun"
 import path from "node:path"
 import { releaseNotes } from "./release-notes"
+import { forceUpdate } from "./release-policy"
 
 const repo = process.env.GH_REPO
 if (!repo) throw new Error("GH_REPO is required")
@@ -21,7 +22,7 @@ await Promise.all(
 
     await Bun.write(
       file,
-      `${content.slice(0, releaseDate)}releaseNotes: |-\n${releaseNotes
+      `${content.slice(0, releaseDate)}${/^forceUpdate:/m.test(content) ? "" : `forceUpdate: ${forceUpdate}\n`}releaseNotes: |-\n${releaseNotes
         .split("\n")
         .map((line) => `  ${line}`)
         .join("\n")}\n${content.slice(releaseDate)}`,

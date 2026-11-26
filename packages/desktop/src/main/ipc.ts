@@ -210,7 +210,8 @@ type Deps = {
   resolveAppPath: (appName: string) => Promise<string | null>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
-  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
+  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string; releaseNotes?: string; forceUpdate?: boolean }>
+  checkUpdateReadiness: () => Promise<{ ready: boolean; reason?: string }>
   installUpdate: () => Promise<void> | void
   setBackgroundColor: (color: string) => void
   // jk-j60099994-replace-with-ipc-2-start
@@ -428,6 +429,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.on("loading-window-complete", () => deps.loadingWindowComplete())
   ipcMain.handle("run-updater", (_event: IpcMainInvokeEvent, alertOnFail: boolean) => deps.runUpdater(alertOnFail))
   ipcMain.handle("check-update", () => deps.checkUpdate())
+  ipcMain.handle("check-update-readiness", () => deps.checkUpdateReadiness())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
   // jk-j60099994-replace-with-ipc-3-start
@@ -1013,11 +1015,12 @@ export function registerIpcHandlers(deps: Deps) {
     await writeFile(resolved, content, "utf-8")
   })
 
-  ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
+  ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string, strict?: boolean) => {
     try {
       const buf = await readFile(path)
       return toExactArrayBuffer(buf)
-    } catch {
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       return null
     }
   })
@@ -1082,11 +1085,11 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
-  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
+  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string, strict?: boolean) => {
     try {
       await unlink(path)
-    } catch {
-      // 文件不存在时忽略，不执行任何代码
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
   })
 

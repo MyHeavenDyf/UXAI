@@ -1,13 +1,6 @@
 import JSZip from "jszip"
 import { getDesktopApi } from "../lib/electron-api"
-import {
-  collectReferencedFiles,
-  dirname,
-  basename,
-  joinPath,
-} from "./references"
-import { observedUrlsToAbsPaths } from "./resource-tracker"
-import { readHtmlFromDisk } from "./html-assets-zip"
+import { readHtmlFromDisk, createIndexHtmlZip } from "./html-assets-zip"
 
 export interface CreateC2DZipOptions {
   htmlContent: string
@@ -30,52 +23,14 @@ export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> 
     ? await readHtmlFromDisk(options.htmlFilePath, options.htmlContent, readFileBuffer)
     : options.htmlContent
 
-  const htmlZip = new JSZip()
-  htmlZip.file("index.html", htmlContent)
-
-  if (options.htmlFilePath && readFileBuffer) {
-    const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
-    const htmlBase = basename(options.htmlFilePath)
-
-    // 静态解析（返回绝对路径集合）
-    const staticAbsPaths = await collectReferencedFiles({
-      rootContent: htmlContent,
-      rootType: "html",
-      rootAbsPath: options.htmlFilePath,
-      readFileBuffer,
-    })
-
-    // 网络信号 → 绝对路径
-    const observedAbsPaths = observedUrlsToAbsPaths(options.observedUrls || [])
-
-    // C2D 的 html.zip 视图约定 HTML 在根目录，所以不支持跨父级引用：
-    // 仅保留 htmlDir 内的引用文件，跨父级的 `..` 引用会被丢弃。
-    const referencedRel = new Set<string>()
-    for (const abs of [...staticAbsPaths, ...observedAbsPaths]) {
-      const norm = abs.replace(/\\/g, "/")
-      const lower = norm.toLowerCase()
-      if (lower === htmlDir.toLowerCase()) continue
-      if (!lower.startsWith(htmlDir.toLowerCase() + "/")) continue
-      const rel = norm.slice(htmlDir.length + 1)
-      if (rel && rel !== htmlBase && rel !== "index.html") {
-        referencedRel.add(rel)
-      }
-    }
-
-    for (const relPath of referencedRel) {
-      try {
-        const absolutePath = joinPath(htmlDir, relPath)
-        const buffer = await readFileBuffer(absolutePath)
-        if (buffer) {
-          htmlZip.file(relPath, new Uint8Array(buffer))
-        }
-      } catch (err) {
-        console.warn(`[C2D] Failed to read referenced file:`, relPath, err)
-      }
-    }
-  }
-
-  const htmlZipBlob = await htmlZip.generateAsync({ type: "blob" })
+  // 内层 html.zip：C2D 视图约定 index.html 在根 + htmlDir 内引用资源（跨父级丢弃），
+  // 共享 createIndexHtmlZip 实现（自动归档上传同结构）
+  const htmlZipBlob = await createIndexHtmlZip({
+    htmlContent,
+    htmlFilePath: options.htmlFilePath,
+    observedUrls: options.observedUrls,
+    readFileBuffer,
+  })
   const htmlZipBytes = await htmlZipBlob.arrayBuffer()
   outerZip.folder("data")?.file("html.zip", new Uint8Array(htmlZipBytes))
 

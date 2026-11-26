@@ -26,6 +26,8 @@ export function InsightAddonMenu(props: {
   loadSkills: () => void
   selections: MentionSelection[]
   maxAttachments: boolean
+  closeWhen?: boolean
+  onOpen?: () => void
   onAttachment: () => void
   onPending: (pending: boolean) => void
   mcpSelection: McpSelection | null
@@ -106,6 +108,7 @@ export function InsightAddonMenu(props: {
   }
   return <>
     <AddonMenu
+      closeWhen={props.closeWhen} onOpen={props.onOpen}
       items={["skills", "assetLibrary", "addAttachment", "insightMcp"]}
       strictAssetLibraryMessages
       cancelOnDispose skillsLoading={props.skillsLoading}

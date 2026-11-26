@@ -21,6 +21,7 @@ import { KnowledgeReferences, readKnowledgeSources } from "./knowledge-reference
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import { tracker } from "@/utils/tracker"
+import { trackInsight } from "../utils/interaction-tracking"
 import type { OutputCardType } from "../utils/output-type"
 import { isSuccessfulCompaction } from "../utils/context-usage"
 import { MakeErrorNotice } from "../../make/components/insight-turn"
@@ -645,6 +646,7 @@ export function InsightTurn(props: {
           <SessionTurn
             sessionID={props.sessionID}
             messageID={props.messageID}
+            actions={{ onCopy: () => trackInsight("message-copy", { sessionId: props.sessionID }) }}
             status={props.status}
             active={props.active || (props.status.type === "retry" && isLatestTurn())}
             classes={{ root: "px-3" }}

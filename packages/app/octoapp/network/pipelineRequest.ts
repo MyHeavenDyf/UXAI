@@ -178,6 +178,10 @@ export async function uploadVersion(uniqueId: string, file: Blob): Promise<{ suc
 export type AddUserProjectBody = {
   userName: string
   userId: string
+  domainId?: number
+  productLineId?: number
+  productId?: number
+  versionId?: number
   domain?: string
   productLine?: string
   product?: string

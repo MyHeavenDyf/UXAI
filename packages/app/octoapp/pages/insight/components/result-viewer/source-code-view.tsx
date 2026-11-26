@@ -6,8 +6,10 @@ import { createMemo } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { stripCodeFence } from "../../utils/detect"
+import { trackInsight } from "../../utils/interaction-tracking"
+import type { ResultTabType } from "./tab-store"
 
-export function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
+export function SourceCodeView(props: { content: string; lang: string; tabType: ResultTabType }): JSX.Element {
   const fenced = createMemo(() => {
     // stripCodeFence 只对「内容本身可能被 ```lang 整段包裹」的来源(json/html,如 LLM 直出)有意义;
     // 对 markdown / code 源**不能** strip —— md 源里合法存在代码围栏,strip 会把整篇抠成第一个围栏的内容
@@ -22,7 +24,11 @@ export function SourceCodeView(props: { content: string; lang: string }): JSX.El
   })
   return (
     <div class="octo-source-code-view p-4 h-full overflow-auto">
-      <Markdown text={fenced()} />
+      <Markdown
+        text={fenced()}
+        onCodeCopy={() => trackInsight("result-copy-content", { tabType: props.tabType, viewMode: "source", source: "code-block" })}
+        onCodeToggle={(expanded) => trackInsight("result-code-toggle", { tabType: props.tabType, action: expanded ? "open" : "close" })}
+      />
     </div>
   )
 }

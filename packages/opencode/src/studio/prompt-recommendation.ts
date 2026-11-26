@@ -2,7 +2,7 @@ import { logRecommendationFailure } from "./prompt-recommendation-log"
 import { createHash } from "node:crypto"
 import path from "node:path"
 import { readRecommendationImages } from "./prompt-recommendation-images"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, ScopedCache } from "effect"
 import { Slug } from "@opencode-ai/core/util/slug"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Database, and, desc, eq, sql } from "@/storage/db"
@@ -37,7 +37,7 @@ type Preparation = { controller: AbortController; done: Promise<void> }
 type Run = { assistantMessageID: string; controller: AbortController; done: Promise<void> }
 class Runs extends Context.Service<
   Runs,
-  { get: () => Effect.Effect<{ runs: Map<string, Run>; preparing: Set<Preparation>; closing: boolean }> }
+  { get: () => Effect.Effect<{ runs: Map<string, Run>; preparing: Set<Preparation>; closing: boolean }>; active: () => Effect.Effect<boolean> }
 >()("StudioRecommendationRuns") {}
 const runsLayer = Layer.effect(
   Runs,
@@ -57,10 +57,14 @@ const runsLayer = Layer.effect(
         return current
       }),
     )
-    return Runs.of({ get: () => InstanceState.get(state) })
+    return Runs.of({
+      get: () => InstanceState.get(state),
+      active: () => Effect.map(ScopedCache.values(state.cache), (items) => items.some((item) => item.runs.size > 0 || item.preparing.size > 0)),
+    })
   }),
 )
 const runtime = makeRuntime(Runs, runsLayer)
+export const hasActiveStudioRecommendations = () => runtime.runPromise((service) => service.active())
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex")
 const scope = () => [Instance.project.id, WorkspaceContext.workspaceID ?? null, Instance.directory]
 

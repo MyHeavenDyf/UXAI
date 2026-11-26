@@ -213,7 +213,8 @@ export type ElectronAPI = {
   setTitlebarOverlayHidden: (hidden: boolean) => Promise<void>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
-  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string; releaseNotes?: string }>
+  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string; releaseNotes?: string; forceUpdate?: boolean }>
+  checkUpdateReadiness: () => Promise<{ ready: boolean; reason?: string }>
   installUpdate: () => Promise<void>
   onUpdateDownloadProgress: (callback: (percent: number) => void) => () => void
   onResume: (callback: () => void) => () => void
@@ -257,14 +258,14 @@ export type ElectronAPI = {
   setUploadsDir: (dir: string) => Promise<void>
   /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
-  readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  readFileBuffer: (path: string, strict?: boolean) => Promise<ArrayBuffer | null>
   /** 大文件归档:只 stat 不读盘,返回文件大小与修改时间;非普通文件返回 null */
   statFile: (path: string) => Promise<{ size: number; mtimeMs: number } | null>
   /** 轻量存在性预检：只 stat 不读盘，仅当路径是存在的普通文件时返回 true(不存在/目录/无权限均为 false) */
   fileExists: (path: string) => Promise<boolean>
   /** 目录存在性预检：仅当路径是存在的目录时返回 true(与 fileExists 对称) */
   dirExists: (path: string) => Promise<boolean>
-  deleteFile: (path: string) => Promise<void>
+  deleteFile: (path: string, strict?: boolean) => Promise<void>
   /** 原子重命名（同文件系统内 fs.rename）。用于"写临时文件 → rename 到目标"原子落盘模式。 */
   renameFile: (srcPath: string, destPath: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>

@@ -126,6 +126,10 @@ export function parseModelsApi(value: unknown): Record<string, unknown> {
           {
             ...provider,
             id,
+            sortOrder:
+              typeof provider.sortOrder === "number" && Number.isFinite(provider.sortOrder)
+                ? provider.sortOrder
+                : undefined,
             name: typeof provider.name === "string" && provider.name ? provider.name : id,
             env: Array.isArray(provider.env)
               ? provider.env.filter((item): item is string => typeof item === "string")
