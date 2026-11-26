@@ -1070,16 +1070,35 @@ describe("manual topic file edits", () => {
     expect(row.manual).toBe(false)
     expect(row.version).toBe(now)
   })
+
+  test("whitespace-only differences never trigger manual detection", () => {
+    MemoryStore.write({
+      projectID,
+      actions: [
+        // 写入侧不做 trim 的原文:首尾空白在读取侧(trim 后)必须产出同一指纹
+        { action: "create", type: "project", topic: "padded", content: "  内容带空白  \n", summary: " 摘要 " },
+      ],
+      budget,
+      version: Date.now(),
+    })
+    let row = MemoryStore.entriesByTopics(projectID, ["padded"])[0]
+    expect(row.manual).toBe(false)
+    // 只追加空白的"编辑"同样不触发人工标记(规范化后内容未变)
+    const file = path.join(projectPath(projectID), "topics", "padded.md")
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8") + "\n\n")
+    row = MemoryStore.entriesByTopics(projectID, ["padded"])[0]
+    expect(row.manual).toBe(false)
+  })
 })
 
 describe("project write lock", () => {
-  test("stale lock is stolen and no lock file remains after write", () => {
+  test("lock held by a dead pid is taken over and no lock remains after write", () => {
     fs.mkdirSync(projectPath(projectID), { recursive: true })
     const lock = path.join(projectPath(projectID), ".lock")
-    // 模拟占用者崩溃留下的陈旧锁(mtime 远超保留期)
-    fs.writeFileSync(lock, "99999")
-    const stale = new Date(Date.now() - 120_000)
-    fs.utimesSync(lock, stale, stale)
+    // 持有者已死:接管与 mtime 无关
+    fs.writeFileSync(lock, "2147483647-dead-token")
+    const old = new Date(Date.now() - 120_000)
+    fs.utimesSync(lock, old, old)
     expect(
       MemoryStore.write({
         projectID,
@@ -1094,7 +1113,6 @@ describe("project write lock", () => {
   test("lock held by a dead pid is taken over even when fresh", () => {
     fs.mkdirSync(projectPath(projectID), { recursive: true })
     const lock = path.join(projectPath(projectID), ".lock")
-    // 持有者已死但锁很新:旧逻辑要等 30s mtime 超时,PID 存活校验立即接管
     fs.writeFileSync(lock, "2147483647-dead-token")
     expect(
       MemoryStore.write({
@@ -1104,6 +1122,49 @@ describe("project write lock", () => {
       }),
     ).toBe(true)
     expect(MemoryStore.list(projectID).some((row) => row.topic === "dead_holder")).toBe(true)
+  })
+
+  test("live holder with merely stale mtime is never stolen (long-held lock)", () => {
+    // PID 存活 + mtime 35 秒(超过旧 30 秒阈值但远未废弃):绝不接管
+    process.env.OCTO_MEMORY_LOCK_TIMEOUT = "200"
+    try {
+      fs.mkdirSync(projectPath(projectID), { recursive: true })
+      const lock = path.join(projectPath(projectID), ".lock")
+      const token = `${process.pid}-alive-holder`
+      fs.writeFileSync(lock, token)
+      const stale = new Date(Date.now() - 35_000)
+      fs.utimesSync(lock, stale, stale)
+      expect(
+        MemoryStore.write({
+          projectID,
+          actions: [{ action: "create", type: "project", topic: "must_not_write", content: "c", summary: "s" }],
+          budget,
+        }),
+      ).toBe(false)
+      // 锁原样保留,未写任何数据——任何时刻至多一个写者
+      expect(fs.readFileSync(lock, "utf8")).toBe(token)
+      expect(MemoryStore.list(projectID)).toHaveLength(0)
+    } finally {
+      fs.rmSync(path.join(projectPath(projectID), ".lock"), { force: true })
+      delete process.env.OCTO_MEMORY_LOCK_TIMEOUT
+    }
+  })
+
+  test("live holder with abandoned mtime is taken over (pid-reuse escape)", () => {
+    // PID 存活但锁 11 分钟未动:同步写锁秒级完成,只可能是崩溃后 PID 复用/进程挂死 → 废弃接管
+    fs.mkdirSync(projectPath(projectID), { recursive: true })
+    const lock = path.join(projectPath(projectID), ".lock")
+    fs.writeFileSync(lock, `${process.pid}-reused-or-hung`)
+    const abandoned = new Date(Date.now() - 11 * 60_000)
+    fs.utimesSync(lock, abandoned, abandoned)
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "project", topic: "reclaimed", content: "c", summary: "s" }],
+        budget,
+      }),
+    ).toBe(true)
+    expect(MemoryStore.list(projectID).some((row) => row.topic === "reclaimed")).toBe(true)
   })
 
   test("release never deletes a lock owned by someone else", () => {
@@ -1119,6 +1180,43 @@ describe("project write lock", () => {
     // 旧持有者释放时经归属校验,不误删新持有者的锁
     expect(fs.existsSync(lock)).toBe(true)
     fs.rmSync(lock, { force: true })
+  })
+
+  test("two processes contend: parent waits for the live child holder to finish", async () => {
+    fs.mkdirSync(projectPath(projectID), { recursive: true })
+    const lock = path.join(projectPath(projectID), ".lock")
+    // 子进程按同一协议持锁 500ms(独占 fd + 同步自旋),期间父进程的写入必须等待
+    const child = Bun.spawn([
+      "bun",
+      "-e",
+      [
+        `const fs = require("node:fs")`,
+        `const fd = fs.openSync(${JSON.stringify(lock)}, "wx")`,
+        `fs.writeSync(fd, process.pid + "-child-holder")`,
+        `const start = Date.now()`,
+        `while (Date.now() - start < 500) {}`,
+        `fs.closeSync(fd)`,
+        `fs.rmSync(${JSON.stringify(lock)}, { force: true })`,
+      ].join("; "),
+    ])
+    // 等子进程真正拿到锁(轮询锁文件出现,bun 冷启动可能超过固定 sleep)
+    const waitDeadline = Date.now() + 3000
+    while (!fs.existsSync(lock) && Date.now() < waitDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    expect(fs.existsSync(lock)).toBe(true)
+    const start = Date.now()
+    const ok = MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "project", topic: "after_child", content: "c", summary: "s" }],
+      budget,
+    })
+    const elapsed = Date.now() - start
+    await child.exited
+    // 父进程等到了子进程释放(≥300ms)而不是抢锁,写入成功
+    expect(ok).toBe(true)
+    expect(elapsed).toBeGreaterThanOrEqual(300)
+    expect(MemoryStore.list(projectID).some((row) => row.topic === "after_child")).toBe(true)
   })
 })
 

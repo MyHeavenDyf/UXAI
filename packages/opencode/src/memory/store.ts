@@ -104,8 +104,12 @@ const flatten = (value: string) => value.replace(/\s*\n\s*/g, " ").trim()
 
 // 内容指纹:summary+content 的 sha256。写时存进 frontmatter,读时比对——
 // 人工编辑靠 hash 检测(即时,无 mtime 盲区),mtime 只作为旧文件(无 hash)的回退启发式。
+// 规范化内置:summary 先单行化再 trim,content 先 trim——写入侧未规范化的原文
+// 与读取侧 trim 后的内容产出同一指纹,首尾空白差异不会误判为人工编辑。
 const payloadHash = (summary: string, content: string) =>
-  createHash("sha256").update(`${flatten(summary)}\u0000${content}`).digest("hex")
+  createHash("sha256")
+    .update(`${flatten(summary).trim()}\u0000${content.trim()}`)
+    .digest("hex")
 
 // 核心层级:用户偏好与纠正(user/feedback)索引行展开完整 content;其余只放短语义描述
 export function isCore(row: Pick<Row, "type">) {
@@ -266,14 +270,19 @@ function regenerateIndex(projectID: ProjectID) {
 }
 
 // ---------------------------------------------------------------------------
-// 项目级跨进程写锁:O_EXCL 创建锁文件,锁内容为持有者 token(pid-uuid)。
-// 接管条件:持有者 PID 已死(崩溃/被杀),或锁文件超过保留期(mtime 陈旧)。
-// 接管动作用 rename 原子完成,避免两个等待者互删对方刚建的新锁;
-// 释放前校验锁内容仍是自己的 token——卡死的旧持有者复活后不会误删新持有者的锁。
-// 覆盖 版本校验 → topic 更新 → trim → 墓碑落盘 → 索引重建 全程,保证一致性。
+// 项目级跨进程写锁:O_EXCL 创建锁文件并以独占句柄(fd)持有,内容为持有者 token(pid-uuid)。
+// 接管条件(二者其一):
+//   - 持有者 PID 已死(kill(pid,0) 校验;崩溃/被杀,即使锁很新也立即接管)
+//   - 锁超过废弃期(10 分钟)未动——同步写锁秒级完成,存活进程的锁 10 分钟未动
+//     只可能是"崩溃后 PID 被复用"或进程被无限期挂起,继续等待没有意义
+// PID 存活但仅 mtime 陈旧(30 秒级别)时绝不接管:继续等待直到超时失败,
+// 由调用方(提取游标)退避重试——任何时刻至多一个写者。
+// 接管采用 rename 原子迁移,迁移后校验内容与判定时一致;不一致说明校验窗口期内
+// 已被新持有者重建 → 原路归还并重新等待,避免误移新持有者的锁(TOCTOU 防护)。
+// 释放前校验锁内容仍是自己的 token 并关闭独占句柄(Windows 上句柄未关时锁文件不可被移走)。
 // ---------------------------------------------------------------------------
 
-const LOCK_STALE_MS = 30_000
+const LOCK_ABANDONED_MS = 10 * 60_000
 // 测试可用 OCTO_MEMORY_LOCK_TIMEOUT 调短等待上限(毫秒),运行时读取
 const lockTimeoutMs = () => {
   const value = Number(process.env.OCTO_MEMORY_LOCK_TIMEOUT)
@@ -291,55 +300,67 @@ function isPidAlive(pid: number) {
   }
 }
 
-function acquireLock(lockPath: string, token: string): boolean {
+type LockHandle = { fd: number; token: string; lockPath: string }
+
+function acquireLock(lockPath: string): LockHandle | undefined {
+  const token = `${process.pid}-${randomUUID()}`
   const deadline = Date.now() + lockTimeoutMs()
   for (;;) {
     try {
-      fs.writeFileSync(lockPath, token, { flag: "wx" })
-      return true
+      const fd = fs.openSync(lockPath, "wx")
+      fs.writeSync(fd, token)
+      // fd 保持打开:独占句柄在 Windows 上阻止锁文件被 rename/删除
+      return { fd, token, lockPath }
     } catch {
-      // 归属与存活校验:持有者已死(即使锁很新)或锁超期 → 原子接管
       try {
         const holder = fs.readFileSync(lockPath, "utf8")
         const pid = Number(holder.split("-")[0])
         const dead = !Number.isFinite(pid) || pid <= 0 || !isPidAlive(pid)
-        const stale = Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_STALE_MS
-        if (dead || stale) {
-          // rename 接管:窗口期不与其它等待者互删;接管后清理弃用文件
+        const abandoned = Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_ABANDONED_MS
+        if (dead || abandoned) {
+          // 原子迁移:rename 后校验移走的确实是判定时那把锁;
+          // 内容不一致 = 窗口期已被新持有者重建 → 归还(仅当归还目标不存在),重新等待
           const taken = `${lockPath}.${randomUUID()}.stale`
           try {
             fs.renameSync(lockPath, taken)
-            fs.rmSync(taken, { force: true })
+            if (fs.readFileSync(taken, "utf8") === holder) {
+              fs.rmSync(taken, { force: true })
+            } else if (!fs.existsSync(lockPath)) {
+              fs.renameSync(taken, lockPath)
+            }
           } catch {
-            // 已被其它等待者接管 → 直接重试
+            // 已被并发接管 → 直接重试
           }
         }
       } catch {
         // 锁恰好被释放/接管 → 直接重试
       }
-      if (Date.now() > deadline) return false
+      if (Date.now() > deadline) return undefined
       sleep(50)
     }
   }
 }
 
-function releaseLock(lockPath: string, token: string) {
+function releaseLock(handle: LockHandle) {
   safe("releaseLock", () => undefined, () => {
+    try {
+      fs.closeSync(handle.fd)
+    } catch {}
     // 归属校验:只有锁内容仍是自己的 token 才释放,防旧持有者误删新持有者的锁
-    if (fs.readFileSync(lockPath, "utf8") === token) fs.rmSync(lockPath, { force: true })
+    if (fs.readFileSync(handle.lockPath, "utf8") === handle.token)
+      fs.rmSync(handle.lockPath, { force: true })
   })
 }
 
 // 低级工具,导出仅供测试验证锁语义;生产路径经 write/remove/clear 间接使用
 export function withProjectLock<T>(projectID: ProjectID, fn: () => T): T {
   fs.mkdirSync(projectDir(projectID), { recursive: true })
-  const lockPath = lockFile(projectID)
-  const token = `${process.pid}-${randomUUID()}`
-  if (!acquireLock(lockPath, token)) throw new Error(`memory lock timeout: ${projectID}`)
+  const handle = acquireLock(lockFile(projectID))
+  if (!handle) throw new Error(`memory lock timeout: ${projectID}`)
   try {
     return fn()
   } finally {
-    releaseLock(lockPath, token)
+    releaseLock(handle)
   }
 }
 
