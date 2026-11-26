@@ -5,6 +5,8 @@ import {
   modelsApiProviders,
   modelsApiThirdToken,
   modelsApiToken,
+  fetchModelsApi,
+  MODELS_API_URL_STORAGE_KEY,
 } from "./models-api"
 
 describe("modelsApiProviders", () => {
@@ -99,13 +101,29 @@ describe("modelsApiProviders", () => {
     expect(result[1].models["mimo-v2.5"].api.url).toBe("https://api.xiaomimimo.com/v1")
   })
 
-  test("excludes removed providers from remote catalogs", () => {
-    expect(
-      modelsApiProviders({
-        opencode: { id: "opencode", name: "Octo AI", models: {} },
-        bpit: { id: "bpit", name: "BPIT", models: {} },
-      }),
-    ).toEqual([])
+  test("loads opencode and bpit from remote catalogs like any other provider", async () => {
+    const catalog = {
+      opencode: { id: "opencode", name: "Octo AI", models: { selected: { id: "selected", name: "Selected" } } },
+      bpit: { id: "bpit", name: "BPIT", models: { selected: { id: "selected", name: "Selected" } } },
+    }
+    const previous = localStorage.getItem(MODELS_API_URL_STORAGE_KEY)
+    localStorage.setItem(
+      MODELS_API_URL_STORAGE_KEY,
+      `data:application/json,${encodeURIComponent(JSON.stringify({ content: catalog }))}`,
+    )
+    try {
+      const received = await fetchModelsApi()
+      const providers = modelsApiProviders(received)
+      expect(providers.map((provider) => provider.id)).toEqual(["opencode", "bpit"])
+      for (const provider of providers) {
+        expect(provider.source).toBe("remote")
+        expect(provider.models.selected.providerID).toBe(provider.id)
+      }
+    } finally {
+      previous === null
+        ? localStorage.removeItem(MODELS_API_URL_STORAGE_KEY)
+        : localStorage.setItem(MODELS_API_URL_STORAGE_KEY, previous)
+    }
   })
 })
 

@@ -15,6 +15,7 @@ import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
 import { SettingsList } from "./settings-list"
 import { compareProviderSortOrder } from "@/utils/provider-sort"
+import { isLegacyOpencodeProvider } from "@/utils/provider-api-key"
 
 type ProviderSource = "env" | "api" | "config" | "custom" | "remote"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
@@ -245,7 +246,7 @@ export const SettingsProviders: Component = () => {
                         {language.t("provider.apiKey.configure")}
                       </Button>
                     </Show>
-                    <Show when={item.id === "opencode"}>
+                    <Show when={isLegacyOpencodeProvider(item)}>
                       <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
                         <Show when={!hasApiKey("opencode")}>
                           <button
@@ -290,7 +291,7 @@ export const SettingsProviders: Component = () => {
                         </Show>
                       </div>
                     </Show>
-                    <Show when={item.id !== "opencode" && source(item) !== "remote"}>
+                    <Show when={!isLegacyOpencodeProvider(item) && source(item) !== "remote"}>
                       <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
                         <Show when={isConfigCustom(item)}>
                           <button

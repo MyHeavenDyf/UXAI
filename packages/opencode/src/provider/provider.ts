@@ -316,7 +316,6 @@ async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, 
 //
 // 可通过环境变量关闭：OPENCODE_DISABLE_BYPASS_DISPATCHER=1
 const LOCAL_PROVIDER_IDS = new Set(["bpit-beta"])
-const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
 const LOCAL_PROVIDER_HOST_PATTERNS = [/\.huawei\.com$/i, /^localhost$/i, /^127\.0\.0\.\d+$/, /^::1$/]
 
 let _bypassDispatcher: any = null
@@ -1550,15 +1549,11 @@ const layer: Layer.Layer<
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
         const database = Object.fromEntries(
-          Object.entries(modelsDev).flatMap(([id, provider]) =>
-            REMOVED_PROVIDER_IDS.has(id) ? [] : [[id, fromModelsDevProvider(provider)]],
-          ),
+          Object.entries(modelsDev).map(([id, provider]) => [id, fromModelsDevProvider(provider)]),
         ) as Record<string, Info>
 
         const providers = Object.fromEntries(
-          Object.entries(modelsDev).flatMap(([id, provider]) =>
-            REMOVED_PROVIDER_IDS.has(id) ? [] : [[id, fromModelsDevProvider(provider, "remote")]],
-          ),
+          Object.entries(modelsDev).map(([id, provider]) => [id, fromModelsDevProvider(provider, "remote")]),
         ) as Record<ProviderID, Info>
         const languages = new Map<string, LanguageModelV3>()
         const modelLoaders: {
@@ -1581,7 +1576,6 @@ const layer: Layer.Layer<
         log.info("init")
 
         function mergeProvider(providerID: ProviderID, provider: Partial<Info>) {
-          if (REMOVED_PROVIDER_IDS.has(providerID)) return
           const existing = providers[providerID]
           if (existing) {
             // @ts-expect-error
@@ -1933,7 +1927,6 @@ const layer: Layer.Layer<
 
       const incoming = Object.values(catalog).flatMap((item) => {
         const provider = Option.getOrUndefined(decodeModelsApiProvider(item))
-        if (provider && REMOVED_PROVIDER_IDS.has(provider.id)) return []
         return provider ? [fromModelsDevProvider(provider, "remote")] : []
       })
       const remoteIDs = new Set(incoming.map((provider) => provider.id))

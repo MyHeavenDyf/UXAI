@@ -18,6 +18,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
 import { useQueryClient } from "@tanstack/solid-query"
+import { isLegacyOpencodeProvider, saveProviderApiKey } from "@/utils/provider-api-key"
 
 export function DialogConnectProvider(props: { provider: string }) {
   const dialog = useDialog()
@@ -42,8 +43,9 @@ export function DialogConnectProvider(props: { provider: string }) {
       providers.all().find((x) => x.id === props.provider) ??
       globalSync.data.provider.all.find((x) => x.id === props.provider),
   )
+  const legacyOpencode = () => isLegacyOpencodeProvider({ id: props.provider, source: provider()?.source })
   const providerName = createMemo(() => {
-    if (props.provider === "opencode") return "Octo AI"
+    if (legacyOpencode()) return "Octo AI"
     return provider()?.name ?? props.provider
   })
   const fallback = createMemo<ProviderAuthMethod[]>(() => [
@@ -333,8 +335,10 @@ export function DialogConnectProvider(props: { provider: string }) {
   })
 
   async function complete() {
+    const remote = provider()?.source === "remote"
+    const legacy = legacyOpencode()
     const disabled = globalSync.data.config.disabled_providers ?? []
-    if (disabled.includes(props.provider)) {
+    if (!remote && disabled.includes(props.provider)) {
       await globalSync.updateConfig({
         disabled_providers: disabled.filter((id) => id !== props.provider),
       })
@@ -345,9 +349,8 @@ export function DialogConnectProvider(props: { provider: string }) {
     const requiresApiKey = provider()?.options.requires_api_key === true
     dialog.close()
 
-    if (props.provider === "opencode" || requiresApiKey) {
-      // 需 Key 的远端提供商会实时读取认证；opencode 配置更新由后端处理重载。
-      // 两者均只刷新列表，避免为远端提供商保存 Key 时重置整个项目。
+    if (remote || legacy || requiresApiKey) {
+      // 远端提供商实时读取认证，只刷新列表；旧本地 opencode 配置仍兼容原有更新路径。
       globalSync.invalidateProviders()
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
     } else {
@@ -435,34 +438,20 @@ export function DialogConnectProvider(props: { provider: string }) {
 
       setFormStore("error", undefined)
       console.log("[octo:connect] start", { provider: props.provider, t: Date.now() })
-      if (props.provider === "opencode") {
-        await globalSync.updateConfig({
-          provider: {
-            opencode: {
-              options: {
-                apiKey,
-              },
-            },
-          },
-        })
-        console.log("[octo:connect] updateConfig done", { provider: props.provider, t: Date.now() })
-      } else {
-        await globalSDK.client.auth.set({
-          providerID: props.provider,
-          auth: {
-            type: "api",
-            key: apiKey,
-          },
-        })
-        console.log("[octo:connect] auth.set done", { provider: props.provider, t: Date.now() })
-      }
+      await saveProviderApiKey({
+        provider: { id: props.provider, source: provider()?.source },
+        apiKey,
+        updateConfig: globalSync.updateConfig,
+        setAuth: (input) => globalSDK.client.auth.set(input),
+      })
+      console.log("[octo:connect] key saved", { provider: props.provider, t: Date.now() })
       await complete()
     }
 
     return (
       <div class="flex flex-col gap-6">
         <Switch>
-          <Match when={provider()?.id === "opencode"}>
+          <Match when={legacyOpencode()}>
             <div class="flex flex-col gap-4">
               <div class="text-14-regular text-text-base">{language.t("provider.connect.octoAi.description")}</div>
             </div>

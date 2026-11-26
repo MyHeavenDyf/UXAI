@@ -2203,6 +2203,43 @@ test("remote title models and sort order synchronize independently for each proj
   }
 })
 
+test("remote opencode and bpit providers can be listed and their models resolved", async () => {
+  const catalog = Object.fromEntries(
+    ["opencode", "bpit"].map((id) => [
+      id,
+      {
+        id,
+        name: id,
+        api: "https://api.example.com/v1",
+        npm: "@ai-sdk/openai-compatible",
+        models: { selected: { id: "selected", name: "Selected", limit: { context: 128_000, output: 16_000 } } },
+      },
+    ]),
+  )
+  const server = Bun.serve({ port: 0, fetch: () => Response.json({ content: catalog }) })
+  await using tmp = await tmpdir()
+  try {
+    configureModelsApi({ url: server.url.toString(), token: "catalog-test" })
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const providers = await list()
+        for (const id of ["opencode", "bpit"]) {
+          const providerID = ProviderID.make(id)
+          expect(providers[providerID].source).toBe("remote")
+          expect(providers[providerID].models.selected).toBeDefined()
+          const model = await run((provider) => provider.getModel(providerID, ModelID.make("selected")))
+          expect(model.providerID).toBe(providerID)
+          expect(model.api.url).toBe("https://api.example.com/v1")
+        }
+      },
+    })
+  } finally {
+    configureModelsApi({ source: "local" })
+    await server.stop(true)
+  }
+})
+
 test("models.dev normalization preserves provider sort order", () => {
   for (const sortOrder of [3, 0, -1, undefined]) {
     const decoded = Schema.decodeUnknownSync(ModelsDev.Provider)({

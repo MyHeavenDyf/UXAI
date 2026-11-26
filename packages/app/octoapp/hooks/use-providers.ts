@@ -14,7 +14,6 @@ export const popularProviders = [
   "vercel",
 ]
 const popularProviderSet = new Set(popularProviders)
-const removedProviderIDs = new Set(["opencode", "bpit"])
 
 export function useProviders() {
   const globalSync = useGlobalSync()
@@ -27,7 +26,7 @@ export function useProviders() {
     }
     return globalSync.data.provider
   }
-  const all = () => providers().all.filter((provider) => !removedProviderIDs.has(provider.id))
+  const all = () => providers().all
   return {
     all,
     default: () => providers().default,

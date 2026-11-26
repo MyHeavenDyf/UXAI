@@ -44,7 +44,6 @@ type ApiProvider = {
 
 export type ApiModels = Record<string, ApiProvider | null | undefined>
 type ProviderLike = { id: string; name: string }
-const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
 let latestModelsApi: ApiModels | undefined
 const refreshModelsApiListeners = new Set<(models: ApiModels) => void | Promise<void>>()
 type ModelsApiBridge = {
@@ -173,7 +172,6 @@ function apiModels(value: unknown): ApiModels {
     Object.entries(input).flatMap(([key, provider]) => {
       if (!isApiProvider(provider)) return []
       const id = typeof provider.id === "string" && provider.id ? provider.id : key
-      if (REMOVED_PROVIDER_IDS.has(id)) return []
       return [[id, provider] as const]
     }),
   )
@@ -364,7 +362,6 @@ export function modelsApiProviders(api: ApiModels | undefined): Provider[] {
   return Object.entries(api).flatMap(([key, item]) => {
     if (!isApiProvider(item)) return []
     const id = typeof item.id === "string" && item.id ? item.id : key
-    if (REMOVED_PROVIDER_IDS.has(id)) return []
     const provider = {
       id,
       name: typeof item.name === "string" && item.name ? item.name : id,

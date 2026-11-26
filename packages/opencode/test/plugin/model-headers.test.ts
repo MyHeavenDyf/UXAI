@@ -55,15 +55,17 @@ test("normalizes array models from the remote catalog", () => {
   })
 })
 
-test("excludes removed providers from the remote catalog", () => {
-  expect(
-    parseModelsApi({
-      content: {
-        opencode: { id: "opencode", name: "Octo AI", models: {} },
-        bpit: { id: "bpit", name: "BPIT", models: {} },
-      },
-    }),
-  ).toEqual({})
+test("retains opencode and bpit in the remote catalog", () => {
+  const catalog = parseModelsApi({
+    content: {
+      opencode: { id: "opencode", name: "Octo AI", models: [{ id: "selected" }] },
+      bpit: { id: "bpit", name: "BPIT", models: [{ id: "selected" }] },
+    },
+  })
+  expect(Object.keys(catalog)).toEqual(["opencode", "bpit"])
+  for (const provider of Object.values(catalog)) {
+    expect(Schema.decodeUnknownSync(ModelsDev.Provider)(provider).models.selected.id).toBe("selected")
+  }
 })
 
 describe("model request body", () => {

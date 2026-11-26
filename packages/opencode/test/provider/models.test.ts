@@ -30,12 +30,10 @@ const provided = <A, E>(state: Ref.Ref<MockState>, effect: Effect.Effect<A, E, M
 
 const expectBundledProviders = (providers: Record<string, ModelsDev.Provider>) => {
   expect(providers.w3).toBeDefined()
-  expect(providers.opencode).toBeUndefined()
-  expect(providers.bpit).toBeUndefined()
 }
 
 describe("ModelsDev Service", () => {
-  it.live("returns the bundled snapshot without removed providers", () =>
+  it.live("returns the bundled snapshot", () =>
     Effect.gen(function* () {
       const state = yield* Ref.make<MockState>({ calls: [] })
       const providers = yield* provided(

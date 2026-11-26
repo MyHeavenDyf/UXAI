@@ -122,7 +122,7 @@ describe("replaceProviderList", () => {
     expect(result.default).toEqual({ w3: "remote" })
   })
 
-  test("does not preserve removed configured providers", () => {
+  test("preserves configured providers without filtering by ID", () => {
     const provider = (id: string, source: Provider["source"] = "config") =>
       ({ id, name: id, source, env: [], options: {}, models: {} }) as Provider
     const current = {
@@ -131,12 +131,17 @@ describe("replaceProviderList", () => {
       default: {},
     } satisfies ProviderListResponse
 
-    expect(replaceProviderList(current, []).all.map((item) => item.id)).toEqual(["custom"])
+    expect(replaceProviderList(current, []).all.map((item) => item.id)).toEqual(["opencode", "bpit", "custom"])
+    expect(replaceProviderList(current, []).connected).toEqual(current.connected)
+    const incoming = [provider("opencode", "remote"), provider("bpit", "remote")]
+    const result = replaceProviderList(current, incoming)
+    expect(result.all.map((item) => item.id)).toEqual(["opencode", "bpit", "custom"])
+    expect(result.all.slice(0, 2).map((item) => item.source)).toEqual(["remote", "remote"])
   })
 })
 
 describe("normalizeProviderList", () => {
-  test("removes legacy providers from initial server data", () => {
+  test("retains every provider ID from initial server data", () => {
     const provider = (id: string) => ({ id, name: id, source: "remote", env: [], options: {}, models: {} }) as Provider
     const result = normalizeProviderList({
       all: [provider("opencode"), provider("bpit"), provider("w3")],
@@ -144,8 +149,8 @@ describe("normalizeProviderList", () => {
       default: { opencode: "old", bpit: "old", w3: "current" },
     })
 
-    expect(result.all.map((item) => item.id)).toEqual(["w3"])
-    expect(result.connected).toEqual(["w3"])
-    expect(result.default).toEqual({ w3: "current" })
+    expect(result.all.map((item) => item.id)).toEqual(["opencode", "bpit", "w3"])
+    expect(result.connected).toEqual(["opencode", "bpit", "w3"])
+    expect(result.default).toEqual({ opencode: "old", bpit: "old", w3: "current" })
   })
 })

@@ -94,11 +94,6 @@ export const Provider = Schema.Struct({
 
 export type Provider = Schema.Schema.Type<typeof Provider>
 
-const REMOVED_PROVIDER_IDS = new Set(["opencode", "bpit"])
-
-const withoutRemovedProviders = (providers: Record<string, Provider>) =>
-  Object.fromEntries(Object.entries(providers).filter(([id]) => !REMOVED_PROVIDER_IDS.has(id)))
-
 export interface Interface {
   readonly get: () => Effect.Effect<Record<string, Provider>>
   readonly refresh: (force?: boolean) => Effect.Effect<void>
@@ -160,7 +155,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | HttpClie
       // if (fromDisk) return ensureOpencode(fromDisk)
 
       const snapshot = yield* loadSnapshot
-      if (snapshot) return withoutRemovedProviders(snapshot)
+      if (snapshot) return snapshot
 
       // 注释掉网络获取 — 模型通过 api.json 配置，不从网络获取
       // if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return ensureOpencode({})
