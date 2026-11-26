@@ -273,7 +273,7 @@ function regenerateIndex(projectID: ProjectID) {
 //     只可能是"崩溃后 PID 被复用"或进程被无限期挂起,继续等待没有意义
 // PID 存活但仅 mtime 陈旧(30 秒级别)时绝不接管:继续等待直到超时失败,
 // 由调用方(提取游标)退避重试——任何时刻至多一个写者。
-// 接管采用 rename 原子迁移,迁移后校验内容与判定时一致;不一致说明校验窗口期内
+// 接管采用 rename 原子接手,接手后校验内容与判定时一致;不一致说明校验窗口期内
 // 已被新持有者重建 → 原路归还并重新等待,避免误移新持有者的锁(TOCTOU 防护)。
 // 释放前校验锁内容仍是自己的 token 并关闭独占句柄(Windows 上句柄未关时锁文件不可被移走)。
 // ---------------------------------------------------------------------------
@@ -314,7 +314,7 @@ function acquireLock(lockPath: string): LockHandle | undefined {
         const dead = !Number.isFinite(pid) || pid <= 0 || !isPidAlive(pid)
         const abandoned = Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_ABANDONED_MS
         if (dead || abandoned) {
-          // 原子迁移:rename 后校验移走的确实是判定时那把锁;
+          // 原子接手:rename 后校验移走的确实是判定时那把锁;
           // 内容不一致 = 窗口期已被新持有者重建 → 归还(仅当归还目标不存在),重新等待
           const taken = `${lockPath}.${randomUUID()}.stale`
           try {
