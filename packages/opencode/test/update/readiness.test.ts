@@ -38,7 +38,7 @@ test("update readiness includes busy and retrying sessions from other workspaces
   expect((await AppRuntime.runPromise(getUpdateReadiness)).ready).toBe(true)
 })
 
-test("update readiness blocks queued, creating and running Studio generations", async () => {
+test("update readiness ignores orphaned creation records but blocks queued and running Studio generations", async () => {
   await using source = await tmpdir({ git: true })
   await provideTestInstance({ directory: source.path, fn: async () => {
     const session = await AppRuntime.runPromise(Session.Service.use((service) => service.create({ title: "Studio" })))
@@ -48,7 +48,11 @@ test("update readiness blocks queued, creating and running Studio generations", 
       capability: "image.generate", status: "creating", request: {}, next_poll_at: 0,
     }).run())
     try {
-      for (const status of ["creating", "queued", "running"] as const) {
+      expect((await AppRuntime.runPromise(getUpdateReadiness)).ready).toBe(true)
+      await withStudioSubmission("active-creation", async () => {
+        expect((await AppRuntime.runPromise(getUpdateReadiness)).ready).toBe(false)
+      })
+      for (const status of ["queued", "running"] as const) {
         Database.use((db) => db.update(StudioGenerationTable).set({ status })
           .where(eq(StudioGenerationTable.id, "update-test-generation")).run())
         expect((await AppRuntime.runPromise(getUpdateReadiness)).ready).toBe(false)

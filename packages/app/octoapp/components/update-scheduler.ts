@@ -56,15 +56,20 @@ export function createUpdateChecker(input: {
     const request = platform.checkUpdate!()
       .catch(() => undefined)
       .then((result) => {
-        if (!result) return undefined
+        if (!result || result.failed || stopped) return undefined
         if (!result.updateAvailable) {
           setAvailableUpdate(undefined)
+          clearTimeout(startupPrompt)
+          if (pending()) scheduleNextPrompt()
+          setPending(undefined)
           return undefined
         }
 
         const update = { version: result.version ?? "", releaseNotes: result.releaseNotes, forceUpdate: result.forceUpdate }
         setAvailableUpdate(update)
-        if (update.forceUpdate && !stopped) setPending({ ...update, automatic: true })
+        setPending((current) => current
+          ? { ...update, automatic: current.automatic }
+          : update.forceUpdate ? { ...update, automatic: true } : undefined)
         return update
       })
     checking = request

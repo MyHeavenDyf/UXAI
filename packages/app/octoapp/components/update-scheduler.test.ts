@@ -2,7 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test"
 import { createComponent, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
-import { createUpdateChecker, openAvailableUpdate } from "./update-scheduler"
+import { createUpdateChecker, openAvailableUpdate, useAvailableUpdate } from "./update-scheduler"
 
 const realTimeout = globalThis.setTimeout
 const realClear = globalThis.clearTimeout
@@ -26,26 +26,31 @@ function mount(forceUpdate = false, enabled = true) {
     if (timer !== undefined) timers.delete(timer)
     Reflect.apply(realClear, globalThis, [timer])
   })
-  const [state, setState] = createStore({ enabled, dialog: false, onboarding: false, busy: false })
+  const [state, setState] = createStore({ enabled, dialog: false, onboarding: false, busy: false,
+    available: true, forceUpdate, failed: false, version: "3.3.3" })
+  const events = { resume: () => {} }
   const shown: { forced?: boolean }[] = []
+  const versions: string[] = []
   const closed: (() => void)[] = []
   const container = document.createElement("div")
   document.body.append(container)
   const dispose = render(() => createComponent(() => createUpdateChecker({
     platform: {
-      checkUpdate: async () => ({ updateAvailable: true, version: "3.3.3", forceUpdate }),
+      checkUpdate: async () => ({ updateAvailable: state.available, version: state.version, forceUpdate: state.forceUpdate, failed: state.failed }),
       checkUpdateReadiness: async () => ({ ready: untrack(() => !state.busy) }),
+      onResume: (callback) => { events.resume = callback; return () => {} },
     },
     startup: () => state.enabled,
     onboarding: () => state.onboarding,
     dialog: { get active() { return state.dialog } },
-    showUpdate: (_version, _notes, onClose, forced) => {
+    showUpdate: (version, _notes, onClose, forced) => {
       shown.push({ forced })
+      versions.push(version)
       if (onClose) closed.push(onClose)
     },
   }), {}), container)
   cleanups.push(() => { dispose(); container.remove(); clock.mockRestore(); clear.mockRestore() })
-  return { state, setState, shown, closed }
+  return { state, setState, shown, closed, versions, resume: () => events.resume() }
 }
 
 function advance(delay: number) {
@@ -123,4 +128,58 @@ test("ordinary update reminders restart four hours after the dialog closes", asy
   advance(4 * 60 * 60 * 1000)
   await Bun.sleep(1)
   expect(app.shown).toHaveLength(2)
+})
+
+test("withdrawing an update cancels a forced prompt waiting for background tasks", async () => {
+  const app = mount(true)
+  app.setState("busy", true)
+  await Bun.sleep(1)
+  app.setState("available", false)
+  app.resume()
+  await Bun.sleep(1)
+  app.setState("busy", false)
+  expect(useAvailableUpdate().update()).toBeUndefined()
+  expect([...timers.values()].some((timer) => timer.delay === 1000)).toBe(false)
+  expect(app.shown).toEqual([])
+  advance(4 * 60 * 60 * 1000)
+  await Bun.sleep(1)
+  expect(app.shown).toEqual([])
+})
+
+test("queued prompts use the latest version and downgraded update policy", async () => {
+  const app = mount(true)
+  app.setState("dialog", true)
+  await Bun.sleep(1)
+  app.setState({ forceUpdate: false, version: "3.3.4" })
+  app.resume()
+  await Bun.sleep(1)
+  app.setState("dialog", false)
+  await Bun.sleep(1)
+  expect(app.shown).toEqual([{ forced: false }])
+  expect(app.versions).toEqual(["3.3.4"])
+})
+
+test("downgrading a queued forced update respects disabled automatic prompts", async () => {
+  const app = mount(true, false)
+  app.setState("dialog", true)
+  await Bun.sleep(1)
+  app.setState("forceUpdate", false)
+  app.resume()
+  await Bun.sleep(1)
+  app.setState("dialog", false)
+  await Bun.sleep(1)
+  expect(app.shown).toEqual([])
+})
+
+test("a failed metadata request does not withdraw a known update", async () => {
+  const app = mount(true)
+  app.setState("busy", true)
+  await Bun.sleep(1)
+  app.setState({ available: false, failed: true })
+  app.resume()
+  await Bun.sleep(1)
+  app.setState("busy", false)
+  advance(1000)
+  await Bun.sleep(1)
+  expect(app.shown).toEqual([{ forced: true }])
 })
