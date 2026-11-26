@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { eq } from "drizzle-orm"
@@ -102,6 +102,11 @@ function writeFileAtomic(file: string, content: string, at?: number) {
 // 单行化:核心层的索引行直接写完整内容(换行压成空格)
 const flatten = (value: string) => value.replace(/\s*\n\s*/g, " ").trim()
 
+// 内容指纹:summary+content 的 sha256。写时存进 frontmatter,读时比对——
+// 人工编辑靠 hash 检测(即时,无 mtime 盲区),mtime 只作为旧文件(无 hash)的回退启发式。
+const payloadHash = (summary: string, content: string) =>
+  createHash("sha256").update(`${flatten(summary)}\u0000${content}`).digest("hex")
+
 // 核心层级:用户偏好与纠正(user/feedback)索引行展开完整 content;其余只放短语义描述
 export function isCore(row: Pick<Row, "type">) {
   return row.type === "user" || row.type === "feedback"
@@ -142,9 +147,10 @@ function readIndex(projectID: ProjectID): IndexLine[] {
   )
 }
 
-// topic 文件:frontmatter(type/version/source_session_id/summary)+ 完整内容。
-// 读取时融合 mtime:程序写入的文件 mtime == 版本(写入时钉死);人工编辑推高
-// mtime → 有效版本升高 + manual 标记。3 秒容差吸收文件系统时间戳精度。
+// topic 文件:frontmatter(type/version/hash/source_session_id/summary)+ 完整内容。
+// 人工编辑检测以内容 hash 为准(无时间盲区);hash 缺失的旧文件回退 mtime 启发式。
+// 人工编辑的有效版本 = max(frontmatter 版本, mtime, frontmatter 版本+1):
+// +1 兜底保证版本单调递增,memory_read 的版本检测/写路径的防覆盖必定感知。
 function readTopicFile(projectID: ProjectID, topic: string): Row | undefined {
   const file = topicFile(projectID, topic)
   if (!TOPIC_RE.test(topic) || !fs.existsSync(file)) return undefined
@@ -165,14 +171,19 @@ function readTopicFile(projectID: ProjectID, topic: string): Row | undefined {
   const fmVersion = Number(fields.get("version"))
   if (!type || !(TYPES as readonly string[]).includes(type) || !Number.isFinite(fmVersion) || fmVersion <= 0)
     return undefined
+  const content = raw.slice(end + 4).trim()
+  const summary = fields.get("summary") ?? ""
   const mtime = fs.statSync(file).mtimeMs
-  const manual = mtime > fmVersion + 3000
-  const version = manual ? Math.max(fmVersion, Math.round(mtime)) : fmVersion
+  const fmHash = fields.get("hash")
+  // hash 存在 → 内容比对为准(3 秒盲区内也能检出);缺失(旧文件)→ mtime 启发式
+  const manual =
+    fmHash === undefined ? mtime > fmVersion + 3000 : payloadHash(summary, content) !== fmHash
+  const version = manual ? Math.max(fmVersion, Math.round(mtime), fmVersion + 1) : fmVersion
   return {
     topic,
     type: type as MemoryType,
-    content: raw.slice(end + 4).trim(),
-    summary: fields.get("summary") ?? "",
+    content,
+    summary,
     ...(fields.get("source_session_id") ? { source_session_id: fields.get("source_session_id") } : {}),
     version,
     time_updated: version,
@@ -186,12 +197,13 @@ function writeTopicFile(projectID: ProjectID, row: Row) {
     "---",
     `type: ${row.type}`,
     `version: ${row.version}`,
+    `hash: ${payloadHash(row.summary, row.content)}`,
     ...(row.source_session_id ? [`source_session_id: ${row.source_session_id}`] : []),
     `summary: ${flatten(row.summary)}`,
     "---",
     "",
   ].join("\n")
-  // mtime 钉到版本:程序写入的文件 mtime == frontmatter 版本,人工编辑立即可检测
+  // mtime 钉到版本:程序写入的文件 mtime == frontmatter 版本,作为 hash 缺失时的回退基准
   writeFileAtomic(topicFile(projectID, row.topic), frontmatter + row.content + "\n", row.version)
 }
 
@@ -254,29 +266,56 @@ function regenerateIndex(projectID: ProjectID) {
 }
 
 // ---------------------------------------------------------------------------
-// 项目级跨进程写锁:O_EXCL 创建锁文件,占用者崩溃由 mtime 超时接管。
+// 项目级跨进程写锁:O_EXCL 创建锁文件,锁内容为持有者 token(pid-uuid)。
+// 接管条件:持有者 PID 已死(崩溃/被杀),或锁文件超过保留期(mtime 陈旧)。
+// 接管动作用 rename 原子完成,避免两个等待者互删对方刚建的新锁;
+// 释放前校验锁内容仍是自己的 token——卡死的旧持有者复活后不会误删新持有者的锁。
 // 覆盖 版本校验 → topic 更新 → trim → 墓碑落盘 → 索引重建 全程,保证一致性。
 // ---------------------------------------------------------------------------
 
-const LOCK_TIMEOUT_MS = 10_000
 const LOCK_STALE_MS = 30_000
+// 测试可用 OCTO_MEMORY_LOCK_TIMEOUT 调短等待上限(毫秒),运行时读取
+const lockTimeoutMs = () => {
+  const value = Number(process.env.OCTO_MEMORY_LOCK_TIMEOUT)
+  return Number.isFinite(value) && value > 0 ? value : 10_000
+}
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 
-function acquireLock(lockPath: string): boolean {
-  const deadline = Date.now() + LOCK_TIMEOUT_MS
+function isPidAlive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM = 进程存在但无权限;其余(ESRCH)视为已死
+    return (error as NodeJS.ErrnoException).code === "EPERM"
+  }
+}
+
+function acquireLock(lockPath: string, token: string): boolean {
+  const deadline = Date.now() + lockTimeoutMs()
   for (;;) {
     try {
-      fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" })
+      fs.writeFileSync(lockPath, token, { flag: "wx" })
       return true
     } catch {
-      // 占用者已死(锁文件超过保留期)→ 接管;否则短暂等待重试
+      // 归属与存活校验:持有者已死(即使锁很新)或锁超期 → 原子接管
       try {
-        if (Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_STALE_MS) {
-          fs.rmSync(lockPath, { force: true })
-          continue
+        const holder = fs.readFileSync(lockPath, "utf8")
+        const pid = Number(holder.split("-")[0])
+        const dead = !Number.isFinite(pid) || pid <= 0 || !isPidAlive(pid)
+        const stale = Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_STALE_MS
+        if (dead || stale) {
+          // rename 接管:窗口期不与其它等待者互删;接管后清理弃用文件
+          const taken = `${lockPath}.${randomUUID()}.stale`
+          try {
+            fs.renameSync(lockPath, taken)
+            fs.rmSync(taken, { force: true })
+          } catch {
+            // 已被其它等待者接管 → 直接重试
+          }
         }
       } catch {
-        // 锁文件恰好被释放 → 直接重试
+        // 锁恰好被释放/接管 → 直接重试
       }
       if (Date.now() > deadline) return false
       sleep(50)
@@ -284,14 +323,23 @@ function acquireLock(lockPath: string): boolean {
   }
 }
 
-function withProjectLock<T>(projectID: ProjectID, fn: () => T): T {
+function releaseLock(lockPath: string, token: string) {
+  safe("releaseLock", () => undefined, () => {
+    // 归属校验:只有锁内容仍是自己的 token 才释放,防旧持有者误删新持有者的锁
+    if (fs.readFileSync(lockPath, "utf8") === token) fs.rmSync(lockPath, { force: true })
+  })
+}
+
+// 低级工具,导出仅供测试验证锁语义;生产路径经 write/remove/clear 间接使用
+export function withProjectLock<T>(projectID: ProjectID, fn: () => T): T {
   fs.mkdirSync(projectDir(projectID), { recursive: true })
   const lockPath = lockFile(projectID)
-  if (!acquireLock(lockPath)) throw new Error(`memory lock timeout: ${projectID}`)
+  const token = `${process.pid}-${randomUUID()}`
+  if (!acquireLock(lockPath, token)) throw new Error(`memory lock timeout: ${projectID}`)
   try {
     return fn()
   } finally {
-    fs.rmSync(lockPath, { force: true })
+    releaseLock(lockPath, token)
   }
 }
 
@@ -301,18 +349,23 @@ function withProjectLock<T>(projectID: ProjectID, fn: () => T): T {
 
 const migrated = new Set<string>()
 
+// 一次性幂等迁移:旧 SQLite 记忆 → 文件。已有文件记忆或已显式清除(.cleared)则跳过。
+// 只有迁移成功(或确无历史)才标记 migrated;失败(锁超时/磁盘故障等)保留重试机会。
+// 仅剩墓碑的历史数据同样迁移——删除保护不能在迁移中丢失。
 function ensureMigrated(projectID: ProjectID) {
   if (migrated.has(projectID)) return
-  migrated.add(projectID)
-  safe("migrateLegacy", () => undefined, () => {
-    if (fs.existsSync(indexFile(projectID)) || fs.existsSync(clearedFile(projectID))) return
+  const done = safe("migrateLegacy", () => false, () => {
+    if (fs.existsSync(indexFile(projectID)) || fs.existsSync(clearedFile(projectID))) return true
     const rows = Database.use((db) =>
       db.select().from(MemoryTable).where(eq(MemoryTable.project_id, projectID)).all(),
     )
-    if (rows.length === 0) return
-    withProjectLock(projectID, () => {
+    const legacyTombstones = Database.use((db) =>
+      db.select().from(MemoryTombstoneTable).where(eq(MemoryTombstoneTable.project_id, projectID)).all(),
+    )
+    if (rows.length === 0 && legacyTombstones.length === 0) return true
+    return withProjectLock(projectID, () => {
       // 拿到锁后再核一次(并发写者可能已建目录),并跳过已存在 topic 防覆盖
-      if (fs.existsSync(indexFile(projectID)) || fs.existsSync(clearedFile(projectID))) return
+      if (fs.existsSync(indexFile(projectID)) || fs.existsSync(clearedFile(projectID))) return true
       for (const row of rows) {
         if (!TOPIC_RE.test(row.topic)) continue
         if (fs.existsSync(topicFile(projectID, row.topic))) continue
@@ -327,9 +380,6 @@ function ensureMigrated(projectID: ProjectID) {
           manual: false,
         })
       }
-      const legacyTombstones = Database.use((db) =>
-        db.select().from(MemoryTombstoneTable).where(eq(MemoryTombstoneTable.project_id, projectID)).all(),
-      )
       if (legacyTombstones.length > 0) {
         const tombstones = readTombstones(projectID)
         for (const tombstone of legacyTombstones)
@@ -337,8 +387,10 @@ function ensureMigrated(projectID: ProjectID) {
         writeTombstones(projectID, tombstones)
       }
       regenerateIndex(projectID)
+      return true
     })
   })
+  if (done) migrated.add(projectID)
 }
 
 // 动态预算:索引不得超过模型上下文窗口的 1/8,适配内网 64K 及更小上下文的模型;
@@ -494,13 +546,14 @@ export function searchRows(rows: Row[], query: string, limit: number, offset = 0
   return matched.slice(offset, offset + limit)
 }
 
-// 删除单条:写墓碑(版本取条目当前有效版本),阻断旧异步批次复活
+// 删除单条:写墓碑。版本取 max(条目当前有效版本, now)——删除动作发生在"现在",
+// 早于删除启动、但晚于原记忆版本的异步批次同样被挡在墓碑之外,不得复活。
 export function remove(topic: string, projectID: ProjectID) {
   safe("remove", () => undefined, () => {
     withProjectLock(projectID, () => {
       const existing = readTopicFile(projectID, topic)
       const tombstones = readTombstones(projectID)
-      const version = existing?.version ?? Date.now()
+      const version = Math.max(existing?.version ?? 0, Date.now())
       if ((tombstones[topic] ?? 0) <= version) tombstones[topic] = version
       if (existing) fs.rmSync(topicFile(projectID, topic))
       writeTombstones(projectID, tombstones)

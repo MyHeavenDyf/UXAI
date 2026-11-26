@@ -1025,6 +1025,51 @@ describe("manual topic file edits", () => {
     ).toBe(true)
     expect(MemoryStore.entriesByTopics(projectID, ["hand_edited"])[0].content).toContain("手工改过的内容")
   })
+
+  test("content edits are detected instantly via hash, no mtime blind spot", () => {
+    const now = Date.now()
+    MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "feedback", topic: "quick_edit", content: "A", summary: "s" }],
+      budget,
+      version: now,
+    })
+    // 刚写完立即编辑:mtime 距版本不足 3 秒,旧 mtime 启发式必然漏检,hash 必须检出
+    const file = path.join(projectPath(projectID), "topics", "quick_edit.md")
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("A", "B"))
+    const row = MemoryStore.entriesByTopics(projectID, ["quick_edit"])[0]
+    expect(row.manual).toBe(true)
+    // 版本兜底递增(fmVersion+1):memory_read 的版本检测必定感知
+    expect(row.version).toBeGreaterThan(now)
+    expect(MemoryStore.system(projectID)[0]).toContain("B")
+    // 旧批次(编辑前启动)不得覆盖
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "feedback", topic: "quick_edit", content: "C", summary: "s" }],
+        budget,
+        version: now - 1,
+      }),
+    ).toBe(true)
+    expect(MemoryStore.entriesByTopics(projectID, ["quick_edit"])[0].content).toBe("B")
+  })
+
+  test("touching a file without content changes is not manual", () => {
+    const now = Date.now() - 10_000
+    MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "project", topic: "touched", content: "A", summary: "s" }],
+      budget,
+      version: now,
+    })
+    // 只改 mtime 不改内容:hash 未变 → 非人工编辑,版本保持
+    const file = path.join(projectPath(projectID), "topics", "touched.md")
+    const future = new Date(Date.now() + 50_000)
+    fs.utimesSync(file, future, future)
+    const row = MemoryStore.entriesByTopics(projectID, ["touched"])[0]
+    expect(row.manual).toBe(false)
+    expect(row.version).toBe(now)
+  })
 })
 
 describe("project write lock", () => {
@@ -1044,6 +1089,36 @@ describe("project write lock", () => {
     ).toBe(true)
     expect(fs.existsSync(lock)).toBe(false)
     expect(MemoryStore.list(projectID).some((row) => row.topic === "locked")).toBe(true)
+  })
+
+  test("lock held by a dead pid is taken over even when fresh", () => {
+    fs.mkdirSync(projectPath(projectID), { recursive: true })
+    const lock = path.join(projectPath(projectID), ".lock")
+    // 持有者已死但锁很新:旧逻辑要等 30s mtime 超时,PID 存活校验立即接管
+    fs.writeFileSync(lock, "2147483647-dead-token")
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "project", topic: "dead_holder", content: "c", summary: "s" }],
+        budget,
+      }),
+    ).toBe(true)
+    expect(MemoryStore.list(projectID).some((row) => row.topic === "dead_holder")).toBe(true)
+  })
+
+  test("release never deletes a lock owned by someone else", () => {
+    fs.mkdirSync(projectPath(projectID), { recursive: true })
+    const lock = path.join(projectPath(projectID), ".lock")
+    let inside = false
+    MemoryStore.withProjectLock(projectID, () => {
+      inside = true
+      // 持锁期间被新持有者接管(模拟旧持有者卡死后被抢):锁内容换成别人的 token
+      fs.writeFileSync(lock, `${process.pid}-stolen-token`)
+    })
+    expect(inside).toBe(true)
+    // 旧持有者释放时经归属校验,不误删新持有者的锁
+    expect(fs.existsSync(lock)).toBe(true)
+    fs.rmSync(lock, { force: true })
   })
 })
 
@@ -1092,7 +1167,7 @@ describe("clear epoch and remove tombstone", () => {
     })
     MemoryStore.remove("doomed", projectID)
     expect(MemoryStore.list(projectID)).toHaveLength(0)
-    // 墓碑版本 = 条目删除时的有效版本:更旧的批次复活被挡
+    // 墓碑版本 = max(条目版本, 删除时刻):更旧的批次复活被挡
     expect(
       MemoryStore.write({
         projectID,
@@ -1102,7 +1177,7 @@ describe("clear epoch and remove tombstone", () => {
       }),
     ).toBe(true)
     expect(MemoryStore.list(projectID)).toHaveLength(0)
-    expect(JSON.parse(fs.readFileSync(tombstoneFile(projectID), "utf8"))["doomed"]).toBe(base)
+    expect(JSON.parse(fs.readFileSync(tombstoneFile(projectID), "utf8"))["doomed"]).toBeGreaterThan(base)
     // 更新的批次可以合法重建,墓碑随之清理
     expect(
       MemoryStore.write({
@@ -1113,6 +1188,28 @@ describe("clear epoch and remove tombstone", () => {
       }),
     ).toBe(true)
     expect(MemoryStore.list(projectID).some((row) => row.topic === "doomed")).toBe(true)
+  })
+
+  test("remove blocks in-flight batches newer than the memory but older than the removal", () => {
+    // 删除前启动、版本晚于原记忆的异步批次:墓碑取 max(条目版本, now),同样挡住
+    const memV = Date.now() - 60_000
+    const batchV = Date.now() - 1_000
+    MemoryStore.write({
+      projectID,
+      actions: [{ action: "create", type: "project", topic: "late_batch", content: "c", summary: "s" }],
+      budget,
+      version: memV,
+    })
+    MemoryStore.remove("late_batch", projectID)
+    expect(
+      MemoryStore.write({
+        projectID,
+        actions: [{ action: "create", type: "project", topic: "late_batch", content: "复活", summary: "s" }],
+        budget,
+        version: batchV,
+      }),
+    ).toBe(true)
+    expect(MemoryStore.list(projectID)).toHaveLength(0)
   })
 })
 
@@ -1181,6 +1278,71 @@ describe("sqlite to markdown migration", () => {
     // clear 后 .cleared 抑制再迁移,旧 SQL 数据不回灌
     MemoryStore.clear(legacy)
     expect(MemoryStore.list(legacy)).toHaveLength(0)
+  })
+
+  test("tombstone-only legacy history migrates without memories", () => {
+    // 独立项目 ID:migrated 集合按项目进程级缓存,不能与上一个用例共用
+    const solo = "mem_legacy_tomb_only" as ProjectID
+    wipe(solo)
+    Database.use((db) =>
+      db
+        .insert(ProjectTable)
+        .values({ id: solo, worktree: "/tmp/legacy-tomb", sandboxes: [] })
+        .onConflictDoNothing()
+        .run(),
+    )
+    // 历史数据只剩墓碑(记忆全删过):墓碑本身必须迁移,删除保护不能丢失
+    Database.use((db) =>
+      db.insert(MemoryTombstoneTable).values({ project_id: solo, topic: "gone_topic", time_deleted: 5000 }).run(),
+    )
+    expect(MemoryStore.list(solo)).toHaveLength(0)
+    expect(JSON.parse(fs.readFileSync(tombstoneFile(solo), "utf8"))["gone_topic"]).toBe(5000)
+    // 迁移完成留下了索引文件作为幂等标记(避免每次访问都查库)
+    expect(fs.existsSync(indexFile(solo))).toBe(true)
+  })
+
+  test("migration failure does not mark migrated and retries later", () => {
+    process.env.OCTO_MEMORY_LOCK_TIMEOUT = "200"
+    try {
+      const retry = "mem_retry_project" as ProjectID
+      wipe(retry)
+      Database.use((db) => db.delete(MemoryTable).where(eq(MemoryTable.project_id, retry)).run())
+      Database.use((db) =>
+        db
+          .insert(ProjectTable)
+          .values({ id: retry, worktree: "/tmp/retry", sandboxes: [] })
+          .onConflictDoNothing()
+          .run(),
+      )
+      Database.use((db) =>
+        db
+          .insert(MemoryTable)
+          .values({
+            id: "retry-a",
+            project_id: retry,
+            type: "project",
+            topic: "retry_topic",
+            content: "重试内容",
+            summary: "s",
+            source_session_id: null,
+            pinned: 0,
+            time_created: 1000,
+            time_updated: 2000,
+          })
+          .run(),
+      )
+      // 用活着的 PID + 新鲜 mtime 占住锁:迁移拿锁失败(200ms 超时),必须不标记
+      fs.mkdirSync(projectPath(retry), { recursive: true })
+      fs.writeFileSync(path.join(projectPath(retry), ".lock"), `${process.pid}-busy`)
+      expect(MemoryStore.list(retry)).toHaveLength(0)
+      expect(fs.existsSync(indexFile(retry))).toBe(false)
+      // 解锁后下一次访问重试迁移成功
+      fs.rmSync(path.join(projectPath(retry), ".lock"), { force: true })
+      const rows = MemoryStore.list(retry)
+      expect(rows.some((row) => row.topic === "retry_topic" && row.content === "重试内容")).toBe(true)
+    } finally {
+      delete process.env.OCTO_MEMORY_LOCK_TIMEOUT
+    }
   })
 })
 
