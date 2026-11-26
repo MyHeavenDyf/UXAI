@@ -19,7 +19,7 @@ type StudioResultCardProps = {
   refreshing: boolean
   onCancelGeneration: (generationID: string) => void
   onEditGeneration: (result: StudioGenerationResult) => void
-  onRebootGeneration: (generationID: string) => void
+  onRebootGeneration: (result: StudioGenerationResult) => void
   onRefreshGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
 }
@@ -160,7 +160,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
               onClick={() => {
                 if (!props.turn.result) return
                 tracker.interaction({ module: "studio", name: "reboot-generation", extend: JSON.stringify({ generationID: props.turn.result.id }) })
-                props.onRebootGeneration(props.turn.result.id)
+                props.onRebootGeneration(props.turn.result)
               }}
             >
               {props.rebooting ? "重新生成中..." : "重新生成"}

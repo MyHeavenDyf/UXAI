@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
-import { app, BrowserWindow, dialog, powerMonitor, session } from "electron"
+import { app, BrowserWindow, dialog, nativeTheme, powerMonitor, session, systemPreferences } from "electron"
 import pkg from "electron-updater"
 import semver from "semver"
 import {shellPath} from "shell-path"
@@ -66,10 +66,12 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { parseSharedSessionLink } from "./shared-session"
 import * as FastuiDevServer from "./fastui-devserver"
 import * as FastuiExport from "./fastui-export"
+import * as SkillRefresh from "./skill-refresh"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
 import { normalizeReleaseNotes } from "./normalize-release-notes"
+import { checkUpdateReadiness } from "./update-readiness"
 import { createMenu } from "./menu"
 import { setUploadsDir, startPreviewServer } from "./preview-server"
 import {
@@ -277,6 +279,10 @@ function setupApp() {
     registerRendererProtocol()
     registerLocalProtocol()
     setDockIcon()
+    nativeTheme.on("updated", () => setDockIcon())
+    if (process.platform === "darwin") {
+      systemPreferences.subscribeNotification("AppleInterfaceThemeChangedNotification", () => setDockIcon())
+    }
     startPreviewServer()
     // fastui 预览(SPEC-DES-004):先收掉上次崩溃遗留的 dev server,再开始响应 skill 的起服务请求
     void FastuiDevServer.cleanupOrphans()
@@ -426,6 +432,7 @@ async function initialize(storage: DesktopStorage) {
     // 自己算 `<octoConfig>/skill/` 会和 server 实际扫描目录对不上。重启成功后由
     // restartSidecar 重新设置。
     FastuiExport.setServerInfo({ url, username: "opencode", password })
+    SkillRefresh.setSkillRefreshServerInfo({ url, username: "opencode", password })
     serverReady.resolve({
       url,
       username: "opencode",
@@ -536,6 +543,7 @@ registerIpcHandlers({
   loadingWindowComplete: () => loadingComplete.resolve(),
   runUpdater: async (alertOnFail) => checkForUpdates(alertOnFail),
   checkUpdate: async () => checkUpdate(),
+  checkUpdateReadiness: () => updateReadiness(),
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
   // jk-j60099994-replace-with-index-2-start
@@ -586,6 +594,7 @@ function handleSidecarExit(code: number) {
   logger.warn("sidecar exited", { code })
   // server 没了就别再问它要 skill 位置 —— 留着会让每次导出白等一个查询超时
   FastuiExport.setServerInfo(null)
+  SkillRefresh.setSkillRefreshServerInfo(null)
   // uptime 窗口已中断,旧 reset timer 不取消的话会在 crash 序列中途清零计数,
   // 耗尽保护被 ~45s 周期的 crash loop 无限绕过(E2E 实测踩过)
   cancelSidecarUptimeReset()
@@ -627,6 +636,11 @@ async function restartSidecar() {
     }
     server = listener
     FastuiExport.setServerInfo({
+      url: `http://${cfg.hostname}:${cfg.port}`,
+      username: "opencode",
+      password: cfg.password,
+    })
+    SkillRefresh.setSkillRefreshServerInfo({
       url: `http://${cfg.hostname}:${cfg.port}`,
       username: "opencode",
       password: cfg.password,
@@ -741,6 +755,7 @@ function setupAutoUpdater() {
 
 let availableUpdateVersion: string | undefined
 let availableUpdateReleaseNotes: string | undefined
+let availableUpdateForceUpdate = false
 let downloadedUpdateVersion: string | undefined
 
 async function downloadUpdate(version: string) {
@@ -751,12 +766,6 @@ async function downloadUpdate(version: string) {
 
 async function checkUpdate(download = false) {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
-  if (downloadedUpdateVersion) {
-    logger.log("returning cached downloaded update", {
-      version: downloadedUpdateVersion,
-    })
-    return { updateAvailable: true, version: downloadedUpdateVersion, releaseNotes: availableUpdateReleaseNotes }
-  }
   logger.log("checking for updates", {
     currentVersion: app.getVersion(),
     channel: autoUpdater.channel,
@@ -766,12 +775,14 @@ async function checkUpdate(download = false) {
   try {
     const result = await autoUpdater.checkForUpdates()
     const updateInfo = result?.updateInfo
+    const forceUpdate = updateInfo !== undefined && "forceUpdate" in updateInfo && updateInfo.forceUpdate === true
     const releaseNotes = normalizeReleaseNotes(updateInfo?.releaseNotes)
     logger.log("update metadata fetched", {
       releaseVersion: updateInfo?.version ?? null,
       releaseDate: updateInfo?.releaseDate ?? null,
       releaseName: updateInfo?.releaseName ?? null,
       releaseNotes: releaseNotes ?? null,
+      forceUpdate,
       files: updateInfo?.files?.map((file) => file.url) ?? [],
     })
     const version = result?.updateInfo?.version
@@ -789,19 +800,26 @@ async function checkUpdate(download = false) {
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
+    if (downloadedUpdateVersion !== version) downloadedUpdateVersion = undefined
     availableUpdateVersion = version
     availableUpdateReleaseNotes = releaseNotes
+    availableUpdateForceUpdate = forceUpdate
     if (download) {
       await downloadUpdate(version)
     }
-    return { updateAvailable: true, version, releaseNotes }
+    return { updateAvailable: true, version, releaseNotes, forceUpdate }
   } catch (error) {
     logger.error("update check failed", error)
+    if (downloadedUpdateVersion) {
+      return { updateAvailable: true, version: downloadedUpdateVersion, releaseNotes: availableUpdateReleaseNotes, forceUpdate: availableUpdateForceUpdate }
+    }
     return { updateAvailable: false, failed: true }
   }
 }
 
 async function installUpdate() {
+  const before = await updateReadiness()
+  if (!before.ready) throw new Error(before.reason)
   if (!downloadedUpdateVersion && availableUpdateVersion) {
     logger.log("downloading update before install", { version: availableUpdateVersion })
     await downloadUpdate(availableUpdateVersion)
@@ -815,8 +833,18 @@ async function installUpdate() {
   logger.log("installing downloaded update", {
     version: downloadedUpdateVersion,
   })
+  const after = await updateReadiness()
+  if (!after.ready) throw new Error(after.reason)
   await killSidecar()
   autoUpdater.quitAndInstall(true, true)
+}
+
+function updateReadiness() {
+  return checkUpdateReadiness(sidecarSpawnConfig ? {
+    url: `http://${sidecarSpawnConfig.hostname}:${sidecarSpawnConfig.port}`,
+    username: "opencode",
+    password: sidecarSpawnConfig.password,
+  } : undefined)
 }
 
 async function checkForUpdates(alertOnFail: boolean) {
@@ -858,7 +886,13 @@ async function checkForUpdates(alertOnFail: boolean) {
     restartNow: response.response === 0,
   })
   if (response.response === 0) {
-    await installUpdate()
+    await installUpdate().catch(async (error: unknown) => {
+      await dialog.showMessageBox({
+        type: "warning",
+        title: "暂时无法更新",
+        message: error instanceof Error ? error.message : "请稍后重试更新。",
+      })
+    })
   }
 }
 

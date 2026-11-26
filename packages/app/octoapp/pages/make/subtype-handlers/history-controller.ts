@@ -194,8 +194,10 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   async function switchVersion(entry: VersionEntry, tab: ResultTab): Promise<void> {
     const handler = getSubtypeHandler(tab.subtype)
     const ctx = buildCtx(tab)
-    const configFiles = (await handler?.onHistoryTrigger?.({ type: "open", isNew: false }, ctx)) ?? ["."]
-    const files = await historyStore.getVersionFiles(entry.id, tab, configFiles)
+
+    const load = (paths: string[]) => historyStore.getVersionFiles(entry.id, tab, paths)
+    const files = (await handler?.resolveVersionFiles?.(ctx, load)) ??
+      await load((await handler?.onHistoryTrigger?.({ type: "open", isNew: false }, ctx)) ?? ["."])
 
     writingTabs.add(tab.id)
     try {
@@ -225,12 +227,15 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const api = getDesktopApi()
     writingTabs.add(tab.id)
     try {
-      const configFiles = (await handler?.onHistoryTrigger?.({ type: "open", isNew: false }, ctx)) ?? ["."]
-
       // listVersions 按时间倒序，find 命中的第一个即 cutoff 之前最新的版本
       const target = list.find((v) => v.timestamp < cutoffMs)
       if (target) {
-        const files = await historyStore.getVersionFiles(target.id, tab, configFiles)
+        const load = (paths: string[]) => historyStore.getVersionFiles(target.id, tab, paths)
+        const resolvedFiles = await handler?.resolveVersionFiles?.(ctx, load)
+        const configFiles = resolvedFiles
+          ? []
+          : (await handler?.onHistoryTrigger?.({ type: "open", isNew: false }, ctx)) ?? ["."]
+        const files = resolvedFiles ?? await load(configFiles)
         if (handler?.applyVersionFiles) {
           await handler.applyVersionFiles(ctx, files)
         } else {
@@ -247,6 +252,11 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
         return "restored"
       }
 
+      if (handler?.deleteCurrentArtifact) {
+        await handler.deleteCurrentArtifact(ctx)
+        return "deleted"
+      }
+      const configFiles = (await handler?.onHistoryTrigger?.({ type: "open", isNew: false }, ctx)) ?? ["."]
       const oldest = list[list.length - 1]!
       const files = await historyStore.getVersionFiles(oldest.id, tab, configFiles)
       for (const f of files) await api?.deleteFile?.(f.originalPath)
@@ -261,6 +271,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const existing = await historyStore.listVersions(tab)
     if (existing.length > 0) return
     const files = await getTabFiles(tab)
+    if (tab.subtype === "3d" && files.length === 0) return
     await historyStore.recordVersion(tab, "init", files.length > 0 ? files : ["."])
   }
 

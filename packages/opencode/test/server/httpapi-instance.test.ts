@@ -80,4 +80,31 @@ describe("instance HttpApi", () => {
       )
     }),
   )
+
+  it.live("serves skill available by agent", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+
+      const [ok, missing] = yield* Effect.all(
+        [
+          HttpClientRequest.get(InstancePaths.skillAvailable).pipe(
+            HttpClientRequest.setUrlParam("agent", "octo_make"),
+            directoryHeader(dir),
+            HttpClient.execute,
+          ),
+          HttpClientRequest.get(InstancePaths.skillAvailable).pipe(
+            HttpClientRequest.setUrlParam("agent", "no-such-agent-xyz"),
+            directoryHeader(dir),
+            HttpClient.execute,
+          ),
+        ],
+        { concurrency: "unbounded" },
+      )
+
+      expect(ok.status).toBe(200)
+      expect(Array.isArray(yield* ok.json)).toBe(true)
+
+      expect(missing.status).toBe(404)
+    }),
+  )
 })

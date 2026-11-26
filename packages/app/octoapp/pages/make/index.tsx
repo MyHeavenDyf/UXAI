@@ -97,8 +97,7 @@ import { createTabStore, type ResultTab } from "./components/result-viewer/tab-s
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
-import { ContextUsageCircle } from "@/components/context-usage-circle"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { ContextUsageTrigger } from "@/components/context-usage-trigger"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { createSnapshotStore } from "./utils/snapshot-store"
@@ -114,8 +113,8 @@ import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/resul
 import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
 import { setAssessmentContext, harvestAssessmentReview, pauseAssessment, pendingAssessment } from "./utils/assessment-state"
 import { processMentions } from "./utils/mention-processor"
-import { buildRevertDraft, collectRevertedFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
-import { autoSaveArtifact, inferArtifactFilePath, sanitizeFilename } from "./utils/artifact-auto-save"
+import { buildRevertDraft, collectRevertedFiles, collectWriteEditFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
+import { autoSaveArtifact, inferArtifactFilePath, sanitizeFilename, extractFileContent } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
 import { saveSessionTabs, loadSessionTabs } from "./utils/tab-state-store"
@@ -139,8 +138,12 @@ import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
-import { isVisibleUserMessage } from "./utils/visible-message"
+import { isVisibleUserMessage, isHiddenCompactionTurn } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
+import { uploadZipPackage, codeArchiveDedupKey, startArchivePoll, pauseArchivePolls, resumeArchivePolls, type AutoArchiveResult, type PendingArchivePoll } from "./utils/auto-archive"
+import { isAssetLibraryLoggedIn } from "./utils/asset-upload"
+import { createIndexHtmlZip } from "./utils/html-assets-zip"
+import { getSubtypeConfig } from "./utils/subtype-config"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限;
 // 2026-10 起图片上限统一 1MB,超过即自动压缩(见 addImageAttachment / utils/image-compression)
@@ -152,6 +155,10 @@ const MAX_LOCAL_PREVIEW_BYTES = 1024 * 1024
 
 // 跟踪已上报的设计方案打点（localStorage 持久化去重，跨重启不重报）
 const planTrackReported = createReportedSet("octo:make:design-plan-reported")
+
+// 自动归档：已上传产物去重（key = card.id，localStorage 持久化——InsightTurn 重挂载/
+// 刷新/切 session 后 auto-save effect 会重跑，防止同一产物重复上传）
+const autoArchiveReported = createReportedSet("octo:make:auto-archived")
 
 export default function MakePage() {
   const layout = useLayout()
@@ -189,6 +196,7 @@ export default function MakePage() {
 let lastMakeDir: string | undefined
 
 function MakeContent() {
+  const [lastOpenedPopover, setLastOpenedPopover] = createSignal<"addon" | "model">()
   useSharedSessionImportContext("design")
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -255,14 +263,24 @@ function MakeContent() {
   // 代码类型工作区:session 只隔离对话不隔离产物 (统一文件树:产物/上传落项目根,标注走 .octo/comments)
   const isProjectScope = () => workspaceKind() === "code"
 
-  // 评估状态上下文:assessment-state 按此推导评审文件(产物目录分支)与状态文件路径
+  // 评估状态上下文:assessment-state 按此推导评审文件路径与状态文件路径。
+  
   createEffect(() => {
     const dir = projectDir()
     if (!dir) return
     const kind = workspaceKind()
     const sid = params.id ?? ""
     if (kind !== "code" && !sid) return
-    setAssessmentContext({ projectDir: dir, sessionId: sid, workspaceKind: kind })
+    setAssessmentContext({
+      projectDir: dir,
+      sessionId: sid,
+      workspaceKind: kind,
+      checkTurnEnded: (sessionID, sentAt) => {
+        if (sync.data.session_status[sessionID]?.type !== "idle") return false
+        const msgs = (sync.data.message?.[sessionID] ?? []) as Message[]
+        return msgs.some((m) => m.role === "assistant" && typeof m.time.completed === "number" && m.time.created >= sentAt - 1000)
+      },
+    })
   })
   // 切换 session:暂停待修改评估(磁盘数据保留,重新激活时可恢复)
   createEffect(on(() => params.id, (id, prev) => {
@@ -1042,6 +1060,7 @@ const sessionMessagesLoaded = createMemo(() => {
             }
           ])
         } else if (partType === "tool") {
+          lastToolActivityAt = Date.now()
           setLastDeltaTime(Date.now())
           setBlockTime(0)
         }
@@ -1103,6 +1122,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // 切走了直接丢弃（基线已记录，用户可从文件面板手动打开）。
   const globalToolCallMap = new Map<string, { tool: string; path?: string }>()
   const pendingCodeArtifactTabs = new Map<string, Set<string>>()
+  const doneToolPaths = new Map<string, Set<string>>()
   createEffect(() => {
     const unsub = sdk.event.listen((evt) => {
       const e = evt.details
@@ -1132,6 +1152,10 @@ const sessionMessagesLoaded = createMemo(() => {
         const entry = globalToolCallMap.get(callID)
         globalToolCallMap.delete(callID)
         if (!entry?.path) return
+        const doneSet = doneToolPaths.get(eventSessionID) ?? new Set<string>()
+        if (doneSet.has(entry.path)) return
+        doneSet.add(entry.path)
+        doneToolPaths.set(eventSessionID, doneSet)
         if (isOutputsWriteTool(entry.tool, entry.path, eventSessionID)) {
           void recordToolVersionsAfter(entry.path)
         }
@@ -1142,10 +1166,44 @@ const sessionMessagesLoaded = createMemo(() => {
           set.add(entry.path)
           pendingCodeArtifactTabs.set(eventSessionID, set)
         }
+      } else if (e.type === "message.part.updated") {
+        const part = props?.part as Record<string, unknown> | undefined
+        if (part?.type !== "tool") return
+        const state = part.state as Record<string, unknown> | undefined
+        const status = state?.status as string | undefined
+        const toolName = part.tool as string | undefined
+        const input = (state?.input ?? {}) as Record<string, unknown>
+        const toolPath = ((input.path ?? input.filepath ?? input.filePath ?? "") as string) || undefined
+        if (!toolName || !toolPath) return
+        if (status === "pending" || status === "running") {
+          if (isOutputsWriteTool(toolName, toolPath, eventSessionID)) recordArtifactInit(toolPath)
+          if (isCodeHtmlArtifactWrite(toolName, toolPath)) recordArtifactInit(toolPath)
+          return
+        }
+        if (status !== "completed") return
+        const doneSet = doneToolPaths.get(eventSessionID) ?? new Set<string>()
+        if (doneSet.has(toolPath)) return
+        doneSet.add(toolPath)
+        doneToolPaths.set(eventSessionID, doneSet)
+        if (isOutputsWriteTool(toolName, toolPath, eventSessionID)) {
+          void recordToolVersionsAfter(toolPath)
+        }
+        if (isCodeHtmlArtifactWrite(toolName, toolPath)) {
+          void recordToolVersionsAfter(toolPath)
+          const set = pendingCodeArtifactTabs.get(eventSessionID) ?? new Set<string>()
+          set.add(toolPath)
+          pendingCodeArtifactTabs.set(eventSessionID, set)
+        }
       } else if (e.type === "session.idle") {
         const paths = pendingCodeArtifactTabs.get(eventSessionID)
         pendingCodeArtifactTabs.delete(eventSessionID)
+        doneToolPaths.delete(eventSessionID)
         if (!paths || paths.size === 0) return
+        // 自动归档不受视图切换守卫：后台 session 的 code 模式产物照常归档
+        // （与版本基线全局监听同设计动机——切走不丢）
+        for (const path of paths) {
+          handleCodeHtmlArtifactArchive(path, eventSessionID)
+        }
         // 切走的 session：tab 直接丢弃（基线已记录，不补开）
         if (params.id !== eventSessionID) return
         for (const path of paths) {
@@ -1564,6 +1622,9 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching() || patternChildBusy())
+  // retry 也是生成中状态：InsightTurn 的 active 需接受 retry，否则重试等待期间
+  // 阻塞提示/已执行时间/生成中卡片全部隐藏，模型长时间重试时用户得不到任何反馈
+  const sessionActive = (status: SessionStatus | undefined) => status?.type === "busy" || status?.type === "retry"
   const contextCompactionDisabled = effectiveBusy
 
   async function executeSessionCommand(input: Parameters<typeof sdk.client.session.command>[0]) {
@@ -1696,8 +1757,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (lastBusyState && !busy && id) {
       // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
       setFilesRefreshKey(k => k + 1)
-      // 评估回合结束：采集 annotations.json → 校验 → 进待修改状态。
-      void harvestAssessmentReview(() => effectiveBusy())
+      // 评估回合结束：5s 轮询）
+      harvestAssessmentReview()
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -1747,21 +1808,31 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── 阻塞检测计时器 ────────────────────────────────────────────
   const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
   const [blockTime, setBlockTime] = createSignal(0)
+ 
+  const TOOL_STALE_MS = 300_000
+  const [toolStale, setToolStale] = createSignal(false)
+  let lastToolActivityAt = Date.now()
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
-    if (effectiveBusy() && !hasQuestion && !hasRunningTool()) {
+    if (effectiveBusy() && !hasQuestion) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
-        const blockedMs = Date.now() - lastDeltaTime()
-        if (blockedMs > 3000) {
-          setBlockTime(Math.floor(blockedMs / 1000))
+        const childActive = [...childSessionIDs()].some((id) => sync.data.session_status[id]?.type === "busy")
+        if (hasRunningTool() && (childActive || Date.now() - lastToolActivityAt <= TOOL_STALE_MS)) {
+          setBlockTime(0)
+          setToolStale(false)
+          return
         }
+        setToolStale(hasRunningTool())
+        const blockedMs = Date.now() - lastDeltaTime()
+        setBlockTime(blockedMs > 3000 ? Math.floor(blockedMs / 1000) : 0)
       }, 1000)
     } else {
       if (blockTimer) { clearInterval(blockTimer); blockTimer = undefined }
       setLastDeltaTime(Date.now())
       setBlockTime(0)
+      setToolStale(false)
     }
     onCleanup(() => { if (blockTimer) clearInterval(blockTimer) })
   })
@@ -1798,6 +1869,27 @@ const sessionMessagesLoaded = createMemo(() => {
   const [mentionIndex, setMentionIndex] = createSignal(0)
   const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
 
+  // 防抖镜像:文件编辑/工具成功等事件在模型流式输出期间高频 bump filesRefreshKey,
+  // 直接驱动 artifactFiles resource 会造成 recursive=true 全树扫描请求风暴。
+  // leading(立即) + trailing(收尾) 双沿:首次 bump 立即刷新,窗口内后续 bump 合并为一次收尾。
+  const [artifactRefreshKey, setArtifactRefreshKey] = createSignal(0)
+  let artifactRefreshTimer: ReturnType<typeof setTimeout> | undefined
+  let artifactRefreshLast = 0
+  createEffect(on(filesRefreshKey, (k) => {
+    const elapsed = Date.now() - artifactRefreshLast
+    if (elapsed >= 300) {
+      clearTimeout(artifactRefreshTimer); artifactRefreshTimer = undefined
+      artifactRefreshLast = Date.now()
+      setArtifactRefreshKey(k)
+    } else {
+      clearTimeout(artifactRefreshTimer)
+      artifactRefreshTimer = setTimeout(() => {
+        artifactRefreshLast = Date.now()
+        setArtifactRefreshKey(filesRefreshKey())
+      }, 300 - elapsed)
+    }
+  }))
+
   // Mention selections are now managed by ProseMirrorEditor's sync plugin
 
   // ── Artifact Files Resource (for @ mention) ──
@@ -1810,7 +1902,7 @@ const sessionMessagesLoaded = createMemo(() => {
       scope: isProjectScope() ? ("project" as const) : undefined,
       url: globalSDK.url,
       directory: sdk.directory,
-      refreshKey: filesRefreshKey(),
+      refreshKey: artifactRefreshKey(),
     }),
     async ({ sessionId, scope, url, directory }) => {
       if (!sessionId && !scope) return null
@@ -1939,9 +2031,8 @@ const sessionMessagesLoaded = createMemo(() => {
     return preset && designSystemOptions().includes(preset) ? preset : null
   })
 
-  // 存量对话页展示：创建会话时选中的设计系统 —— 主 session 首条可见用户消息的 skill part
-  // （state.input.name）匹配设计系统列表（注入时 chip 前置 → 首个匹配即创建时选择；
-  // 消息推导跨设备可用，旧会话/创建时未选 → 无匹配 → null → displayOnly 仅图标）
+  // 存量对话页展示：创建会话时选中的设计系统 —— handleSubmit 发送时把选中项写入首条
+  // 用户消息 text part 的 metadata.designSystem，
   const sessionDesignSystem = createMemo(() => {
     const sid = params.id
     if (!sid) return null
@@ -1949,14 +2040,8 @@ const sessionMessagesLoaded = createMemo(() => {
       ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => isVisibleUserMessage(m, sync.data.part[m.id])),
     )[0]
     if (!firstUser) return null
-    const parts = (sync.data.part?.[firstUser.id] ?? []) as Array<Record<string, unknown>>
-    const opts = designSystemOptions()
-    return (
-      parts
-        .filter((p) => p.type === "tool" && (p.tool as string | undefined) === "skill")
-        .map((p) => (p.state as { input?: { name?: string } } | undefined)?.input?.name)
-        .find((name) => name && opts.includes(name)) ?? null
-    )
+    const parts = (sync.data.part?.[firstUser.id] ?? []) as Array<{ type?: string; metadata?: { designSystem?: string } }>
+    return parts.find((p) => p.type === "text" && p.metadata?.designSystem)?.metadata?.designSystem ?? null
   })
 
   // ── Slash Command List ──
@@ -2169,45 +2254,47 @@ const sessionMessagesLoaded = createMemo(() => {
 
     const api = getDesktopApi()
     if (api?.readFileBuffer) {
-      try {
-        // 产物在 .octo/{sid}/outputs（项目 .gitignore 内），服务端 snapshot/patch 不追踪 →
-        // revert 拿不到 patch，文件内容必须由前端用 .history 版本自己恢复/删除
-        for (const filePath of involved) {
+      // 产物未被服务端 snapshot/patch 追踪，由前端从 .history 恢复。
+      for (const filePath of involved) {
+        try {
           const realTab = tabStore.tabs().find((t) => t.filePath && normalizePath(t.filePath) === filePath)
-          if (realTab) {
-            await historyController.restoreFilesBefore(realTab, cutoff)
-            continue
-          }
-          const buffer = await api.readFileBuffer(filePath)
           const fileName = filePath.split(/[/\\]/).pop() ?? filePath
-          const pseudoTab: ResultTab = {
+          const tab: ResultTab = realTab ?? {
             id: `revert-${filePath}`,
             title: fileName,
             type: "html",
             subtype: extractSubtypeFromFilename(fileName),
-            content: buffer ? new TextDecoder().decode(buffer) : "",
+            content: "",
             filePath,
             createdAt: new Date(),
           }
-          await historyController.restoreFilesBefore(pseudoTab, cutoff)
-        }
-        for (const filePath of involved) {
+          await historyController.restoreFilesBefore(tab, cutoff)
           await historyController.removeVersionsAfter({ filePath }, cutoff)
-        }
-        for (const tab of [...tabStore.tabs()]) {
-          if (!tab.filePath || !involved.has(normalizePath(tab.filePath))) continue
-          const buffer = await api.readFileBuffer(tab.filePath)
-          if (!buffer) {
-            showOctoToast({ title: "该页面已随回退删除", description: tab.title })
-            handleCloseTab(tab.id)
-            continue
+          for (const openTab of [...tabStore.tabs()]) {
+            if (!openTab.filePath || normalizePath(openTab.filePath) !== filePath) continue
+            const buffer = await api.readFileBuffer(openTab.filePath)
+            if (!buffer) {
+              showOctoToast({ title: "该页面已随回退删除", description: openTab.title })
+              handleCloseTab(openTab.id)
+              continue
+            }
+            tabStore.updateTabContent(openTab.id, new TextDecoder().decode(buffer))
           }
-          tabStore.updateTabContent(tab.id, new TextDecoder().decode(buffer))
-          await historyController.loadVersions(tab)
+        } catch (error) {
+          console.warn("[octo:make] revert file restore failed", filePath, error)
+          showOctoToast({
+            title: "产物回退失败",
+            description: `${filePath} — ${error instanceof Error ? error.message : String(error)}`,
+            variant: "error",
+          })
         }
-        setFilesRefreshKey((k) => k + 1)
-      } catch (err) {
-        console.warn("[octo:make] revert file restore failed", err)
+      }
+      setFilesRefreshKey((k) => k + 1)
+      const activeTab = tabStore.tabs().find((tab) => tab.id === tabStore.activeId())
+      if (activeTab?.filePath && involved.has(normalizePath(activeTab.filePath))) {
+        await historyController.loadVersions(activeTab).catch((error) => {
+          console.warn("[octo:make] revert history refresh failed", activeTab.filePath, error)
+        })
       }
     }
 
@@ -2408,6 +2495,162 @@ const sessionMessagesLoaded = createMemo(() => {
     void historyController.recordInitIfNeeded(pseudoHistoryTab(filePath))
   }
 
+
+
+  /** 归档标题来源会话：沿 sync.session.get(sid)?.parentID 向上找根主会话——
+    */
+  const archiveRootSid = (sid: string): string => {
+    let current = sid
+    for (let depth = 0; depth < 5; depth++) {
+      const parentID = sync.session.get(current)?.parentID
+      if (!parentID) break
+      current = parentID
+    }
+    return current
+  }
+
+  /** 会话展示标题*/
+  const sessionDisplayTitle = (sid: string) => sessionTitle(sync.session.get(sid)?.title) ?? "New session"
+
+  const reportAutoArchiveResult = (info: { title: string; subtype?: string; mode: "normal" | "code"; resumed?: boolean }, result: AutoArchiveResult) => {
+    tracker.interaction({
+      module: "design",
+      name: "auto-archive-result",
+      extend: JSON.stringify({
+        mode: info.mode,
+        title: info.title.slice(0, 100),
+        subtype: info.subtype ?? "",
+        success: result.success,
+        ...(info.resumed ? { resumed: true } : {}),
+        ...(result.message ? { message: result.message.slice(0, 100) } : {}),
+      }),
+    })
+  }
+
+  /** 轮询终态统一处理（上传成功后的解压处理结果，或挂载恢复的未终态任务）：
+   *  上传成功的 toast 延迟到轮询终态才提示（仅终态 toast）。 */
+  const handleArchiveTerminal = (task: PendingArchivePoll, result: AutoArchiveResult) => {
+    reportAutoArchiveResult({ title: task.name, mode: task.mode, resumed: task.resumed }, result)
+    if (result.success) {
+      showOctoToast({ title: "已自动同步云端", description: task.name })
+    } else {
+      showOctoToast({ title: "自动同步云端失败", description: result.message })
+    }
+  }
+
+  /** html 产物自动落盘后回调（insight-turn onHtmlArtifactSaved）：
+   *  开关开启 + 非 legacy subtype 时打包 index.html ZIP → uploadZipPackage 归档上传，
+   *  toast 反馈成败；非登录态提示后跳过（不记去重，登录后新生成的产物可正常归档）。 */
+  function handleHtmlArtifactSaved(card: OutputCard, filePath: string, sessionID: string) {
+    if (!settings.general.cloudSyncPush()) return
+    if (getSubtypeConfig(card.subtype).features.downloadUI === "legacy") return
+    if (!isAssetLibraryLoggedIn()) {
+      reportAutoArchiveResult({ title: card.title, subtype: card.subtype, mode: "normal" }, { success: false, message: "未登录" })
+      showOctoToast({ title: "自动同步云端失败", description: "未登录" })
+      return
+    }
+    if (autoArchiveReported.has(card.id)) return
+    autoArchiveReported.add(card.id)
+    const title = card.title.replace(/\.html?$/i, "")
+    const pageName = filePath.split(/[/\\]/).pop() ?? filePath
+    void (async () => {
+      tracker.interaction({ module: "design", name: "auto-archive-upload", extend: JSON.stringify({ mode: "normal" }) })
+      let uploaded: AutoArchiveResult
+      try {
+        const zipBlob = await createIndexHtmlZip({ htmlContent: extractFileContent(card), htmlFilePath: filePath })
+        uploaded = await uploadZipPackage({ name: `${title}.zip`, zipBlob, sessionTitle: sessionDisplayTitle(archiveRootSid(sessionID)), pageName })
+      } catch (err) {
+        uploaded = { success: false, message: err instanceof Error ? err.message : String(err) }
+      }
+      // 构建失败/上传失败即时提示（触发时必在 Make 页）；上传成功 → 轮询终态才 toast
+      if (!uploaded.success) {
+        reportAutoArchiveResult({ title: card.title, subtype: card.subtype, mode: "normal" }, uploaded)
+        showOctoToast({ title: "自动同步云端失败", description: uploaded.message })
+        return
+      }
+      startArchivePoll({ id: uploaded.id!, name: title, mode: "normal", startedAt: Date.now() }, handleArchiveTerminal)
+    })()
+  }
+
+  /** code 工作区 html 产物自动归档（全局 SSE 监听器 session.idle */
+  const CODE_ARCHIVE_DEBOUNCE_MS = 10_000
+  const codeArchiveDebounce = new Map<string, ReturnType<typeof setTimeout>>()
+
+  function handleCodeHtmlArtifactArchive(filePath: string, sessionID: string) {
+    if (!settings.general.cloudSyncPush()) return
+    if (!isAssetLibraryLoggedIn()) {
+      reportAutoArchiveResult({ title: filePath.split(/[/\\]/).pop() ?? filePath, mode: "code" }, { success: false, message: "未登录" })
+      showOctoToast({ title: "自动同步云端失败", description: "未登录" })
+      return
+    }
+    const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+    const subtype = extractSubtypeFromFilename(fileName)
+    if (getSubtypeConfig(subtype).features.downloadUI === "legacy") return
+    const readFileBuffer = getDesktopApi()?.readFileBuffer
+    if (!readFileBuffer) {
+      console.log("[AutoArchive] code mode skipped: no desktop readFileBuffer", filePath)
+      return
+    }
+   
+    const existing = codeArchiveDebounce.get(filePath)
+    if (existing) clearTimeout(existing)
+    codeArchiveDebounce.set(
+      filePath,
+      setTimeout(() => {
+        codeArchiveDebounce.delete(filePath)
+        void (async () => {
+          const info = { title: fileName.replace(/\.html?$/i, ""), subtype, mode: "code" as const }
+          let uploaded: AutoArchiveResult
+          try {
+            // code 模式磁盘权威：write 工具刚落盘的最终态；读盘失败即本轮产物未就绪，跳过
+            const buf = await readFileBuffer(filePath)
+            if (!buf) {
+              console.log("[AutoArchive] code mode skipped: file not readable", filePath)
+              return
+            }
+            const htmlContent = new TextDecoder().decode(buf)
+            const dedupKey = codeArchiveDedupKey(filePath, htmlContent)
+            if (autoArchiveReported.has(dedupKey)) return
+            autoArchiveReported.add(dedupKey)
+            // 漏斗尝试打点：去重登记后、构建 ZIP 前（文件不可读/去重命中的静默跳过不计尝试）
+            tracker.interaction({ module: "design", name: "auto-archive-upload", extend: JSON.stringify({ mode: "code" }) })
+            const zipBlob = await createIndexHtmlZip({ htmlContent, htmlFilePath: filePath })
+            uploaded = await uploadZipPackage({ name: `${info.title}.zip`, zipBlob, sessionTitle: sessionDisplayTitle(archiveRootSid(sessionID)), pageName: fileName })
+          } catch (err) {
+            uploaded = { success: false, message: err instanceof Error ? err.message : String(err) }
+          }
+          // 构建失败/上传失败即时提示（执行时必在 Make 页）；上传成功 → 轮询终态才 toast
+          if (!uploaded.success) {
+            reportAutoArchiveResult(info, uploaded)
+            showOctoToast({ title: "自动同步云端失败", description: uploaded.message })
+            return
+          }
+          startArchivePoll({ id: uploaded.id!, name: info.title, mode: "code", startedAt: Date.now() }, handleArchiveTerminal)
+        })()
+      }, CODE_ARCHIVE_DEBOUNCE_MS),
+    )
+  }
+
+  // code 模式产物补偿扫描（catch-up）
+  createEffect(
+    on(
+      () => [params.id, sessionMessagesLoaded(), userMessages().length] as const,
+      ([sid]) => {
+        if (!sid || !sessionMessagesLoaded()) return
+        const paths = new Set<string>()
+        for (const sessionSid of [sid, ...childSessionIDs()]) {
+          for (const msg of (sync.data.message?.[sessionSid] ?? []) as Message[]) {
+            const parts = (sync.data.part?.[msg.id] ?? []) as RevertDraftPart[]
+            for (const filePath of collectWriteEditFiles(parts)) {
+              if (isCodeHtmlArtifactWrite("write", filePath)) paths.add(filePath)
+            }
+          }
+        }
+        for (const path of paths) handleCodeHtmlArtifactArchive(path, sid)
+      },
+    ),
+  )
+
   /** write-edit 工具落盘后（该文件无真实 tab 持有时）→ write 新建补 init + 记 agent（模型编辑）。
    *  有真实 tab 时走既有 onFileRefresh 路径，避免同一次编辑记两份。 */
   async function recordToolVersionsAfter(filePath: string) {
@@ -2434,6 +2677,18 @@ const sessionMessagesLoaded = createMemo(() => {
   // 卸载兜底(Make→Insight/Pattern 等跨页面导航时 MakeContent 会被卸载):
   // onCleanup 不保证在浏览器刷新时执行,刷新场景由每次 mutation 即存覆盖。
   onCleanup(() => persistTabsFor(params.id, true))
+
+  // 自动归档轮询生命周期：仅 Make 页挂载期间轮询——
+  // 切走暂停(pauseArchivePolls 取消 in-flight)、切回/刷新恢复(resumeArchivePolls
+  // 从 localStorage store 重启未终态任务,标 resumed),见 utils/auto-archive.ts。
+  onMount(() => resumeArchivePolls(handleArchiveTerminal))
+  onCleanup(pauseArchivePolls)
+
+  // code 模式归档防抖计时器随卸载清空。
+  onCleanup(() => {
+    for (const timer of codeArchiveDebounce.values()) clearTimeout(timer)
+    codeArchiveDebounce.clear()
+  })
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -2866,7 +3121,8 @@ const sessionMessagesLoaded = createMemo(() => {
       const dir = sdk.directory
       if (!dir) throw new Error("No directory")
       const userMsgs = userMessages()
-      const lastUserMsg = userMsgs[userMsgs.length - 1]
+      // 跳过自动压缩回填轮(replay/continue),取真正的最后一条用户输入
+      const lastUserMsg = userMsgs.findLast((m) => !isHiddenCompactionTurn(sync.data.part[m.id]))
       const rawText = lastUserMsg ? (sync.data.part[lastUserMsg.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n") : ""
       const userInput = rawText.replace(/^[\s\S]*?---\n/, "").trim()
       setPatternUserInput(userInput)
@@ -3042,7 +3298,8 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!dir) throw new Error("No directory")
 
       const userMsgs = userMessages()
-      const lastUserMsg = userMsgs[userMsgs.length - 1]
+      // 跳过自动压缩回填轮(replay/continue),取真正的最后一条用户输入
+      const lastUserMsg = userMsgs.findLast((m) => !isHiddenCompactionTurn(sync.data.part[m.id]))
       const rawText = lastUserMsg
         ? (sync.data.part[lastUserMsg.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
         : composerText
@@ -3636,7 +3893,15 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
     if (!tab) return
     tracker.interaction({ module: "design", name: "switch-version", extend: JSON.stringify({ actor: entry.actor }) })
-    await historyController.switchVersion(entry, tab)
+    try {
+      await historyController.switchVersion(entry, tab)
+    } catch (error) {
+      showOctoToast({
+        title: "无法切换历史版本",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "error",
+      })
+    }
   }
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */
@@ -3730,7 +3995,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装上下文前缀（[Artifact Folder] 等），调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], injectedDesignSystem?: string, attachmentSnapshot?: Attachment[]) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[], designSystem?: string, attachmentSnapshot?: Attachment[]) {
     try {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
@@ -4009,6 +4274,7 @@ const sessionMessagesLoaded = createMemo(() => {
               metadata: {
                 displayText: isFirstSkillCommand ? fullDisplayText : "",
                 command: seg.cmd,
+                ...(designSystem ? { designSystem } : {}),
               }
             })
             isFirstSkillCommand = false
@@ -4067,10 +4333,10 @@ const sessionMessagesLoaded = createMemo(() => {
         promptText = artifactFolderPrefix + "\n" + promptText
       }
 
-      const textPart: TextPartInput = { 
-        type: "text", 
+      const textPart: TextPartInput = {
+        type: "text",
         text: promptText,
-        metadata: { displayText: displayText },
+        ...(displayText || designSystem ? { metadata: { ...(displayText ? { displayText } : {}), ...(designSystem ? { designSystem } : {}) } } : {}),
       }
       
       console.log("[sendMessage] textPart:", textPart)
@@ -4090,7 +4356,7 @@ const sessionMessagesLoaded = createMemo(() => {
         name: "send-message",
         extend: JSON.stringify({
           hasAttachment: fileParts.length > 0 || localManifest.length > 0,
-          ...(injectedDesignSystem ? { designSystem: injectedDesignSystem } : {}),
+          ...(designSystem ? { designSystem } : {}),
         }),
       })
       
@@ -4162,14 +4428,17 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
 
-    let injectedDesignSystem: string | undefined
+   
+    let designSystem: string | undefined
     if (!hasSessionView()) {
-      const designSystem = designSystemSelected()
-      if (designSystem && !mentions.some(m => m.type === "skill" && m.name === designSystem)) {
-        injectedDesignSystem = designSystem
-        text = `​@${designSystem}​ ` + text
-        mentions = [{ type: 'skill', name: designSystem, label: designSystem, id: designSystem, path: "" }, ...mentions]
-        tracker.interaction({ module: "design", name: "send-design-system", extend: JSON.stringify({ designSystem }) })
+      const selected = designSystemSelected()
+      if (selected) {
+        designSystem = selected
+        if (!mentions.some(m => m.type === "skill" && m.name === selected)) {
+          text = `​@${selected}​ ` + text
+          mentions = [{ type: 'skill', name: selected, label: selected, id: selected, path: "" }, ...mentions]
+          tracker.interaction({ module: "design", name: "send-design-system", extend: JSON.stringify({ designSystem: selected }) })
+        }
       }
     }
     
@@ -4396,7 +4665,7 @@ const sessionMessagesLoaded = createMemo(() => {
             setPatternBlockMatching(false)
             // 不清空 lastEnriched*MsgId：跳过历史中已处理过的旧 <pattern-match>/<module-list>，
             // 仅当 agent 本轮输出新的 match/module-list 时才重新触发匹配弹窗
-            await sendMessage(existingChildId, text, capturedModelKey, mentions, injectedDesignSystem)
+            await sendMessage(existingChildId, text, capturedModelKey, mentions, designSystem)
           } else {
             // 首次进入：创建新的 ict_pattern 子 session
             lastEnrichedPatternMatchMsgId = null
@@ -4413,12 +4682,12 @@ const sessionMessagesLoaded = createMemo(() => {
               setPatternSubPhase("match")
               setPatternMatches(null)
               sync.session.sync(patternChildSession.id).catch(() => {})
-              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions, injectedDesignSystem)
+              await sendMessage(patternChildSession.id, text, capturedModelKey, mentions, designSystem)
             }
           }
         }
       } else {
-        await sendMessage(sid, text, capturedModelKey, mentions, injectedDesignSystem, attachmentSnapshot)
+        await sendMessage(sid, text, capturedModelKey, mentions, designSystem, attachmentSnapshot)
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
@@ -6038,10 +6307,12 @@ const sessionMessagesLoaded = createMemo(() => {
       >
 
         {/* ── 左栏：对话面板 ──── */}
-        <Show when={!hideChat()}>
+        {/* 焦点模式改为 CSS 隐藏而非卸载：局部修改「确认/下一项」经 appendToMainComposer/
+            submitMainComposer 依赖主 composer (proseMirrorRef1/2)，卸载后 ref 失活会静默丢消息 */}
           <div
             classList={{ "flex": true, "flex-col": true, "overflow-hidden": true, "make-chat-folded": ml.rightCollapsed() || ml.rightManuallyHidden() }}
             style={{
+              display: hideChat() ? "none" : "flex",
               "z-index": 11,
               background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
               outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
@@ -6117,51 +6388,17 @@ const sessionMessagesLoaded = createMemo(() => {
                     </h1>
                   </Show>
                   <Show when={!titleState.editing && params.id}>
-                    <Tooltip
-                      placement="top"
-                      gutter={8}
-                      arrow
-                      interactive
-                      contentClass="make-token-tooltip"
-                      value={
-                        <div class="make-token-tooltip-copy">
-                          <p>
-                            当前对话 Session 上下文
-                            {contextUsage() === undefined ? "用量暂不可用" : `已使用${contextUsage()}%`} {" "}
-                            (
-                            {contextTokens()?.toLocaleString(language.intl()) ?? "--"}{" "}
-                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})
-                          </p>
-                        </div>
-                      }
-                    >
-                      <button
-                        type="button"
-                        class="shrink-0 flex items-center justify-center"
-                        classList={{
-                          "cursor-pointer": !contextCompactionDisabled(),
-                          "cursor-not-allowed": contextCompactionDisabled(),
-                        }}
-                        style={{
-                          "--border-weak-base": "rgba(0,0,0,0.1)",
-                          background: "transparent",
-                          border: "none",
-                          padding: "0",
-                        }}
-                        disabled={contextCompactionDisabled()}
-                        onClick={() => {
-                          const sessionID = params.id
-                          if (sessionID) confirmCompactContext(sessionID)
-                        }}
-                        aria-label={
-                          contextUsage() === undefined
-                            ? "上下文用量暂不可用，点击压缩上下文"
-                            : `上下文已使用 ${contextUsage()}%，点击压缩上下文`
-                        }
-                      >
-                        <ContextUsageCircle percentage={contextUsage()} />
-                      </button>
-                    </Tooltip>
+                    <ContextUsageTrigger
+                      usage={contextUsage()}
+                      tokens={contextTokens()}
+                      limit={contextLimit()}
+                      locale={language.intl()}
+                      disabled={contextCompactionDisabled()}
+                      onCompact={() => {
+                        const sessionID = params.id
+                        if (sessionID) confirmCompactContext(sessionID)
+                      }}
+                    />
                   </Show>
                 </div>
                 <button
@@ -6380,6 +6617,8 @@ onPreview={(url) => {
                           onChange={handleFileInputChange}
                         />
                         <AddonMenu
+                          closeWhen={lastOpenedPopover() === "model"}
+                          onOpen={() => setLastOpenedPopover("addon")}
                           items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                           slots={[
                             {
@@ -6433,6 +6672,8 @@ onPreview={(url) => {
                           trackerModule="design"
                         />
 <ModelSelectorPopover
+                           closeWhen={lastOpenedPopover() === "addon"}
+                           onOpen={() => setLastOpenedPopover("model")}
                            model={local.model}
                            riskDialog={MakeModelRiskDialog}
                            triggerAs="button"
@@ -6452,20 +6693,20 @@ onPreview={(url) => {
                          >
                            <ModelTriggerLabel model={local.model} />
                           </ModelSelectorPopover>
-                          <DesignSystemSelector
-                            options={designSystemOptions()}
-                            selected={designSystemSelected()}
-                            onSelect={(label) => {
-                              setDesignSystemChoice(label)
-                              getDesktopApi()?.setDesignSystemSkillConfig?.(label ?? DESIGN_SYSTEM_NONE)?.catch((err) =>
-                                console.warn("[MakePage] setDesignSystemSkillConfig failed", err)
-                              )
-                              tracker.interaction({ module: "design", name: "select-design-system", extend: JSON.stringify({ designSystem: label ?? "none" }) })
-                            }}
-                          />
-                        </div>
- <IconButton
-                          data-action="prompt-submit"
+                           <DesignSystemSelector
+                             options={designSystemOptions()}
+                             selected={designSystemSelected()}
+                             onSelect={(label) => {
+                               setDesignSystemChoice(label)
+                               getDesktopApi()?.setDesignSystemSkillConfig?.(label ?? DESIGN_SYSTEM_NONE)?.catch((err) =>
+                                 console.warn("[MakePage] setDesignSystemSkillConfig failed", err)
+                               )
+                               tracker.interaction({ module: "design", name: "select-design-system", extend: JSON.stringify({ designSystem: label ?? "none" }) })
+                             }}
+                            />
+                          </div>
+  <IconButton
+                           data-action="prompt-submit"
                           type="submit"
                           icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
@@ -6560,7 +6801,7 @@ onPreview={(url) => {
                         sessionID={userMessages()[0].sessionID || params.id!}
                         messageID={userMessages()[0].id}
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
-                        active={sync.data.session_status[userMessages()[0].sessionID ?? params.id!]?.type === "busy"}
+                        active={sessionActive(sync.data.session_status[userMessages()[0].sessionID ?? params.id!])}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -6575,7 +6816,7 @@ onPreview={(url) => {
                         compactDisabled={contextCompactionDisabled()}
                         onCompact={() => confirmCompactContext(userMessages()[0].sessionID || params.id!)}
                         hasQuestionRequest={!!questionRequest()}
-                        hasRunningTool={hasRunningTool()}
+                        hasRunningTool={hasRunningTool() && !toolStale()}
                         onFilesRefresh={() => {
                           setFilesRefreshKey(k => k + 1)
                           void historyController.onFileRefresh(tabStore.tabs())
@@ -6590,6 +6831,7 @@ onPreview={(url) => {
                         onRevertToMessage={() => handleRevertToMessage(userMessages()[0])}
                         onRegenerateMessage={() => handleRegenerateMessage(userMessages()[0])}
                         onArtifactSaved={recordArtifactInit}
+                        onHtmlArtifactSaved={handleHtmlArtifactSaved}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -6600,7 +6842,7 @@ onPreview={(url) => {
                             sessionID={messageSessionID}
                             messageID={msg.id}
                             status={sync.data.session_status[messageSessionID] ?? sessionStatus()}
-                            active={sync.data.session_status[messageSessionID]?.type === "busy"}
+                            active={sessionActive(sync.data.session_status[messageSessionID])}
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}
                             onAbort={halt}
@@ -6615,7 +6857,7 @@ onPreview={(url) => {
                             compactDisabled={contextCompactionDisabled()}
                             onCompact={() => confirmCompactContext(messageSessionID)}
                             hasQuestionRequest={!!questionRequest()}
-                            hasRunningTool={hasRunningTool()}
+                            hasRunningTool={hasRunningTool() && !toolStale()}
                             onFilesRefresh={() => {
                               setFilesRefreshKey(k => k + 1)
                               void historyController.onFileRefresh(tabStore.tabs())
@@ -6630,6 +6872,7 @@ onPreview={(url) => {
                             onRevertToMessage={() => handleRevertToMessage(msg)}
                             onRegenerateMessage={() => handleRegenerateMessage(msg)}
                             onArtifactSaved={recordArtifactInit}
+                            onHtmlArtifactSaved={handleHtmlArtifactSaved}
                           />
                         )
                       }}
@@ -6834,6 +7077,8 @@ onPreview={(url) => {
                         onChange={handleFileInputChange}
                       />
                       <AddonMenu
+                        closeWhen={lastOpenedPopover() === "model"}
+                        onOpen={() => setLastOpenedPopover("addon")}
                         items={["skills", "assetLibrary", "designStrategy", "patternPage", "addAttachment"]}
                         slots={[
                           {
@@ -6887,6 +7132,8 @@ onPreview={(url) => {
                         trackerModule="design"
                       />
 <ModelSelectorPopover
+                         closeWhen={lastOpenedPopover() === "addon"}
+                         onOpen={() => setLastOpenedPopover("model")}
                          model={local.model}
                          riskDialog={MakeModelRiskDialog}
                          triggerAs="button"
@@ -6906,14 +7153,14 @@ onPreview={(url) => {
                        >
                          <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
                        </ModelSelectorPopover>
-                      <DesignSystemSelector
-                        options={designSystemOptions()}
-                        selected={sessionDesignSystem()}
-                        displayOnly
-                      />
-                     </div>
-<IconButton
-                       data-action="prompt-submit"
+                       <DesignSystemSelector
+                         options={designSystemOptions()}
+                         selected={sessionDesignSystem()}
+                          displayOnly
+                        />
+                       </div>
+ <IconButton
+                        data-action="prompt-submit"
                        type="submit"
                        icon={effectiveBusy() ? "stop" : "arrow-up"}
                        variant="primary"
@@ -6935,7 +7182,6 @@ onPreview={(url) => {
             </Show>
 
         </div>
-        </Show>
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
         <Show when={gridHasContent() && !hideChat() && !ml.rightCollapsed() && !ml.rightManuallyHidden()}>

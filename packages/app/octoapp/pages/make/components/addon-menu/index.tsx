@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
+import { createSignal, createMemo, createEffect, For, Show, on, onCleanup, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { useWorkspaceKind } from "@/hooks/use-workspace-kind"
@@ -207,6 +207,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const finishOpen = () => {
     setLocalFileSelections([])
     fileSelectionChanges.clear()
+    props.onOpen?.()
     setOpen(true)
     setActiveSecondary(null)
     setSkillsCategory('platform')
@@ -265,6 +266,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     setActiveSecondary(null)
     setSkillsCategory('platform')
   }
+
+  createEffect(on(() => props.closeWhen, (shouldClose) => {
+    if (shouldClose && open()) closeMenu()
+  }))
 
   const confirmDesignFileSelections = () => {
     setLocalFileSelections([])
@@ -1051,6 +1056,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
       <LibraryDialog
         trackerModule={trackerModule()}
+        strictMessages={props.strictAssetLibraryMessages}
         open={libraryDialogOpen()}
         productId={props.productId}
         selections={props.selections as MentionSelection[]}

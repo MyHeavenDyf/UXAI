@@ -217,6 +217,53 @@ it.instance("recovers orphan running state and rejects a delayed initialization 
   }),
 )
 
+it.instance("reads the latest guide behind newer ordinary turns and addresses older submissions by guide ID", () =>
+  Effect.gen(function* () {
+    const instance = yield* InstanceState.context
+    yield* Effect.promise(() => Instance.restore(instance, async () => {
+      const first = await initializeRecommendation({ requestID: crypto.randomUUID() })
+      const row = Database.use((db) => db.select().from(PartTable)
+        .where(eq(PartTable.id, PartID.make(first.guidePartID))).get())!
+      const previous = row.data as Omit<MessageV2.TextPart, "id" | "messageID" | "sessionID">
+      const resultPartID = PartID.ascending()
+      const requestID = crypto.randomUUID()
+      const consumed = {
+        ...previous,
+        metadata: { studioPromptRecommendation: {
+          ...previous.metadata!.studioPromptRecommendation,
+          revision: 2,
+          status: "consumed",
+          submission: { requestID, digest: "test", userMessageID: first.guideMessageID,
+            assistantMessageID: first.guideMessageID, resultPartID },
+        } },
+      }
+      const result = { type: "text" as const, text: "历史扩写结果", metadata: { studioPromptExpansion: {
+        version: 1, kind: "result", revision: 2, guidePartID: first.guidePartID, status: "completed",
+      } } }
+      Database.use((db) => {
+        db.update(PartTable).set({ data: consumed }).where(eq(PartTable.id, row.id)).run()
+        db.insert(PartTable).values({
+          id: resultPartID, session_id: row.session_id, message_id: row.message_id,
+          time_created: Date.now(), time_updated: Date.now(),
+          data: result,
+        }).run()
+      })
+      const state = await getRecommendationState(first.sessionID)
+      const latest = await initializeRecommendation({ requestID: crypto.randomUUID(), sessionID: first.sessionID,
+        expectedStateToken: state.stateToken, showGuide: false })
+      await createEditorEntry({ sessionID: first.sessionID, entryID: crypto.randomUUID(), capability: "image.upscale" })
+      expect((await getRecommendationState(first.sessionID)).recommendation).toMatchObject({
+        guidePartID: latest.guidePartID, status: "armed",
+      })
+      const historical = await getRecommendationState(first.sessionID, first.guidePartID)
+      expect(historical.recommendation).toMatchObject({ guidePartID: first.guidePartID, status: "completed",
+        submission: { requestID } })
+      expect(historical.stateToken).toBe(latest.stateToken)
+      expect((await getRecommendationState(first.sessionID)).stateToken).toBe(latest.stateToken)
+    }))
+  }),
+)
+
 it.instance("atomically initializes a real session and replays the original blank-page request", () =>
   Effect.gen(function* () {
     const instance = yield* InstanceState.context

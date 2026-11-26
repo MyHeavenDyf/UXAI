@@ -1,5 +1,26 @@
 import { describe, expect, test } from "bun:test"
 import { configureModelsApiHeaders, ModelHeadersPlugin, modelRequestBody, parseModelsApi } from "@/plugin/model-headers"
+import { Schema } from "effect"
+import { ModelsDev } from "@/provider/models"
+
+test.each(
+  [undefined, null, "3", "", true, {}, [], Number.NaN, Number.POSITIVE_INFINITY].map((sortOrder) => ({ sortOrder })),
+)("invalid optional sort order %j does not invalidate a remote provider", (input) => {
+  const catalog = parseModelsApi({
+    content: {
+      gateway: { id: "gateway", name: "Gateway", sortOrder: input.sortOrder, models: [{ id: "remote-model" }] },
+    },
+  })
+  const provider = Schema.decodeUnknownSync(ModelsDev.Provider)(catalog.gateway)
+  expect(provider.id).toBe("gateway")
+  expect(provider.sortOrder).toBeUndefined()
+  expect(provider.models["remote-model"].id).toBe("remote-model")
+})
+
+test.each([0, -1, 3])("preserves valid remote sort order %j", (sortOrder) => {
+  const catalog = parseModelsApi({ gateway: { id: "gateway", name: "Gateway", sortOrder, models: {} } })
+  expect(Schema.decodeUnknownSync(ModelsDev.Provider)(catalog.gateway).sortOrder).toBe(sortOrder)
+})
 
 test("normalizes array models from the remote catalog", () => {
   const catalog = parseModelsApi({

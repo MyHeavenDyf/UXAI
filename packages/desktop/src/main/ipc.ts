@@ -40,7 +40,9 @@ import type {
   WslConfig,
 } from "../preload/types"
 import * as FastuiDevServer from "./fastui-devserver"
+import * as SkillRefresh from "./skill-refresh"
 import * as FastuiExport from "./fastui-export"
+import * as FastuiPrepare from "./fastui-prepare"
 import { effectiveXdgConfigHome } from "./storage"
 import { getStore } from "./store"
 import { proxyConfigFile, maskProxyUrl } from "./proxy-config"
@@ -208,7 +210,8 @@ type Deps = {
   resolveAppPath: (appName: string) => Promise<string | null>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
-  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
+  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string; releaseNotes?: string; forceUpdate?: boolean }>
+  checkUpdateReadiness: () => Promise<{ ready: boolean; reason?: string }>
   installUpdate: () => Promise<void> | void
   setBackgroundColor: (color: string) => void
   // jk-j60099994-replace-with-ipc-2-start
@@ -379,6 +382,11 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("fastui-preview-restart", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
     FastuiDevServer.restart(target),
   )
+  // 分享导入的工程在本机接手(octo-agent SPEC-DES-009):open / restart 返回 needsPrepare 时调,
+  // 首装可能要几分钟,渲染进程按独立超时等。同样约定「返回结果对象、永不 throw」。
+  ipcMain.handle("fastui-preview-prepare", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) =>
+    FastuiPrepare.prepare(target),
+  )
   // 这个(会话, 产物名)有没有 fastui 工程:导出按钮与老卡片转换用,与预览同一个查找函数
   ipcMain.handle("fastui-resolve", (_event: IpcMainInvokeEvent, target: FastuiDevServer.FastuiTarget) => {
     const r = FastuiDevServer.resolveProject(target)
@@ -421,6 +429,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.on("loading-window-complete", () => deps.loadingWindowComplete())
   ipcMain.handle("run-updater", (_event: IpcMainInvokeEvent, alertOnFail: boolean) => deps.runUpdater(alertOnFail))
   ipcMain.handle("check-update", () => deps.checkUpdate())
+  ipcMain.handle("check-update-readiness", () => deps.checkUpdateReadiness())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
   // jk-j60099994-replace-with-ipc-3-start
@@ -1006,11 +1015,12 @@ export function registerIpcHandlers(deps: Deps) {
     await writeFile(resolved, content, "utf-8")
   })
 
-  ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
+  ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string, strict?: boolean) => {
     try {
       const buf = await readFile(path)
       return toExactArrayBuffer(buf)
-    } catch {
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       return null
     }
   })
@@ -1075,11 +1085,11 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
-  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
+  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string, strict?: boolean) => {
     try {
       await unlink(path)
-    } catch {
-      // 文件不存在时忽略，不执行任何代码
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
   })
 
@@ -1253,6 +1263,8 @@ export function registerIpcHandlers(deps: Deps) {
       // 写入 skill_config.json（新格式）
       mkdirSync(dirname(skillConfigPath), { recursive: true })
       writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      // skill_config 是全局配置,写完即通知 sidecar 失效缓存,避免 server 继续读旧清单
+      void SkillRefresh.refreshSidecarSkills()
     } catch (err) {
       console.error("set-skills-config failed", err)
       throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
@@ -1265,16 +1277,6 @@ export function registerIpcHandlers(deps: Deps) {
       return JSON.parse(readFileSync(skillConfigPath, "utf-8"))
     } catch {
       return {}
-    }
-  })
-
-  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
-    try {
-      mkdirSync(dirname(skillConfigPath), { recursive: true })
-      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
-    } catch (err) {
-      console.error("set-skill-config failed", err)
-      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
@@ -1298,6 +1300,57 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  ipcMain.handle("get-skills-by-usage", (_event: IpcMainInvokeEvent, usage: string) => {
+    try {
+      if (!existsSync(skillConfigPath)) return []
+      const config = JSON.parse(readFileSync(skillConfigPath, "utf-8")) as { skill?: Record<string, Record<string, unknown>> }
+      const result: Array<Record<string, unknown>> = []
+      for (const entry of Object.values(config.skill ?? {})) {
+        if (entry && typeof entry === "object" && entry.usage === usage) {
+          result.push(entry)
+        }
+      }
+      return result
+    } catch (err) {
+      console.error("get-skills-by-usage failed", err)
+      return []
+    }
+  })
+
+  ipcMain.handle("get-skill-key-by-name", (_event: IpcMainInvokeEvent, skillName: string) => {
+    try {
+      if (!existsSync(skillConfigPath)) return undefined
+      const config = JSON.parse(readFileSync(skillConfigPath, "utf-8")) as { skill?: Record<string, Record<string, unknown>> }
+      const entries = Object.entries(config.skill ?? {})
+      for (const [key, entry] of entries) {
+        if (entry && typeof entry === "object" && entry.skillName === skillName) {
+          return key
+        }
+      }
+      for (const [key, entry] of entries) {
+        if (entry && typeof entry === "object" && entry.name === skillName) {
+          return key
+        }
+      }
+      return undefined
+    } catch (err) {
+      console.error("get-skill-key-by-name failed", err)
+      return undefined
+    }
+  })
+  
+  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      // skill_config 是全局配置,写完即通知 sidecar 失效缓存,避免 server 继续读旧清单
+      void SkillRefresh.refreshSidecarSkills()
+    } catch (err) {
+      console.error("set-skill-config failed", err)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
   ipcMain.handle("set-Design-System-Skill-Config", async (_event: IpcMainInvokeEvent, skillName: string) => {
   })
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
@@ -1353,6 +1406,7 @@ export function registerIpcHandlers(deps: Deps) {
 
       // 重新生成 skill_config.json（从 ~/.config/octo/skill 目录扫描）
       regenerateSkillConfig()
+      void SkillRefresh.refreshSidecarSkills()
 
       return { success: true, skillName }
     } catch (err) {

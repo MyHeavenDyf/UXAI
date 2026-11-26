@@ -3,6 +3,7 @@ import { Context } from "effect"
 import path from "path"
 import { ExperimentalHttpApiServer } from "../../src/server/routes/instance/httpapi/server"
 import { FilePaths } from "../../src/server/routes/instance/httpapi/groups/file"
+import { InsightPaths } from "../../src/server/routes/instance/httpapi/groups/insight"
 import { Instance } from "../../src/project/instance"
 import * as Log from "@opencode-ai/core/util/log"
 import { resetDatabase } from "../fixture/db"
@@ -33,6 +34,32 @@ afterEach(async () => {
 })
 
 describe("file HttpApi", () => {
+  test("lists Insight generated folders and their children independently of uploaded folders", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const sessionId = "ses_insight_folders"
+    const sessionDir = path.join(tmp.path, ".octo", sessionId)
+    await Promise.all([
+      Bun.write(path.join(sessionDir, "outputs", "report", "charts~draft..final", "sales.txt"), "generated"),
+      Bun.write(path.join(sessionDir, "uploads", "report", "source.txt"), "uploaded"),
+    ])
+
+    const [root, report, charts, uploads, recursive, invalid] = await Promise.all([
+      request(InsightPaths.files, tmp.path, { sessionId, category: "outputs" }),
+      request(InsightPaths.files, tmp.path, { sessionId, category: "outputs", path: "report" }),
+      request(InsightPaths.files, tmp.path, { sessionId, category: "outputs", path: "report/charts~draft..final" }),
+      request(InsightPaths.files, tmp.path, { sessionId, category: "uploads", path: "report" }),
+      request(InsightPaths.files, tmp.path, { sessionId, category: "outputs", recursive: "true" }),
+      request(InsightPaths.files, tmp.path, { sessionId, category: "outputs", path: "report/.." }),
+    ])
+
+    expect(await root.json()).toMatchObject({ files: [{ name: "report", isFolder: true, relativePath: "report", size: 0 }] })
+    expect(await report.json()).toMatchObject({ files: [{ name: "charts~draft..final", isFolder: true, relativePath: "report/charts~draft..final" }] })
+    expect(await charts.json()).toMatchObject({ files: [{ name: "sales.txt", isFolder: false, relativePath: "report/charts~draft..final/sales.txt" }] })
+    expect(await uploads.json()).toMatchObject({ files: [{ name: "source.txt", isFolder: false, relativePath: "report/source.txt" }] })
+    expect(await recursive.json()).toMatchObject({ files: [{ name: "sales.txt", isFolder: false, relativePath: "report/charts~draft..final/sales.txt" }] })
+    expect(await invalid.json()).toEqual({ files: [] })
+  })
+
   test("serves read endpoints", async () => {
     await using tmp = await tmpdir({ git: true })
     await Bun.write(path.join(tmp.path, "hello.txt"), "hello")

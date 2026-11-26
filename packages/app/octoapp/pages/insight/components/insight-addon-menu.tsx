@@ -2,14 +2,12 @@ import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { AddonMenu, type MenuSelection } from "@/pages/make/components/addon-menu"
 import { assetFileId, type AssetFile } from "@/pages/make/components/addon-menu/asset-library"
-import type { ArtifactFile } from "@/pages/make/utils/artifact-file-api"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
 import { beginInsightOperation, trackInsight } from "../utils/interaction-tracking"
 import type { InsightEditorRef } from "./prosemirror-editor"
-import type { MentionFiles, MentionSelection, MentionSkill } from "./mention-popover"
+import type { MentionSelection, MentionSkill } from "./mention-popover"
 import type { McpSelection } from "../store/mcp-trigger"
-import { fileKind } from "../utils/insight-file-api"
 import { getDesktopApi } from "../lib/electron-api"
 import { importProductAsset, type ImportedAsset } from "../utils/product-asset-import"
 import { McpToolMenu } from "./mcp-tool-menu"
@@ -26,17 +24,15 @@ export function InsightAddonMenu(props: {
   skills: { platform: MentionSkill[]; custom: MentionSkill[] }
   skillsLoading: boolean
   loadSkills: () => void
-  files: MentionFiles | null
-  filesLoading: boolean
   selections: MentionSelection[]
   maxAttachments: boolean
+  closeWhen?: boolean
+  onOpen?: () => void
   onAttachment: () => void
   onPending: (pending: boolean) => void
   mcpSelection: McpSelection | null
   onMcpSelect: (selection: McpSelection) => void
   onMcpClear: () => void
-  /** 设计文件 chip 插入后回调(超限图片自动压缩入口;产品资产走下载导入链路,不经过这里) */
-  onFileMentionInsert?: (selection: Extract<MenuSelection, { type: "file" }>) => void
 }) {
   const [state, setState] = createStore<{ pending: Record<string, Pending> }>({ pending: {} })
   const results = new Map<string, ImportedAsset>()
@@ -47,13 +43,6 @@ export function InsightAddonMenu(props: {
     lifetime.abort()
     tasks.forEach(task => task.abort())
     props.onPending(false)
-  })
-  const files = createMemo(() => {
-    const map = (file: MentionFiles["generated"][number]): ArtifactFile => {
-      const kind = fileKind(file.name)
-      return { ...file, sessionId: props.sessionId ?? "", mime: "", kind: kind === "word" || kind === "ppt" || kind === "excel" ? "document" : kind === "json" ? "code" : kind === "other" ? "binary" : kind }
-    }
-    return props.files ? { generated: props.files.generated.map(map), uploaded: props.files.uploaded.map(map) } : null
   })
   const selections = createMemo(() => [...props.selections, ...Object.values(state.pending).map(item => item.selection)])
   const deselect = (selection: MenuSelection) => {
@@ -119,13 +108,14 @@ export function InsightAddonMenu(props: {
   }
   return <>
     <AddonMenu
-      items={["skills", "productAssets", "designFiles", "addAttachment", "insightMcp"]}
-      controlledFiles transactionalFiles cancelOnDispose skillsLoading={props.skillsLoading} filesLoading={props.filesLoading}
+      closeWhen={props.closeWhen} onOpen={props.onOpen}
+      items={["skills", "assetLibrary", "addAttachment", "insightMcp"]}
+      strictAssetLibraryMessages
+      cancelOnDispose skillsLoading={props.skillsLoading}
       skillConfig={{ panel: { octo_make: props.skills.platform, common: props.skills.custom } }}
-      onSkillsOpen={props.loadSkills} artifactFiles={files()} selections={selections()}
+      onSkillsOpen={props.loadSkills} selections={selections()}
       onSelect={selection => {
-        if (selection.type !== "product-asset") props.editor()?.insertMentions([selection])
-        if (selection.type === "file" && !selection.isFolder) props.onFileMentionInsert?.(selection)
+        if (selection.type === "skill") props.editor()?.insertMentions([selection])
       }}
       onDeselect={deselect}
       onAssetSelect={selection => {
@@ -134,7 +124,7 @@ export function InsightAddonMenu(props: {
         setState("pending", selection.path, { selection: { ...selection, id: selection.path } })
       }}
       onAssetDeselect={deselect} productId={props.productId}
-      productAssetsDisabledReason={!props.productId ? "请先选择关联产品的项目" : !getDesktopApi()?.writeFileBuffer || !getDesktopApi()?.movePendingUploadToSession ? "请在桌面端导入产品资产" : undefined}
+      assetLibraryDisabledReason={!props.productId ? "请先选择关联产品的项目" : !getDesktopApi()?.writeFileBuffer || !getDesktopApi()?.movePendingUploadToSession ? "请在桌面端导入产品资产" : undefined}
       onDownloadProductAsset={download} onUpdateMentionPath={finish}
       onAssetDownloadError={() => showToast({ title: "部分资产未导入", description: "成功项已保留，请重试或移除未完成项。" })}
       onAddAttachment={props.onAttachment} maxAttachments={props.maxAttachments} trackerModule="insight"

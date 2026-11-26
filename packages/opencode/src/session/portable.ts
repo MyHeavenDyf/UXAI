@@ -147,7 +147,43 @@ function reportPortableProgress(operationID: string | undefined, progress: Porta
   portableProgressTimers.set(operationID, next)
 }
 
-const decodeManifest = (input: unknown) => Schema.decodeUnknownSync(Manifest)(input) as unknown as Manifest
+const asRecord = (input: unknown) =>
+  input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : undefined
+
+function clampLegacyTokenCounts(input: unknown) {
+  const tokens = asRecord(input)
+  if (!tokens) return
+  ;["total", "input", "output", "reasoning"].forEach((key) => {
+    if (typeof tokens[key] === "number" && tokens[key] < 0) tokens[key] = 0
+  })
+  const cache = asRecord(tokens.cache)
+  if (!cache) return
+  ;["read", "write"].forEach((key) => {
+    if (typeof cache[key] === "number" && cache[key] < 0) cache[key] = 0
+  })
+}
+
+function normalizeLegacyTokenCounts(input: unknown) {
+  const sessions = asRecord(input)?.sessions
+  if (!Array.isArray(sessions)) return input
+  sessions.forEach((session) => {
+    const messages = asRecord(session)?.messages
+    if (!Array.isArray(messages)) return
+    messages.forEach((message) => {
+      const value = asRecord(message)
+      clampLegacyTokenCounts(asRecord(value?.info)?.tokens)
+      if (!Array.isArray(value?.parts)) return
+      value.parts.forEach((part) => {
+        const value = asRecord(part)
+        if (value?.type === "step-finish") clampLegacyTokenCounts(value.tokens)
+      })
+    })
+  })
+  return input
+}
+
+const decodeManifest = (input: unknown) =>
+  Schema.decodeUnknownSync(Manifest)(normalizeLegacyTokenCounts(input)) as unknown as Manifest
 
 function portableInfo(info: Session.Info): Session.Info {
   return {
@@ -182,11 +218,24 @@ function digest(value: Uint8Array) {
   return createHash("sha256").update(value).digest("hex")
 }
 
+// fastui / chart skill 的工程标记:接收方靠它认出工程,点预览时在本机补环境后起服务(octo-agent SPEC-DES-009)。
+// 精确到文件名,不放开其他点开头的文件。导出过滤与导入校验共用 isProjectFile,两边同时生效。
+const PORTABLE_ALLOWED_HIDDEN = new Set([".octo-fastui.json"])
+// fastui / chart 的运行时目录:日志与带本机 pid / 端口的服务记录,换台机器没有意义(octo-agent SPEC-DES-009)。
+// 两种导出范围都排除;session 范围本身不过滤点开头的文件,不能只靠 isProjectFile。
+const PORTABLE_EXCLUDED_DIRS = new Set([".octo-fastui"])
+
 function isProjectFile(value: string, legacy = false) {
   return value
     .replaceAll("\\", "/")
     .split("/")
-    .every((part) => part && !(legacy ? /\0/ : /[\0:]/).test(part) && !part.startsWith(".") && part !== "node_modules")
+    .every(
+      (part) =>
+        part &&
+        !(legacy ? /\0/ : /[\0:]/).test(part) &&
+        (!part.startsWith(".") || PORTABLE_ALLOWED_HIDDEN.has(part)) &&
+        part !== "node_modules",
+    )
 }
 
 async function listFiles(root: string, project = false, blacklist: readonly string[] = []) {
@@ -194,6 +243,7 @@ async function listFiles(root: string, project = false, blacklist: readonly stri
   const visit = async (directory: string): Promise<void> => {
     const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
+      if (entry.isDirectory() && PORTABLE_EXCLUDED_DIRS.has(entry.name)) continue
       if (project && !isProjectFile(entry.name, true)) continue
       const target = path.join(directory, entry.name)
       if (isExcludedPortableFile(target, blacklist)) continue
@@ -469,9 +519,9 @@ export const sharePortableSession = Effect.fn("SessionPortable.share")(function*
         form.append(
           "file",
           new Blob([new Uint8Array(await readFile(exported.output))], { type: "application/zip" }),
-          `${(info.title || "session").replace(/[<>:"/\\|?*]/g, "-").trim() || "session"}.zip`,
+          `${Array.from((info.title || "session").replace(/[<>:"/\\|?*]/g, "-").trim()).slice(0, 10).join("").trim() || "session"}.zip`,
         )
-        form.append("description", info.title || "")
+        form.append("description", Array.from(info.title || "").slice(0, 10).join(""))
         console.info("[octo:share] upload request", JSON.stringify({
           sessionID: input.sessionID,
           uploadURL: `${new URL(uploadURL!).origin}${new URL(uploadURL!).pathname}`,

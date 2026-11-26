@@ -104,9 +104,9 @@ import { type FileReference, type MentionSelection, type MentionSkill } from "./
 import { ProseMirrorEditor, type InsightEditorRef, type MentionAttrs } from "./components/prosemirror-editor"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { lookupDisplayName, type SkillConfig } from "../make/components/skill-config-types"
-import { isContextEstimateForModel, resolveContextEstimateModel, getSessionContextMetrics } from "@/components/session/session-context-metrics"
-import { isContextAtLimit, shouldShowContextWarning } from "@/components/context-usage-warning"
-import { InsightContextOverflowNotice, InsightContextUsageWarning } from "./components/context-usage-notice"
+import { isContextEstimateForMessage, isContextEstimateForModel, resolveContextEstimateModel, getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import { showOctoToast } from "../make/components/octo-toast"
+import { sessionErrorMessage } from "@/utils/session-delete"
 import {
   insightContextCommandName,
   insightContextTokens,
@@ -252,10 +252,18 @@ function InsightCrashFallback(props: { error: unknown }) {
 
 function InsightContent() {
   useSharedSessionImportContext("insight")
-  const params = useParams<{ id?: string }>()
+  const routeParams = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sdk = useSDK()
   const sync = useSync()
+  const routeSession = createMemo(() => (routeParams.id ? sync.session.get(routeParams.id) : undefined))
+  const isChildSession = createMemo(() => !!routeSession()?.parentID)
+  const activeSessionID = createMemo(() => (isChildSession() ? undefined : routeSession()?.id))
+  const params = {
+    get id() {
+      return activeSessionID()
+    },
+  }
   const local = useLocal()
   useTabModel("insight")
   const language = useLanguage()
@@ -329,9 +337,14 @@ function InsightContent() {
   const prevInsightDir = lastInsightDir
   lastInsightDir = sdk.directory
   onMount(() => {
-    if (prevInsightDir === undefined || prevInsightDir === sdk.directory || !params.id) return
-    console.log("[octo:sync] dir-switched", { from: prevInsightDir, to: sdk.directory, staleSessionID: params.id })
+    if (prevInsightDir === undefined || prevInsightDir === sdk.directory || !routeParams.id) return
+    console.log("[octo:sync] dir-switched", { from: prevInsightDir, to: sdk.directory, staleSessionID: routeParams.id })
     navigate("/insight", { replace: true })
+  })
+
+  // 直接访问或从 Cowork 页签恢复 URL 时，等会话元数据就绪后才激活对话。
+  createEffect(() => {
+    if (isChildSession()) navigate("/insight", { replace: true })
   })
 
   // ── 刷新保路由 ─────────────────────────────────────────────
@@ -342,7 +355,7 @@ function InsightContent() {
     didBootRestore = true
     // 仅当本次整页加载落在"无 id 首页态"且上次确实在某对话时才尝试恢复。
     // 若上次就在新建空态(id 为空串)→ 不跳,保持空态(浏览器式原地刷新)。
-    if (params.id || !bootSaved?.id || layout.lastSessionPerTab.newConversation("cowork")) return
+    if (routeParams.id || !bootSaved?.id || layout.lastSessionPerTab.newConversation("cowork")) return
     const dir = projectDir() // InsightContent 仅在 sdk.directory 就绪后挂载,理论恒有值
     if (!dir) return
     // 目录不符不恢复:上次对话属于别的目录(如在其他页面切过目录后整页重载),
@@ -353,6 +366,7 @@ function InsightContent() {
     void sdk.client.session
       .get({ sessionID: bootSaved.id })
       .then((r: { data?: unknown }) => {
+        if (routeParams.id) return
         const session = r?.data as Session | undefined
         // parentID 有值 = task 子会话:不恢复(SPEC-INS-021 §1 追加)。导航拦截之外的兜底——
         // 历史遗留记录 / 直接 URL 仍可能把子会话写进 LAST_SESSION_KEY,恢复进去就是"没有记录的对话"。
@@ -363,6 +377,7 @@ function InsightContent() {
   })
   // 记录当前所在对话(id 空 = 新建空态)及其所属目录,供下次整页加载恢复。
   createEffect(() => {
+    if (routeParams.id && !params.id) return
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify({ dir: projectDir(), id: params.id ?? "" }))
   })
 
@@ -370,6 +385,7 @@ function InsightContent() {
   // 与 studio/make/chat 各 tab 一致(它们都调用 setStudio/setMake/setChat)。
   createEffect(() => {
     const id = params.id
+    if (routeParams.id && !id) return
     if (id) {
       layout.lastSessionPerTab.setCowork(id)
       layout.lastSessionPerTab.setNewConversation("cowork", false)
@@ -381,18 +397,29 @@ function InsightContent() {
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
   //
-  // 依赖同时取 params.id 和「message[id] 是否缺失」：
+  // 依赖同时取路由 ID 和「会话元数据或消息是否缺失」：
   // - 切到新 id → message[id] 为 undefined → 触发 sync
   // - 放置一段时间后 sync 缓存被清（连接重置/驱逐），message[id] 变回 undefined 但 id 未变
   //   → 这里仍会重新触发 sync，避免中间聊天区永久空白（白屏 bug）。
   //   sync.session.sync 自带 inflight 去重，重复调用安全；加载完 message[id] 有值后不再触发。
+  const needsSessionSync = createMemo(() => !routeSession() || sync.data.message[routeParams.id ?? ""] === undefined)
+  const [sessionLoadFailed, setSessionLoadFailed] = createSignal(false)
+  const [sessionLoadAttempt, setSessionLoadAttempt] = createSignal(0)
   createEffect(
     on(
-      () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
-      ([id, missing]) => {
-        if (!id || !missing) return
+      () => [routeParams.id, needsSessionSync(), isChildSession(), sessionLoadAttempt()] as const,
+      ([id, missing, child]) => {
+        setSessionLoadFailed(false)
+        if (!id || !missing || child) return
+        let cancelled = false
+        onCleanup(() => { cancelled = true })
         console.log("[octo:sync] session.sync", { sessionID: id })
         void sync.session.sync(id)
+          .catch(error => { console.warn("[octo:sync] session load failed", { sessionID: id, error }) })
+          .then(() => {
+            // sync 也可能正常返回但未填充缓存，例如会话已被删除。
+            if (!cancelled && routeParams.id === id && !isChildSession() && needsSessionSync()) setSessionLoadFailed(true)
+          })
       },
     ),
   )
@@ -501,7 +528,7 @@ function InsightContent() {
   // 无 id(全新/首页)视作已加载,正常显示首页空态。
   const sessionMessagesLoaded = createMemo(() => {
     const id = params.id
-    return !id || sync.data.message[id] !== undefined
+    return !routeParams.id || (!!id && sync.data.message[id] !== undefined)
   })
 
   // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──
@@ -588,18 +615,29 @@ function InsightContent() {
     messages.sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
     return getSessionContextMetrics(messages, providers.all()).context
   })
+  const [liveContextEstimate, setLiveContextEstimate] = createSignal<{
+    sessionID: string; messageID: string; providerID: string; modelID: string; tokens: number; limit: number
+  }>()
+  onCleanup(sdk.event.listen((event) => {
+    if (event.details.type === "session.compaction.estimated" && event.details.properties.sessionID === params.id) {
+      setLiveContextEstimate(event.details.properties)
+    }
+  }))
   const compactedContextEstimate = createMemo(() => {
     const context = contextMetrics()
     if (!context || !isSuccessfulCompaction(context.message)) return
     const part = (sync.data.part[context.message.parentID] ?? []).find((item) => item.type === "compaction")
     if (!part || part.estimated_tokens === undefined || part.estimated_limit === undefined) return
     const model = local.model.current()
+    const selected = model && { providerID: model.provider.id, modelID: model.id }
+    const live = liveContextEstimate()
+    if (live?.sessionID === params.id && isContextEstimateForMessage(live, context.message.parentID) && isContextEstimateForModel(live, selected)) return live
     if (!isContextEstimateForModel(
       resolveContextEstimateModel(
         { providerID: part.estimated_provider_id, modelID: part.estimated_model_id },
         context.message,
       ),
-      model && { providerID: model.provider.id, modelID: model.id },
+      selected,
     )) return
     return { tokens: part.estimated_tokens, limit: part.estimated_limit }
   })
@@ -608,8 +646,6 @@ function InsightContent() {
       compactedContextEstimate()?.limit,
       local.model.current()?.limit.input,
       local.model.current()?.limit.context,
-      contextMetrics()?.model?.limit.input,
-      contextMetrics()?.model?.limit.context,
       contextMetrics()?.limit,
     ].find((limit) => typeof limit === "number" && limit > 0),
   )
@@ -621,27 +657,14 @@ function InsightContent() {
     const tokens = contextTokens()
     return limit && tokens !== undefined ? Math.round((tokens / limit) * 100) : undefined
   })
-  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens() ?? 0, contextLimit(), params.id))
-  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
   const [contextCommandPending, setContextCommandPending] = createSignal(false)
   const [abortPending, setAbortPending] = createSignal(false)
   const sessionSettling = createMemo(() => contextCommandPending() || abortPending())
-  const contextCompactionDisabled = createMemo(() => isWorking() || sessionSettling() || !local.model.current())
-  const contextWarningVisible = createMemo(
-    () => !contextSendBlocked() && shouldShowContextWarning(contextUsage() ?? 0, params.id, ignoredContextWarningSession(), isWorking()),
-  )
+  const contextCompactionDisabled = createMemo(() => isWorking() || sessionSettling())
 
-  createEffect(() => {
-    const ignored = ignoredContextWarningSession()
-    if (!ignored) return
-    if (ignored === params.id && (contextUsage() ?? 0) >= 80) return
-    setIgnoredContextWarningSession(undefined)
-  })
-
-  async function compactContext(command: "compact" | "summarize" = "compact") {
-    const sessionID = params.id
+  async function compactContext(sessionID: string, command: "compact" | "summarize" = "compact") {
     const model = local.model.current()
-    if (!sessionID || !model || contextCompactionDisabled()) return
+    if (sessionID !== params.id || contextCompactionDisabled()) return
 
     const finish = beginInsightOperation("context-compact", { sessionId: sessionID, command })
     setContextCommandPending(true)
@@ -650,34 +673,30 @@ function InsightContent() {
         sessionID,
         command,
         arguments: "",
-        agent: INSIGHT_AGENT,
-        model: `${model.provider.id}/${model.id}`,
+        agent: sync.session.get(sessionID)?.agent ?? INSIGHT_AGENT,
+        model: model ? `${model.provider.id}/${model.id}` : undefined,
       })
       const info = result.data?.info
       if (info && isSuccessfulCompaction(info)) {
         finish("success")
-        showToast({ title: "上下文压缩完成", variant: "success", duration: 2000 })
+        showOctoToast({ title: "上下文压缩完成" })
         return
       }
       const error = info?.error ?? result.error
-      if (isMessageAbortedError(error)) {
-        finish("cancelled")
-        return
-      }
-      finish("failure", { reason: "command-result" })
-      showToast({ title: "上下文压缩失败", description: contextCommandErrorMessage(error) ?? "请稍后重试", variant: "error" })
+      finish(isMessageAbortedError(error) ? "cancelled" : "failure", { reason: "command-result" })
+      showOctoToast({ title: "上下文压缩失败", description: contextCommandErrorMessage(error) ?? "请稍后重试", variant: "error" })
     } catch (error) {
       finish(isMessageAbortedError(error) ? "cancelled" : "failure", { reason: "command-request" })
       console.error(`[InsightPage] command /${command} failed`, error)
-      if (isMessageAbortedError(error)) return
-      showToast({ title: "上下文压缩失败", description: error instanceof Error ? error.message : "请稍后重试", variant: "error" })
+      showOctoToast({ title: "上下文压缩失败", description: sessionErrorMessage(error, "请稍后重试"), variant: "error" })
     } finally {
       setContextCommandPending(false)
     }
   }
 
   function confirmCompactContext() {
-    if (contextCompactionDisabled()) return
+    const sessionID = params.id
+    if (!sessionID || contextCompactionDisabled()) return
     dialog.show(() => (
       <Dialog title="压缩上下文" fit class="delete-dialog">
         <div class="flex flex-col gap-4">
@@ -686,7 +705,7 @@ function InsightContent() {
             <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>取消</Button>
             <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={() => {
               dialog.close()
-              void compactContext()
+              void compactContext(sessionID)
             }}>确认压缩</Button>
           </div>
         </div>
@@ -1098,6 +1117,16 @@ function InsightContent() {
   const toggleSidebarDrawer = () => { setPanelOverlayOpen(false); setSidebarOverlayOpen((v) => !v) }
   const togglePanelDrawer = () => { setSidebarOverlayOpen(false); setPanelOverlayOpen((v) => !v) }
 
+  function toggleFilesPanel() {
+    if (rightCollapsed()) {
+      togglePanelDrawer()
+      trackInsight("toggle-right-panel", { action: panelOverlayOpen() ? "open" : "close" })
+      return
+    }
+    setPanelCollapsed((v) => !v)
+    trackInsight("toggle-right-panel", { action: panelCollapsed() ? "close" : "open" })
+  }
+
   // 面板挂载/聊天宽度直接跟 panelInline(无过渡动画,鲁棒性优先,状态无从 desync)。
 
   /** 打开/激活产物时统一清掉手动收起态,确保面板滑入(即便之前被收起) */
@@ -1263,7 +1292,7 @@ function InsightContent() {
     return new File([bytes], file.name, { type: content.mimeType || mime })
   }
 
-  /** @引用/设计文件 mention chip 的超限图片自动压缩(对齐 design 页 2026-11 修复):
+  /** @引用 mention chip 的超限图片自动压缩(对齐 design 页 2026-11 修复):
    *  chip 发送时进 [引用文件]/读取<path>,模型 read 后产出 >1MB 视觉附件,与附件入口受同一硬限制必失败。
    *  选中即读盘压缩,产物经 importFileToWorktree 落 .octo/tmps(撞名自动加后缀,不动原图),
    *  再回写 chip 路径;读不到/压不动保留原路径并 toast。 */
@@ -1995,11 +2024,11 @@ function InsightContent() {
         return
       }
       if (contextCompactionDisabled()) {
-        showToast({ title: "暂时无法压缩", description: isWorking() ? "请等待当前回复结束后再试。" : "请先选择模型。" })
+        showOctoToast({ title: "暂时无法压缩", description: "请等待当前回复结束后再试。" })
         return
       }
       clearComposers()
-      await compactContext(contextCommand)
+      await compactContext(params.id, contextCommand)
       return
     }
 
@@ -2723,18 +2752,19 @@ function InsightContent() {
   }
 
   const { request, gate } = useUploadRiskGate({ module: "insight" })
+  const [lastOpenedPopover, setLastOpenedPopover] = createSignal<"addon" | "model">()
   const addonScope = () => JSON.stringify([projectDir(), params.id, projectSelection()?.product?.id])
   const renderAddonMenu = () => (
     <Show when={addonScope()} keyed>{_scope =>
       <InsightAddonMenu
+        closeWhen={lastOpenedPopover() === "model"} onOpen={() => setLastOpenedPopover("addon")}
         directory={projectDir()} sessionId={params.id} productId={projectSelection()?.product?.id}
         editor={() => pmRefWelcome?.isAlive() ? pmRefWelcome : pmRefConv?.isAlive() ? pmRefConv : undefined}
         skills={insightSkills()} skillsLoading={skillsLoading()} loadSkills={loadInsightSkills}
-        files={mentionFilesMirror.value ?? null} filesLoading={mentionFiles.loading} selections={mentionSelections()}
+        selections={mentionSelections()}
         maxAttachments={maxAttachments()} onAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
         onPending={pending => setAddonState("pending", pending)}
         mcpSelection={mcpSelection()} onMcpSelect={handleMcpSelect} onMcpClear={handleMcpClear}
-        onFileMentionInsert={(sel) => void compressInsightMentionImageIfNeeded(sel)}
       />
     }</Show>
   )
@@ -2833,7 +2863,12 @@ function InsightContent() {
                     /* 已有 id 但消息缓存未就绪：显示加载占位,绝不渲染空白。
                        否则切回已存在会话、缓存被清时中间区会整块空白(白屏 bug)。 */
                     <div class="size-full flex items-center justify-center">
-                      <div class="octo-spinner" />
+                      <Show when={sessionLoadFailed()} fallback={<div class="octo-spinner" />}>
+                        <div class="flex flex-col items-center gap-3">
+                          <p role="alert">无法加载会话，请重试。</p>
+                          <Button variant="secondary" onClick={() => setSessionLoadAttempt(attempt => attempt + 1)}>重试</Button>
+                        </div>
+                      </Show>
                     </div>
                   }
                 >
@@ -2905,6 +2940,8 @@ function InsightContent() {
                         {renderAddonMenu()}
 
                         <ModelSelectorPopover
+                          closeWhen={lastOpenedPopover() === "addon"}
+                          onOpen={() => setLastOpenedPopover("model")}
                           onModelSelect={(model) => trackInsight("model-select", { sessionId: params.id, ...model })}
                           model={local.model} riskDialog={MakeModelRiskDialog}
                           triggerAs="button"
@@ -2956,7 +2993,6 @@ function InsightContent() {
                   tokens: contextTokens(),
                   limit: contextLimit(),
                   usage: contextUsage(),
-                  blocked: contextSendBlocked(),
                   disabled: contextCompactionDisabled(),
                   onCompact: confirmCompactContext,
                 }}
@@ -2974,7 +3010,7 @@ function InsightContent() {
                 panelToggle={!!params.id ? (
                   <button
                     type="button"
-                    onClick={() => { if (rightCollapsed()) togglePanelDrawer(); else setPanelCollapsed((v) => !v) }}
+                    onClick={toggleFilesPanel}
                     title="文件管理"
                     class="flex items-center justify-center size-6 rounded-md transition-colors cursor-pointer hover:bg-black/5 active:bg-black/10"
                     style={{ color: "var(--octo-text-secondary)" }}
@@ -3012,6 +3048,8 @@ function InsightContent() {
                           messageID={msgID}
                           status={sessionStatus()}
                           active={isBusy()}
+                          compactDisabled={contextCompactionDisabled()}
+                          onCompact={confirmCompactContext}
                           onOpenResult={handleOpenResult}
                           onOpenAttachment={handleOpenAttachment}
                           taskCards={taskCardsByAnchor().get(msgID) ?? []}
@@ -3043,35 +3081,6 @@ function InsightContent() {
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
               <div class="flex flex-col min-h-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
-                <Show when={contextSendBlocked() && contextLimit()}>
-                  {(limit) => (
-                    <div class="insight-context-notice-wrap">
-                      <InsightContextOverflowNotice
-                        tokens={contextTokens() ?? 0}
-                        limit={limit()}
-                        locale={language.intl()}
-                        disabled={contextCompactionDisabled()}
-                        onCompact={confirmCompactContext}
-                      />
-                    </div>
-                  )}
-                </Show>
-
-                <Show when={contextWarningVisible() && contextLimit()}>
-                  {(limit) => (
-                    <div class="insight-context-notice-wrap">
-                      <InsightContextUsageWarning
-                        tokens={contextTokens() ?? 0}
-                        limit={limit()}
-                        locale={language.intl()}
-                        disabled={contextCompactionDisabled()}
-                        onIgnore={() => setIgnoredContextWarningSession(params.id)}
-                        onCompact={confirmCompactContext}
-                      />
-                    </div>
-                  )}
-                </Show>
-
                 {/* 阻塞 Dock(权限 + 答题)与队列条同处一个可滚动区(6px 细滚动条):
                     question 工具与队列同时出现、总高溢出时由此区吸收,不再挤压下方 composer
                     输入框(shrink-0 始终完整可见)。 */}
@@ -3176,6 +3185,8 @@ function InsightContent() {
                     {renderAddonMenu()}
 
                     <ModelSelectorPopover
+                      closeWhen={lastOpenedPopover() === "addon"}
+                      onOpen={() => setLastOpenedPopover("model")}
                       onModelSelect={(model) => trackInsight("model-select", { sessionId: params.id, ...model })}
                       model={local.model} riskDialog={MakeModelRiskDialog}
                       triggerAs="button"

@@ -1,5 +1,7 @@
 # Insight 打点清单
 
+2026-11-17：三个服务端产物事件的 extend.files 新增可选 fileName、extension。write/edit/Shell 取路径末段；MCP 取资源 name 末段，无有效名称则省略。extension 小写、不带点，无扩展名为空串；不上传目录，不改变事件名与去重，历史事件不回填。详见盘点的服务端产物章节。
+
 记录 insight agent 已埋入的所有打点，新增/变更打点时同步维护此表。
 
 接入规范见 [`/docs/tracker.md`](../../../../../../docs/tracker.md)。实施方案与映射规则见 [`tracking-plan.md`](./tracking-plan.md)。
@@ -9,6 +11,21 @@
 > 注：下表 `module` 恒为 `insight`，故省去该列；`type` 除 `insight-page` 为 `page` 外，其余全部为 `interaction`。当前 tracker SDK 的 `interaction` 仅接受 `module / name / subType / extend`，**不支持 `from`**（`from` 只在 `page` 上）。因此「来源区域 / 方式」等维度统一并入 `extend` JSON（如 `source` / `method`），而非顶层 `from`。`tracker.duration` 也已下线。`/docs/tracker.md` 的旧描述待该 SDK 维护方同步修订。
 
 > 历史分组表保留在下方；完整代码盘点见 [2026-10-15 清单](./tracking-inventory-2026-10-15.md)，该基线为 80 个唯一 name。本次新增 18 个 name，按相同范围合计 98 个；旧表中的历史入口不能作为当前覆盖全集。
+
+## 需求 150：文件管理与对话交互
+
+| name | extend | 实现位置 |
+| --- | --- | --- |
+| result-copy-content | tabType、viewMode，代码块复制另带 source=code-block | result-viewer/action-bar.tsx、result-viewer/source-code-view.tsx |
+| result-code-toggle | tabType、action=open/close | result-viewer/source-code-view.tsx |
+| toggle-right-panel | action=open/close | index.tsx，对话区文件管理按钮 |
+| files-refresh | — | file-manager/index.tsx，刷新与失败重试 |
+| files-group-mode | mode=kind/modified | file-manager/toolbar.tsx |
+| files-filter | kinds 数组，清除时为空 | file-manager/toolbar.tsx |
+| files-sort | key=kind/mtime、dir=asc/desc | file-manager/index.tsx |
+| files-section-toggle | section=generated/uploaded、action=open/close | file-manager/index.tsx |
+| group-show-more | — | sidebar.tsx，通过 GroupedSidebar 回调触发 |
+| message-copy | sessionId | insight-turn.tsx，通过 SessionTurn 的用户消息复制回调触发 |
 
 ## 2026-10-20 HTML 画布编辑（已接入，待真实画布联调）
 

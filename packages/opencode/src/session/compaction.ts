@@ -19,6 +19,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { isOverflow as overflow, usable } from "./overflow"
 import { makeRuntime } from "@/effect/run-service"
 import { fn } from "@/util/fn"
+import { isRecord } from "@/util/record"
 import { EventV2 } from "@/v2/event"
 import { SessionEvent } from "@/v2/session-event"
 import { CompactionSummary } from "./compaction-summary"
@@ -70,6 +71,22 @@ const FLOOR_MARGIN_MIN = 1_000
 const TRANSCRIPT_CLIP = 2_000
 // 文档型 text part(skill 注入,首行 "# Skill: <name>")在降级档的独立裁剪配额
 const SKILL_DOC_CLIP = 8_000
+// 压缩目标线:压缩后投影(固定成本 system+tools + 摘要 + 保尾)尽量压进 usable 的 65%,
+// 给续跑留出余量,避免"压完一步又超"的连环二次压缩。固定成本不可压缩、提前扣除,
+// 可动部分按剩余空间分配:保尾最多占剩余的 75%,其余留给摘要;摘要给出生成预算,
+// 超预算(×1.25 容差)时走既有重试机制收紧。小上下文模型兜底:剩余空间连最小配额
+// (保尾 2k + 摘要 2k)都放不下时按最小配额 best-effort 继续,65% 目标让位于"至少能压",
+// 死局仍由地板预检拦截。显式 preserve_recent_tokens 配置不削保尾(用户显式意图优先)。
+const COMPACTION_TARGET_SHARE = 0.65
+const TARGET_TAIL_SHARE = 0.75
+const TARGET_AVAILABLE_MIN = MIN_PRESERVE_RECENT_TOKENS + SUMMARY_FLOOR_TOKENS
+const SUMMARY_BUDGET_CAP = 6_000
+const SUMMARY_OVER_BUDGET = 1.25
+/** replay 回填正文预算:严格不超过压缩后剩余空间(usable − 固定成本 − 保尾 − 摘要投影
+ * − 余量),并与保尾同口径(usable×25%)封顶 —— 回填只是保真手段,预算耗尽后仅保留
+ * 逐 part 的极简省略标记,不再把巨型 pending 正文 verbatim 搬回压缩后的上下文。
+ * 无 contextTokens 时退化为 usable×25%(无法核算固定成本,启发式封顶)。 */
+const REPLAY_BUDGET_SHARE = 0.25
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -139,7 +156,45 @@ const skillDocName = (text: string) => {
   return text.split("\n", 1)[0]!.slice("# Skill: ".length).trim()
 }
 
+/** skill 文档目录行由 Skill.formatLoaded 生成,用于输出被清除后的"分段重读"提示。 */
+const SKILL_DIR_LINE = /^Skill directory \(absolute path\): (.+)$/m
+
+/** replay 正文预算化:skill 文档整篇替换为分段重读引用;普通超预算正文按比例保留首尾。返回 undefined 表示无需裁剪。 */
+const clipReplayText = (text: string, budget: number) => {
+  const skill = skillDocName(text)
+  if (skill) {
+    const dir = text.match(SKILL_DIR_LINE)?.[1]
+    return `[Skill ${skill} document omitted from replay${dir ? `; directory: ${dir}` : ""}. Re-read sections with the read tool if needed.]`
+  }
+  const total = Token.estimate(text)
+  if (total <= budget) return undefined
+  // 预算耗尽(≤0 可为负,多个 part 共享扣减后)或预算过小:极简省略标记,保证回填
+  // 总量不超剩余空间(clip 的 slice 对极小 limit 有负零索引泄漏风险,一并规避)
+  const charLimit = Math.floor((text.length * budget) / (total * 1.1))
+  if (charLimit < 200)
+    return `[Content omitted from replay: ~${total} tokens original, no replay budget left. It was folded into the compaction summary.]`
+  return `${clip(text, charLimit)}\n[original message clipped by compaction replay: ~${total} tokens original, ~${budget}-token budget]`
+}
+
+const replayTextPart = (part: MessageV2.TextPart, budget: number): MessageV2.TextPart => ({
+  ...part,
+  text: clipReplayText(part.text, budget) ?? part.text,
+  synthetic: true,
+  metadata: { ...part.metadata, compaction_replay: true },
+})
+
 /** 保尾中单个工具输出的 token 配额阈值:可用上限越大,可完整保留的工具输出越多。 */
+
+// 纯提纯出口的连续失败计数(session 级,进程内):生成失败或无显著改进(>原摘要 90%)
+// 各累加一次,达到 2 次后不再燃烧摘要请求;有显著改进(≤90%)即重置 —— 渐进收敛(80k→30k)
+// 是进展。仅在提纯无改进的罕见路径写入,超容量时整体重置兜底(计数丢失仅放宽一次
+// 提纯机会,3 次尝试契约仍在,无害)。
+const refinementFailures = new Map<SessionID, number>()
+
+const bumpRefinementFailures = (sessionID: SessionID) => {
+  if (refinementFailures.size >= 1_000) refinementFailures.clear()
+  refinementFailures.set(sessionID, (refinementFailures.get(sessionID) ?? 0) + 1)
+}
 export const toolClipCapTokens = (usableTokens: number) =>
   Math.max(TAIL_TOOL_CLIP_MIN_TOKENS, Math.floor(usableTokens * TAIL_TOOL_CLIP_SHARE))
 
@@ -239,13 +294,17 @@ function completedCompactions(messages: MessageV2.WithParts[]) {
   })
 }
 
-function buildPrompt(input: { previousSummary?: string; context: string[]; pending?: boolean }) {
+function buildPrompt(input: { previousSummary?: string; context: string[]; pending?: boolean; summaryBudget?: number }) {
   const conversation = `Here is the conversation so far:\n\n<conversation>\n${input.context.join("\n\n")}\n</conversation>`
   const anchor = input.previousSummary
     ? [
         `Here is the summary of the conversation before the <conversation> above:\n\n<previous-summary>\n${input.previousSummary}\n</previous-summary>`,
         "Update the anchored summary using the conversation in the <conversation> tags above.",
         "Preserve still-true details, remove stale details, and merge in the new facts.",
+        // 时间衰减:摘要成本随会话增长边际递减 —— 越久远的内容降密度越狠,预算优先保
+        // 近期状态,防止锚定摘要靠 "preserve" 惯性只增不减。
+        "Compress by age: details that no recent turn touched must shrink progressively — collapse older completed work to single-line outcomes, keep old decisions only as conclusions, and keep full detail only for the current state and next steps.",
+        "Spend the token budget on the most recent state first; never restate settled history verbatim.",
       ].join("\n")
     : "Create a new anchored summary from the conversation history in the <conversation> tags above so another coding agent can continue the work."
   // 待处理请求被折叠进摘要时(空尾/overflow 折叠),提示摘要模型显式保留该请求与其依赖上下文,
@@ -256,7 +315,11 @@ function buildPrompt(input: { previousSummary?: string; context: string[]; pendi
         "If a large skill or reference document was loaded, list its name and directory under Relevant Files and note that it should be re-read in sections with the read tool rather than loaded in full again.",
       ]
     : []
-  return [conversation, anchor, ...pending, SUMMARY_TEMPLATE].join("\n\n")
+  // 摘要体量预算:压缩后投影要落进目标线,摘要作为可动部分之一给出明确生成预算。
+  const budget = input.summaryBudget
+    ? [`Keep the total summary under ~${input.summaryBudget} tokens. Prefer fewer, denser bullets.`]
+    : []
+  return [conversation, anchor, ...pending, SUMMARY_TEMPLATE, ...budget].join("\n\n")
 }
 
 /** 保尾预算:默认 usable×0.25,夹在 2k–15k;可用 compaction.preserve_recent_tokens 覆盖。 */
@@ -265,6 +328,29 @@ export function preserveRecentBudget(input: { cfg: Config.Info; model: Provider.
     input.cfg.compaction?.preserve_recent_tokens ??
     Math.min(MAX_PRESERVE_RECENT_TOKENS, Math.max(MIN_PRESERVE_RECENT_TOKENS, Math.floor(usable(input) * 0.25)))
   )
+}
+
+/**
+ * 压缩目标线预算:固定成本(system+tools)提前扣除,可动部分(保尾+摘要)向 usable×65%
+ * 对齐。默认保尾预算按剩余空间收紧(下限 2k),摘要预算在剩余空间内分配、夹在 2k–6k;
+ * 剩余空间放不下最小配额(小上下文模型)时 fallback=true,按最小预算 best-effort。
+ */
+export function targetBudget(input: {
+  cfg: Config.Info
+  model: Provider.Model
+  contextTokens?: { system: number; tools: number; usable: number }
+}) {
+  const usableTokens = input.contextTokens?.usable ?? usable({ cfg: input.cfg, model: input.model })
+  const target = Math.floor(usableTokens * COMPACTION_TARGET_SHARE)
+  const fixed = input.contextTokens ? input.contextTokens.system + input.contextTokens.tools : 0
+  const available = target - fixed
+  const existing = preserveRecentBudget(input)
+  const tailBudget =
+    input.cfg.compaction?.preserve_recent_tokens !== undefined
+      ? existing
+      : Math.max(MIN_PRESERVE_RECENT_TOKENS, Math.min(existing, Math.floor(available * TARGET_TAIL_SHARE)))
+  const summaryBudget = Math.max(SUMMARY_FLOOR_TOKENS, Math.min(SUMMARY_BUDGET_CAP, available - tailBudget))
+  return { target, fixed, available, tailBudget, summaryBudget, fallback: available < TARGET_AVAILABLE_MIN }
 }
 
 function turns(messages: MessageV2.WithParts[]) {
@@ -409,15 +495,106 @@ export const layer: Layer.Layer<
       })
     })
 
+    /**
+     * 清除消息窗口内超配额的已完成工具输出(time.compacted 落盘,渲染为占位符),
+     * 返回清除明细。skill 类输出附带 name/dir(skill 工具 metadata / 文档目录行),
+     * 供"分段重读"提示落盘 —— 防止模型因内容被清而重新全量加载造成回环。
+     */
+    const clearOversizedToolOutputs = Effect.fnUntraced(function* (input: {
+      sessionID: SessionID
+      messages: MessageV2.WithParts[]
+      capTokens: number
+    }) {
+      const cleared: Array<{ tool: string; tokens: number; name?: string; dir?: string }> = []
+      for (const msg of input.messages) {
+        if (msg.info.role !== "assistant") continue
+        for (const part of msg.parts) {
+          if (part.type !== "tool" || part.state.status !== "completed") continue
+          if (part.state.time.compacted) continue
+          const tokens = Token.estimate(part.state.output)
+          if (tokens <= input.capTokens) continue
+          yield* session.updatePart({
+            ...part,
+            state: { ...part.state, time: { ...part.state.time, compacted: Date.now() } },
+          })
+          const stateMetadata = isRecord(part.state.metadata) ? part.state.metadata : {}
+          cleared.push({
+            tool: part.tool,
+            tokens,
+            name:
+              typeof stateMetadata["name"] === "string"
+                ? stateMetadata["name"]
+                : typeof part.state.input["name"] === "string"
+                  ? part.state.input["name"]
+                  : undefined,
+            dir:
+              typeof stateMetadata["dir"] === "string"
+                ? stateMetadata["dir"]
+                : (part.state.output.match(SKILL_DIR_LINE)?.[1] ?? undefined),
+          })
+        }
+      }
+      return cleared
+    })
+
+    /**
+     * skill 文档被清除后的"分段重读"提示:占位符本身无信息量,模型会本能地重新全量加载
+     * 巨型 skill 文档造成溢出回环。提示携带 name/dir,引导用 read 分段重读。
+     */
+    const writeSkillRereadNotice = Effect.fnUntraced(function* (input: {
+      sessionID: SessionID
+      agent: string
+      model: { providerID: ProviderID; modelID: ModelID }
+      cleared: Array<{ tool: string; tokens: number; name?: string; dir?: string }>
+    }) {
+      const seen = new Set<string>()
+      const skills = input.cleared.filter((item) => {
+        if (item.tool !== "skill" || !item.name) return false
+        if (seen.has(item.name)) return false
+        seen.add(item.name)
+        return true
+      })
+      if (!skills.length) return
+      const msg = yield* session.updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: input.sessionID,
+        agent: input.agent,
+        model: input.model,
+        time: { created: Date.now() },
+      })
+      yield* session.updatePart({
+        id: PartID.ascending(),
+        messageID: msg.id,
+        sessionID: input.sessionID,
+        type: "text",
+        synthetic: true,
+        metadata: { compaction_skill_cleared: true },
+        text: [
+          "The following skill documents were cleared from the context to free space:",
+          ...skills.map((item) => `- "${item.name}"${item.dir ? ` (directory: ${item.dir})` : ""}`),
+          "Their files remain on disk. Re-read only the sections you need with the read tool instead of reloading the full document.",
+        ].join("\n"),
+        time: { start: Date.now(), end: Date.now() },
+      } satisfies MessageV2.TextPart)
+      log.info("compaction skill reread notice", {
+        sessionID: input.sessionID,
+        skills: skills.map((item) => item.name),
+        freed: skills.reduce((total, item) => total + item.tokens, 0),
+      })
+    })
+
     const select = Effect.fn("SessionCompaction.select")(function* (input: {
       messages: MessageV2.WithParts[]
       cfg: Config.Info
       model: Provider.Model
+      tailBudget?: number
     }) {
       const limit = input.cfg.compaction?.tail_turns
       if (limit !== undefined && limit <= 0)
         return { head: input.messages, tail_start_id: undefined, emptyTail: false, tailTokens: 0, noop: "tail-turns-disabled" as const }
-      const budget = preserveRecentBudget({ cfg: input.cfg, model: input.model })
+
+      const budget = input.tailBudget ?? preserveRecentBudget({ cfg: input.cfg, model: input.model })
       const all = turns(input.messages)
       if (!all.length)
         return { head: input.messages, tail_start_id: undefined, emptyTail: false, tailTokens: 0, noop: "no-turns" as const }
@@ -545,6 +722,24 @@ export const layer: Layer.Layer<
         ? yield* provider.getModel(agent.model.providerID, agent.model.modelID)
         : yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID)
       const cfg = yield* config.get()
+      // 压缩目标线:固定成本提前扣除,保尾/摘要预算向 usable×65% 对齐(小上下文模型兜底见 targetBudget)。
+      const target = targetBudget({ cfg, model, contextTokens: input.contextTokens })
+      log.info("compaction target", {
+        sessionID: input.sessionID,
+        target: target.target,
+        fixed: target.fixed,
+        available: target.available,
+        tail_budget: target.tailBudget,
+        summary_budget: target.summaryBudget,
+        fallback: target.fallback,
+      })
+      if (target.fallback)
+        log.warn("compaction target fallback: fixed costs leave too little headroom, using minimum budgets", {
+          sessionID: input.sessionID,
+          fixed: target.fixed,
+          target: target.target,
+          available: target.available,
+        })
       const history =
         compactionPart && input.messages.at(-1)?.info.id === input.parentID
           ? input.messages.slice(0, -1)
@@ -557,6 +752,7 @@ export const layer: Layer.Layer<
         messages: compactable,
         cfg,
         model,
+        tailBudget: target.tailBudget,
       })
       // pending turn 被保尾保留(输出按配额裁剪)时无需 replay,避免把同一消息复制进上下文;
       // 被折叠(空尾或锚点落在其后)时才回填其用户正文。
@@ -567,12 +763,12 @@ export const layer: Layer.Layer<
               return start >= 0 && compactable.findIndex((m) => m.info.id === pendingUser.info.id) >= start
             })()
           : false
-      const replay: { info: MessageV2.User; parts: MessageV2.Part[] } | undefined =
+      let replay: { info: MessageV2.User; parts: MessageV2.Part[] } | undefined =
         pendingUser && pendingUser.info.role === "user" && !pendingRetained
           ? { info: pendingUser.info, parts: pendingUser.parts }
           : undefined
       const ctx = yield* InstanceState.context
-      const tailBudget = preserveRecentBudget({ cfg, model })
+      const tailBudget = target.tailBudget
       const summaryMessage = (): MessageV2.Assistant => ({
         id: MessageID.ascending(),
         role: "assistant",
@@ -610,19 +806,334 @@ export const layer: Layer.Layer<
           return "stop" as const
         })
 
-      // 修复「no-op 压缩」:select 找不到可锚定的尾部(无锚点)时,摘要与 replay 都不再执行。
-      // 否则压缩"成功"却什么都没丢,上下文反而追加 摘要+标记+replay 副本(大消息场景暴涨),
-      // 且 overflow 路径的 replay 会把未答复的大消息原样复制一份——原件必然还在尾部,replay 变纯复制。
-      // 注意:unsplittable 场景走空尾兜底(emptyTail),不进此分支。
+      // 自动续跑合成消息(autocontinue 插件可禁用):正常路径与纯裁剪出口共用。
+      // noop 标记用于信号失真放行后的续跑:prompt 侧据此跳过重复压缩触发。
+      const writeContinueMessage = Effect.fnUntraced(function* (options?: { noop?: boolean }) {
+        const info = yield* provider.getProvider(userMessage.model.providerID)
+        if (
+          !(yield* plugin.trigger(
+            "experimental.compaction.autocontinue",
+            {
+              sessionID: input.sessionID,
+              agent: userMessage.agent,
+              model: yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID),
+              provider: {
+                source: info.source,
+                info,
+                options: info.options,
+              },
+              message: userMessage,
+              overflow: input.overflow === true,
+            },
+            { enabled: true },
+          )).enabled
+        )
+          return
+        const continueMsg = yield* session.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: input.sessionID,
+          time: { created: Date.now() },
+          agent: userMessage.agent,
+          model: userMessage.model,
+        })
+        const text =
+          (input.overflow
+            ? "The previous request exceeded the provider's size limit due to large media attachments. The conversation was compacted and media files were removed from context. If the user was asking about attached images or files, explain that the attachments were too large to process and suggest they try again with smaller or fewer files.\n\n"
+            : "") +
+          "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
+        yield* session.updatePart({
+          id: PartID.ascending(),
+          messageID: continueMsg.id,
+          sessionID: input.sessionID,
+          type: "text",
+          // Internal marker for auto-compaction followups so provider plugins
+          // can distinguish them from manual post-compaction user prompts.
+          // This is not a stable plugin contract and may change or disappear.
+          metadata: {
+            compaction_continue: true,
+            ...(options?.noop ? { compaction_noop: true } : {}),
+          },
+          synthetic: true,
+          text,
+          time: {
+            start: Date.now(),
+            end: Date.now(),
+          },
+        } satisfies MessageV2.TextPart)
+      })
+
+      /**
+       * 纯提纯出口:仅重写锚定摘要(无新对话内容可折入),把超预算的前次摘要降密度压回
+       * summaryBudget。结构校验 + 一次收紧重试(重试产物不再复查体积,渐进收敛交给下轮
+       * 触发);永不硬截断 —— 关键事实(Goal/Next Steps/Critical Context)优先保留,
+       * 细节分节合并降密度。草稿消息流式生成后立即删除,内容由调用方原地写回旧摘要消息
+       * (不动锚点、不新建消息,避免旧摘要对泄漏回上下文)。返回 undefined 表示生成失败
+       * 或结构无效(调用方走诚实拒绝)。
+       */
+      const refinePreviousSummary = Effect.fnUntraced(function* (previous: string) {
+        const promptFor = (fixes: string[]) =>
+          [
+            ...fixes,
+            `Rewrite the anchored summary below denser so another coding agent can continue the work. It is currently ~${Token.estimate(previous)} tokens, over its ~${target.summaryBudget}-token budget.`,
+            "Preserve every critical fact: active tasks, key decisions, file paths, errors being fixed, and next steps.",
+            // 与锚定更新同款时间衰减:按新旧分级降密度,近期状态保真,久远史实收敛成结论。
+            "Compress the detail sections by age: merge related bullets, drop stale or superseded details, and collapse older completed work to single-line outcomes — keep full detail only for active tasks, current state, and next steps.",
+            `Keep the total summary under ~${target.summaryBudget} tokens.`,
+            SUMMARY_TEMPLATE,
+            "<previous-summary>",
+            previous,
+            "</previous-summary>",
+          ].join("\n\n")
+        const attempt = Effect.fnUntraced(function* (fixes: string[]) {
+          const msg = summaryMessage()
+          yield* session.updateMessage(msg)
+          const processor = yield* processors.create({
+            assistantMessage: msg,
+            sessionID: input.sessionID,
+            model,
+          })
+          const result = yield* processor.process({
+            user: userMessage,
+            agent,
+            sessionID: input.sessionID,
+            tools: {},
+            system: [],
+            messages: [{ role: "user", content: [{ type: "text", text: promptFor(fixes) }] }],
+            model,
+          })
+          const stored = (yield* session.messages({ sessionID: input.sessionID })).find(
+            (item) => item.info.id === msg.id,
+          )
+          const summary = stored ? summaryText(stored) : undefined
+          yield* session.removeMessage({ sessionID: input.sessionID, messageID: msg.id })
+          if (!summary || processor.message.error || result === "stop") return undefined
+          const repaired = CompactionSummary.repair(summary)
+          const final = repaired.summary
+          if (!final || !CompactionSummary.validate(final).valid) return undefined
+          return { summary: final, tokens: Token.estimate(final) }
+        })
+        const first = yield* attempt([])
+        if (!first) return undefined
+        const validation = CompactionSummary.validate(first.summary)
+        if (validation.missingCore.length === 0 && first.tokens <= Math.ceil(target.summaryBudget * SUMMARY_OVER_BUDGET))
+          return first
+        // 结构修复与体量收紧共用一次重试;重试失败时保留首次产物(渐进收敛,不硬截断)。
+        return (
+          (yield* attempt([
+            ...(validation.missingCore.length > 0
+              ? [`Your previous summary was missing required sections: ${validation.missingCore.join(", ")}.`]
+              : []),
+            `Your previous summary was about ${first.tokens} tokens, over the ~${target.summaryBudget}-token budget. Shorten it to under the budget while keeping every required section.`,
+          ])) ?? first
+        )
+      })
+
+      /**
+       * 纯裁剪压缩出口:不打摘要请求,直接清除全部可压缩历史中超配额的已完成工具输出
+       * (调用方已打标记),锚点指向历史首条消息(全量保留)。no-op(fits-budget 等)场景
+       * 的历史有效体积本就 ≤ 保尾预算,清除后必过续跑 preflight;pending 原件保留在上下文,
+       * 不再 replay。
+       */
+      const finishClipOnly = Effect.fnUntraced(function* (
+        cleared: Array<{ tool: string; tokens: number; name?: string; dir?: string }>,
+        trigger: string,
+      ) {
+        const freed = cleared.reduce((total, item) => total + item.tokens, 0)
+        const msg = { ...summaryMessage(), finish: "stop" } satisfies MessageV2.Assistant
+        yield* session.updateMessage(msg)
+        yield* session.updatePart({
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID: input.sessionID,
+          type: "text",
+          text: `Cleared ${cleared.length} oversized tool output${cleared.length === 1 ? "" : "s"} (~${freed} tokens) to free context. No summary was needed.`,
+          time: { start: Date.now(), end: Date.now() },
+        } satisfies MessageV2.TextPart)
+        const anchorID = compactable[0]?.info.id
+        if (compactionPart && anchorID && compactionPart.tail_start_id !== anchorID) {
+          compactionPart.tail_start_id = anchorID
+          yield* session.updatePart(compactionPart)
+        }
+        yield* writeSkillRereadNotice({
+          sessionID: input.sessionID,
+          agent: userMessage.agent,
+          model: userMessage.model,
+          cleared,
+        })
+        if (input.auto) yield* writeContinueMessage()
+        log.warn("compaction clip-only continue", {
+          sessionID: input.sessionID,
+          trigger,
+          cleared: cleared.length,
+          freed,
+          tools: cleared.map((item) => item.tool),
+          anchor: anchorID,
+        })
+        EventV2.run(SessionEvent.Compaction.Ended.Sync, {
+          sessionID: input.sessionID,
+          timestamp: DateTime.makeUnsafe(Date.now()),
+          text: "",
+          include: anchorID ?? input.parentID,
+        })
+        yield* bus.publish(Event.Compacted, { sessionID: input.sessionID })
+        return "continue" as const
+      })
+
+      // 修复「no-op 压缩」:select 判定"有效体积装得下保尾"(fits-budget / no-turns /
+      // tail-turns-disabled)时,超限大头必然是尚未落盘的超配额工具输出 —— 估算口径
+      // 按占位符计,但标记只在压缩成功路径打,直接拒绝会让巨型输出纹丝不动并终止会话。
+      // 清得出且有效体积放得下 → 纯裁剪压缩出口;清不出时按全账核算(固定成本 + 可压缩
+      // 历史 + 前次摘要实长 + 余量):摘要主导 → 纯提纯出口,全账放得下 → 信号失真放行
+      // (触发口径与可行性口径不一致时不再误杀);其余保留诚实拒绝,话术点名真实主导项。
       if (selected.tail_start_id === undefined && !selected.emptyTail) {
         const historyTokens = yield* estimateEffective({ messages: compactable, model, cfg })
+        const cleared = yield* clearOversizedToolOutputs({
+          sessionID: input.sessionID,
+          messages: compactable,
+          capTokens: toolClipCapTokens(usable({ cfg, model })),
+        })
+        const fixedTokens = input.contextTokens ? input.contextTokens.system + input.contextTokens.tools : 0
+        if (
+          cleared.length > 0 &&
+          (!input.contextTokens ||
+            fixedTokens + historyTokens + Math.ceil(historyTokens * FLOOR_MARGIN_SHARE) < input.contextTokens.usable)
+        ) {
+          replay = undefined
+          return yield* finishClipOnly(cleared, `no-op-${selected.noop ?? "fits-budget"}`)
+        }
+        const summaryTokens = previousSummary ? Token.estimate(previousSummary) : 0
+        const fullBase = fixedTokens + historyTokens + summaryTokens
+        const fullAccount = fullBase + Math.max(FLOOR_MARGIN_MIN, Math.ceil(fullBase * FLOOR_MARGIN_SHARE))
+
+        // 纯提纯出口:前次摘要超预算且主导全账压力 → 只重写锚定摘要(降密度,不截断),
+        // 提纯结果原地写回旧摘要消息的文本 —— 不动锚点、不新建消息(锚点指向保尾首条会
+        // 让旧摘要对泄漏回 filterCompacted 的连续保留窗口)。提纯后按新全账决定续跑或
+        // 诚实拒绝;连续两次仍压不回预算则不再燃烧摘要请求。
+        if (
+          selected.noop === "fits-budget" &&
+          !input.overflow &&
+          previousSummary &&
+          summaryTokens > Math.ceil(target.summaryBudget * SUMMARY_OVER_BUDGET) &&
+          input.contextTokens &&
+          fullAccount >= input.contextTokens.usable &&
+          (refinementFailures.get(input.sessionID) ?? 0) < 2
+        ) {
+          const refined = yield* refinePreviousSummary(previousSummary)
+          // 提纯结果改进门禁:仅当有效且小于原摘要时才原地覆盖(不破坏原有可用摘要);
+          // 显著改进(≤90%)重置连续失败计数 —— 渐进收敛(80k→30k)是进展,不该被累加。
+          const improved = !!refined && refined.tokens < summaryTokens
+          if (refined && improved) {
+            const pair = prior.at(-1)!
+            const oldSummary = history[pair.assistantIndex]!
+            const textParts = oldSummary.parts.filter((item): item is MessageV2.TextPart => item.type === "text")
+            if (textParts[0]) yield* session.updatePart({ ...textParts[0], text: refined.summary })
+            yield* Effect.forEach(
+              textParts.slice(1),
+              (part) =>
+                session.removePart({
+                  sessionID: input.sessionID,
+                  messageID: oldSummary.info.id,
+                  partID: part.id,
+                }),
+              { discard: true },
+            )
+            const refinedBase = fixedTokens + historyTokens + refined.tokens
+            const refinedAccount =
+              refinedBase + Math.max(FLOOR_MARGIN_MIN, Math.ceil(refinedBase * FLOOR_MARGIN_SHARE))
+            if (refined.tokens <= Math.ceil(summaryTokens * 0.9)) refinementFailures.delete(input.sessionID)
+            else bumpRefinementFailures(input.sessionID)
+            log.warn("compaction refinement exit", {
+              sessionID: input.sessionID,
+              previous_tokens: summaryTokens,
+              refined_tokens: refined.tokens,
+              history_tokens: historyTokens,
+              summary_message: oldSummary.info.id,
+              projected: refinedAccount,
+            })
+            EventV2.run(SessionEvent.Compaction.Ended.Sync, {
+              sessionID: input.sessionID,
+              timestamp: DateTime.makeUnsafe(Date.now()),
+              text: refined.summary,
+              include: history[pair.userIndex]!.info.id,
+            })
+            yield* bus.publish(Event.Compacted, { sessionID: input.sessionID })
+            if (refinedAccount < input.contextTokens.usable) {
+              replay = undefined
+              if (input.auto) yield* writeContinueMessage()
+              return "continue"
+            }
+            return yield* failSummary(
+              `Nothing to compact: the compactable history (~${historyTokens} tokens) fits entirely within the preserved-recent budget (${tailBudget} tokens). The re-condensed previous summary (~${refined.tokens} tokens, down from ~${summaryTokens}) still keeps the projected context at ~${refinedAccount} tokens, at or above the ${input.contextTokens.usable}-token usable limit. Start a new session or reduce the attached content.`,
+            )
+          }
+          // 生成失败或无改进:累加连续失败计数,保留原摘要走诚实拒绝
+          bumpRefinementFailures(input.sessionID)
+        }
+
+        // 信号失真放行:全账(含前次摘要)放得下 → 触发信号按估算/cache 口径失真处理,
+        // 写中性通知(非 summary 消息,不进锚定链、不触发 filterCompacted 折叠)并继续
+        // 会话;续跑消息带 compaction_noop 标记,prompt 侧据此跳过重复压缩触发。
+        if (!input.overflow && input.contextTokens && fullAccount < input.contextTokens.usable) {
+          const notice = yield* session.updateMessage({
+            id: MessageID.ascending(),
+            role: "assistant",
+            parentID: input.parentID,
+            sessionID: input.sessionID,
+            mode: "compaction",
+            agent: "compaction",
+            variant: userMessage.model.variant,
+            path: {
+              cwd: ctx.directory,
+              root: ctx.worktree,
+            },
+            cost: 0,
+            tokens: {
+              output: 0,
+              input: 0,
+              reasoning: 0,
+              cache: { read: 0, write: 0 },
+            },
+            modelID: model.id,
+            providerID: model.providerID,
+            time: { created: Date.now() },
+            finish: "stop",
+          } satisfies MessageV2.Assistant)
+          yield* session.updatePart({
+            id: PartID.ascending(),
+            messageID: notice.id,
+            sessionID: input.sessionID,
+            type: "text",
+            text: `No compaction was needed: the recalculated context (~${fullAccount} tokens including the previous summary and safety margin) fits the ${input.contextTokens.usable}-token usable limit. The overflow signal was recalculated as noise and the session continues.`,
+            time: { start: Date.now(), end: Date.now() },
+          } satisfies MessageV2.TextPart)
+          log.warn("compaction no-op recalculated as noise, continuing", {
+            sessionID: input.sessionID,
+            reason: selected.noop,
+            full_account: fullAccount,
+            usable: input.contextTokens.usable,
+            history_tokens: historyTokens,
+            summary_tokens: summaryTokens,
+          })
+          replay = undefined
+          if (input.auto) yield* writeContinueMessage({ noop: true })
+          return "continue"
+        }
+
         const reason: Record<NonNullable<(typeof selected)["noop"]>, string> = {
           "tail-turns-disabled": "compaction.tail_turns is configured to keep the full history",
           "no-turns": "the conversation has no compactable user turns",
           "fits-budget": `the compactable history (~${historyTokens} tokens) fits entirely within the preserved-recent budget (${tailBudget} tokens)`,
         }
+        const dominance = input.contextTokens
+          ? summaryTokens >= Math.max(input.contextTokens.system, input.contextTokens.tools)
+            ? "; the previous summary dominates the remaining context — start a new session"
+            : input.contextTokens.tools >= input.contextTokens.system
+              ? "; reduce the toolset or switch to a larger-context model"
+              : "; shorten the system prompt or switch to a larger-context model"
+          : ""
         const pressure = input.contextTokens
-          ? ` The remaining context pressure sits outside the compactable history: system prompt ~${input.contextTokens.system} + tools ~${input.contextTokens.tools} tokens against a ${input.contextTokens.usable}-token usable limit; reduce the toolset or switch to a larger-context model.`
+          ? ` The remaining context pressure sits outside the compactable history: system prompt ~${input.contextTokens.system} + tools ~${input.contextTokens.tools}${summaryTokens ? ` + previous summary ~${summaryTokens}` : ""} tokens against a ${input.contextTokens.usable}-token usable limit${dominance}.`
           : ""
         const pending = input.overflow
           ? " The pending user message that triggered the overflow stays in the context; reduce or split it and try again."
@@ -632,16 +1143,21 @@ export const layer: Layer.Layer<
           reason: selected.noop,
           history_tokens: historyTokens,
           tail_budget: tailBudget,
+          cleared: cleared.length,
+          summary_tokens: summaryTokens,
+          full_account: fullAccount,
         })
         return yield* failSummary(`Nothing to compact: ${reason[selected.noop ?? "fits-budget"]}.${pending}${pressure}`)
       }
 
       // 修复「压缩后仍必然超限」:用压缩后投影判定 —— system + tools + 实际保留尾部的有效体积
       // + 摘要尺寸估计 + 估算误差余量。不再用保尾预算上限代替实际消耗(预算上限远大于实际
-      // 保留量时会把可救的会话误判为死局)。摘要尺寸在锚定更新模式下以前次摘要体积为预测器。
+      // 保留量时会把可救的会话误判为死局)。摘要尺寸在锚定更新模式下以前次摘要体积为预测器,
+      // 按收敛口径(不增)取值:锚定更新带时间衰减指令,预期 ≤ 前次;过度乐观的代价只是
+      // 浪费一次摘要后由 preflight 兜底,而按增长口径(×1.2)会误杀可救会话(不可恢复)。
       const summaryFloorEstimate = Math.max(
         SUMMARY_FLOOR_TOKENS,
-        previousSummary ? Math.ceil(Token.estimate(previousSummary) * 1.2) : 0,
+        previousSummary ? Token.estimate(previousSummary) : 0,
       )
       const tailFloorTokens = selected.emptyTail ? 0 : selected.tailTokens
       const floorBase = input.contextTokens
@@ -677,7 +1193,12 @@ export const layer: Layer.Layer<
               .filter(Boolean)
               .join("\n\n")
           : [
-              buildPrompt({ previousSummary, context: [conversation], pending: selected.emptyTail || !!replay }),
+              buildPrompt({
+                previousSummary,
+                context: [conversation],
+                pending: selected.emptyTail || !!replay,
+                summaryBudget: target.summaryBudget,
+              }),
               ...compacting.context,
             ]
               .filter(Boolean)
@@ -766,12 +1287,14 @@ export const layer: Layer.Layer<
         }
       }
       const firstValidation = CompactionSummary.validate(first.summary)
+      const overBudget =
+        !!first.summary && Token.estimate(first.summary) > Math.ceil(target.summaryBudget * SUMMARY_OVER_BUDGET)
       const retry =
         first.result === "continue" &&
         !first.processor.message.error &&
         first.processor.message.finish &&
         !!first.summary &&
-        firstValidation.missingCore.length > 0
+        (firstValidation.missingCore.length > 0 || overBudget)
       const attempt = retry
         ? yield* Effect.gen(function* () {
             yield* session.removeMessage({ sessionID: input.sessionID, messageID: first.msg.id })
@@ -779,12 +1302,28 @@ export const layer: Layer.Layer<
               sessionID: input.sessionID,
               modelID: model.id,
               missing: firstValidation.missing,
+              summary_tokens: first.summary ? Token.estimate(first.summary) : 0,
+              summary_budget: target.summaryBudget,
               summary: first.summary,
             })
+            // 缺章节走结构修复;章节齐但超预算走体量收紧 —— 两者共用一次重试机会。
+            const fixes = [
+              ...(firstValidation.missingCore.length > 0
+                ? [
+                    "Your previous summary was missing required sections.",
+                    `Missing sections: ${firstValidation.missing.join(", ")}`,
+                  ]
+                : []),
+              ...(overBudget
+                ? [
+                    `Your previous summary was about ${Token.estimate(first.summary!)} tokens, over the ~${target.summaryBudget}-token budget.`,
+                    "Shorten it to under the budget while keeping every required section. Prefer fewer, denser bullets.",
+                  ]
+                : []),
+            ]
             return yield* summarize(
               [
-                "Your previous summary was missing required sections.",
-                `Missing sections: ${firstValidation.missing.join(", ")}`,
+                ...fixes,
                 "Return a corrected complete summary with every required heading, using (none) for empty sections.",
                 "<invalid-summary>",
                 first.summary,
@@ -796,11 +1335,42 @@ export const layer: Layer.Layer<
             )
           })
         : first
+      // 提纯体积闭环:收紧重试的产物同样复查 —— 仍超预算则接受落盘(渐进降密度,下轮
+      // 触发的纯提纯出口保证继续收敛)并告警,不再静默放过。
+      if (
+        attempt !== first &&
+        !!attempt.summary &&
+        Token.estimate(attempt.summary) > Math.ceil(target.summaryBudget * SUMMARY_OVER_BUDGET)
+      )
+        log.warn("compaction summary still over budget after retry, accepted for progressive refinement", {
+          sessionID: input.sessionID,
+          modelID: model.id,
+          summary_tokens: Token.estimate(attempt.summary!),
+          summary_budget: target.summaryBudget,
+        })
       const msg = attempt.msg
       const processor = attempt.processor
       const result = attempt.result
 
       if (result === "compact") {
+        // 摘要请求超限的最后手段:降级到纯裁剪出口 —— 全量保留并清除巨型输出,
+        // 而不是终止会话。清不出东西或有效体积仍放不下才是真死局。
+        const cleared = yield* clearOversizedToolOutputs({
+          sessionID: input.sessionID,
+          messages: compactable,
+          capTokens: toolClipCapTokens(usable({ cfg, model })),
+        })
+        const effectiveTotal = yield* estimateEffective({ messages: compactable, model, cfg })
+        const fixedTokens = input.contextTokens ? input.contextTokens.system + input.contextTokens.tools : 0
+        if (
+          cleared.length > 0 &&
+          (!input.contextTokens ||
+            fixedTokens + effectiveTotal + Math.ceil(effectiveTotal * FLOOR_MARGIN_SHARE) < input.contextTokens.usable)
+        ) {
+          yield* session.removeMessage({ sessionID: input.sessionID, messageID: msg.id })
+          replay = undefined
+          return yield* finishClipOnly(cleared, "summary-request-overflow")
+        }
         processor.message.error = new MessageV2.ContextOverflowError({
           message: replay
             ? "Conversation history too large to compact - exceeds model context limit"
@@ -861,28 +1431,53 @@ export const layer: Layer.Layer<
       }
       // 保尾清除落盘:保留窗口内超配额阈值的已完成工具输出复用既有的 time.compacted
       // 标记(message-v2 渲染为 "[Old tool result content cleared]"),后续请求不再把
-      // 巨型工具输出(如全文注入的 skill 文档)送进模型上下文。原文仍在存储中。
+      // 巨型工具输出(如全文注入的 skill 文档)送进模型上下文。原文仍在存储中;
+      // skill 类输出额外落一条"分段重读"提示,防止模型因内容被清而重新全量加载造成回环。
+      const tailCleared: Array<{ tool: string; tokens: number; name?: string; dir?: string }> = []
       if (!selected.emptyTail && selected.tail_start_id) {
         const tailStart = compactable.findIndex((m) => m.info.id === selected.tail_start_id)
         if (tailStart >= 0) {
-          const capTokens = toolClipCapTokens(usable({ cfg, model }))
-          for (const msg of compactable.slice(tailStart)) {
-            if (msg.info.role !== "assistant") continue
-            for (const part of msg.parts) {
-              if (part.type !== "tool" || part.state.status !== "completed") continue
-              if (part.state.time.compacted) continue
-              if (Token.estimate(part.state.output) <= capTokens) continue
-              yield* session.updatePart({
-                ...part,
-                state: { ...part.state, time: { ...part.state.time, compacted: Date.now() } },
-              })
-            }
-          }
+          const cleared = yield* clearOversizedToolOutputs({
+            sessionID: input.sessionID,
+            messages: compactable.slice(tailStart),
+            capTokens: toolClipCapTokens(usable({ cfg, model })),
+          })
+          tailCleared.push(...cleared)
         }
       }
+      if (tailCleared.length > 0)
+        log.info("compaction tail tool outputs cleared", {
+          sessionID: input.sessionID,
+          cleared: tailCleared.length,
+          freed: tailCleared.reduce((total, item) => total + item.tokens, 0),
+          tools: tailCleared.map((item) => item.tool),
+        })
+      yield* writeSkillRereadNotice({
+        sessionID: input.sessionID,
+        agent: userMessage.agent,
+        model: userMessage.model,
+        cleared: tailCleared,
+      })
 
       if (result === "continue" && input.auto) {
-        if (replay) {
+        // replay 预算:严格不超过压缩后剩余空间(usable − 固定成本 − 保尾 − 摘要投影
+        // − 余量),并与保尾同口径(usable×25%)封顶;预算 ≤ 0 时严格不回填 —— pending
+        // 请求已按 pending 指令折叠进摘要,改由续跑消息驱动继续,避免落一条空回填消息。
+        const replayBudget = input.contextTokens
+          ? Math.max(
+              0,
+              Math.min(
+                Math.floor(input.contextTokens.usable * REPLAY_BUDGET_SHARE),
+                input.contextTokens.usable -
+                  input.contextTokens.system -
+                  input.contextTokens.tools -
+                  tailFloorTokens -
+                  summaryFloorEstimate -
+                  floorMargin,
+              ),
+            )
+          : Math.floor(usable({ cfg, model }) * REPLAY_BUDGET_SHARE)
+        if (replay && replayBudget > 0) {
           const original = replay.info
           const replayMsg = yield* session.updateMessage({
             id: MessageID.ascending(),
@@ -895,23 +1490,34 @@ export const layer: Layer.Layer<
             tools: original.tools,
             system: original.system,
           })
+          // 多个 part 严格共享总预算:写入前校验结果体积,放不进剩余预算立即停止写入
+          // —— 预算耗尽后不再写入任何内容(含媒体引用行与省略标记),回填总量 ≤ 预算。
+          let replayRemaining = replayBudget
           for (const part of replay.parts) {
             if (part.type === "compaction") continue
-            const replayPart =
-              part.type === "file" && MessageV2.isMedia(part.mime)
-                ? {
-                    type: "text" as const,
-                    text: `[Attached ${part.mime}: ${part.filename ?? "file"}]`,
-                    synthetic: true,
-                    metadata: { compaction_replay: true },
-                  }
-                : part.type === "text"
-                  ? {
-                      ...part,
-                      synthetic: true,
-                      metadata: { ...part.metadata, compaction_replay: true },
-                    }
-                  : part
+            if (part.type === "text") {
+              const clipped = replayTextPart(part, replayRemaining)
+              const size = Token.estimate(clipped.text)
+              if (size > replayRemaining) break
+              replayRemaining -= size
+              yield* session.updatePart({
+                ...clipped,
+                id: PartID.ascending(),
+                messageID: replayMsg.id,
+                sessionID: input.sessionID,
+              })
+              continue
+            }
+            // 媒体引用行同样计入共享预算,放不进剩余预算即停止写入
+            if (replayRemaining <= 0) break
+            let replayPart
+            if (part.type === "file" && MessageV2.isMedia(part.mime)) {
+              const text = `[Attached ${part.mime}: ${part.filename ?? "file"}]`
+              const size = Token.estimate(text)
+              if (size > replayRemaining) break
+              replayRemaining -= size
+              replayPart = { type: "text" as const, text, synthetic: true, metadata: { compaction_replay: true } }
+            } else replayPart = part
             yield* session.updatePart({
               ...replayPart,
               id: PartID.ascending(),
@@ -921,57 +1527,7 @@ export const layer: Layer.Layer<
           }
         }
 
-        if (!replay) {
-          const info = yield* provider.getProvider(userMessage.model.providerID)
-          if (
-            (yield* plugin.trigger(
-              "experimental.compaction.autocontinue",
-              {
-                sessionID: input.sessionID,
-                agent: userMessage.agent,
-                model: yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID),
-                provider: {
-                  source: info.source,
-                  info,
-                  options: info.options,
-                },
-                message: userMessage,
-                overflow: input.overflow === true,
-              },
-              { enabled: true },
-            )).enabled
-          ) {
-            const continueMsg = yield* session.updateMessage({
-              id: MessageID.ascending(),
-              role: "user",
-              sessionID: input.sessionID,
-              time: { created: Date.now() },
-              agent: userMessage.agent,
-              model: userMessage.model,
-            })
-            const text =
-              (input.overflow
-                ? "The previous request exceeded the provider's size limit due to large media attachments. The conversation was compacted and media files were removed from context. If the user was asking about attached images or files, explain that the attachments were too large to process and suggest they try again with smaller or fewer files.\n\n"
-                : "") +
-              "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
-            yield* session.updatePart({
-              id: PartID.ascending(),
-              messageID: continueMsg.id,
-              sessionID: input.sessionID,
-              type: "text",
-              // Internal marker for auto-compaction followups so provider plugins
-              // can distinguish them from manual post-compaction user prompts.
-              // This is not a stable plugin contract and may change or disappear.
-              metadata: { compaction_continue: true },
-              synthetic: true,
-              text,
-              time: {
-                start: Date.now(),
-                end: Date.now(),
-              },
-            })
-          }
-        }
+        if (!replay || replayBudget <= 0) yield* writeContinueMessage()
       }
 
       if (result === "continue") {
@@ -984,6 +1540,10 @@ export const layer: Layer.Layer<
           duration_ms: Date.now() - startedAt,
           tail_start_id: anchorID,
           summary,
+          target: target.target,
+          fixed: target.fixed,
+          tail_tokens: selected.emptyTail ? 0 : selected.tailTokens,
+          summary_tokens: summary ? Token.estimate(summary) : 0,
         })
         EventV2.run(SessionEvent.Compaction.Ended.Sync, {
           sessionID: input.sessionID,

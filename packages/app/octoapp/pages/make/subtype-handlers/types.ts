@@ -14,7 +14,7 @@ export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit' | 'comment' | 
  */
 export interface Scene3dEditConfig {
   /** 把 iframe 回传的 scene3d-changes 文本包装成发给 AI 的 prompt */
-  buildPrompt: (args: { filePath: string; payload: string }) => string
+  buildPrompt: (args: { filePath: string; payload: string }) => string | Promise<string>
 }
 
 export type HistoryTriggerEvent =
@@ -99,6 +99,12 @@ export interface SubtypeHandler {
   isDownloadBusy?: (ctx: SubtypeHandlerContext, option?: string) => boolean
 
   /**
+   * 处理「保存到资产库(局部)」进入元素选择模式
+   * @returns true 表示 subtype 已接管（跳过通用 edit-bridge 选择流程），false 或 void 表示走通用流程
+   */
+  handleAssetPick?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+
+  /**
    * 构建归档时要塞进 src/ 的代码包
    * 返回 { blob, fileName } 表示要写入 src/<fileName>；
    * 返回 null 表示该 subtype 不提供 src 内容（默认行为，src/ 留空）
@@ -141,7 +147,13 @@ export interface SubtypeHandler {
    * 历史恢复
    * 接收版本的文件列表，由 handler 决定如何应用（如复制回原始路径、更新 tab 等）
    */
+  resolveVersionFiles?: (
+    ctx: SubtypeHandlerContext,
+    load: (relativePaths: string[]) => Promise<VersionFile[]>,
+  ) => Promise<VersionFile[] | undefined>
+
   applyVersionFiles?: (ctx: SubtypeHandlerContext, files: VersionFile[]) => Promise<void>
+  deleteCurrentArtifact?: (ctx: SubtypeHandlerContext) => Promise<void>
 
   /**
    * Model Edit 配置（组件感知属性面板）

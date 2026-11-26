@@ -352,8 +352,14 @@ export function ResultViewer(props: {
     tracker.interaction({ module: "design", name: "toggle-model-edit-mode", extend: JSON.stringify({ action: nextModelEditing ? "open" : "close" }) })
   }
 
-  /** 「保存到资产库(局部)」元素选择模式开关（与其他交互模式互斥） */
-  const handleAssetPickToggle = () => {
+  /** 「保存到资产库(局部)」元素选择模式开关（与其他交互模式互斥）。
+   *  subtype 可经 handler.handleAssetPick 接管（返回 true 跳过通用 edit-bridge 选择流程）。 */
+  const handleAssetPickToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (ctx) {
+      const handled = await getSubtypeHandler(ctx.tab.subtype)?.handleAssetPick?.(ctx)
+      if (handled === true) return
+    }
     const nextPicking = !featureMutex.state.assetPicking
     featureMutex.toggleFeature('assetPicking')
     tracker.interaction({ module: "design", name: "toggle-asset-pick-mode", extend: JSON.stringify({ action: nextPicking ? "open" : "close" }) })
@@ -420,8 +426,15 @@ export function ResultViewer(props: {
     if (!tab) return
     const handler = getSubtypeHandler(tab.subtype)
     if (!handler?.scene3dEditConfig) return
-    const prompt = handler.scene3dEditConfig.buildPrompt({ filePath: tab.filePath ?? '', payload })
-    await sendTextToAgent(prompt, { source: 'scene3d-edit' })
+    try {
+      const prompt = await handler.scene3dEditConfig.buildPrompt({ filePath: tab.filePath ?? '', payload })
+      if (activeTab()?.id !== tab.id) return
+      await sendTextToAgent(prompt, { source: 'scene3d-edit' })
+    } catch (error) {
+      showOctoToast({ title: '无法提交场景修改', description: String(error), variant: 'error' })
+      return
+    }
+    if (activeTab()?.id !== tab.id) return
     tracker.interaction({ module: "design", name: "save-scene3d-edit-changes", extend: JSON.stringify({ type: tab.type }) })
     featureMutex.toggleFeature('scene3dEditing')
   }
