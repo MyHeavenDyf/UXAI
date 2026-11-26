@@ -236,7 +236,7 @@ export function AssessmentResultPanel(): JSX.Element {
       timeoutMs: 1200000,
     })
     if (!result.ok) {
-      showOctoToast({ title: "采纳发送失败", description: result.message })
+      showOctoToast({ title: "采纳发送失败", description: result.message, variant: "error", persistent: true })
       return
     }
     exitPendingAssessment()
