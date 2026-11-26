@@ -650,13 +650,6 @@ export function InsightTurn(props: {
             status={props.status}
             active={props.active || (props.status.type === "retry" && isLatestTurn())}
             classes={{ root: "px-3" }}
-            renderError={(message) =>
-              /合规检测未通过\s*[，,]\s*原因\s*[：:]\s*发现\s*KIA\s*资产/.test(message) ? (
-                <MakeErrorNotice title="生成出错">
-                  <div class="select-text">{message}</div>
-                </MakeErrorNotice>
-              ) : undefined
-            }
             renderContextOverflow={() => <MakeErrorNotice title="上下文超出提示">
               <div class="select-text">系统的单次处理能力已满。</div>
               <div>

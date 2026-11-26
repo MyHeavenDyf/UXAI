@@ -157,7 +157,6 @@ export function SessionTurn(
     status?: SessionStatus
     onUserInteracted?: () => void
     renderContextOverflow?: () => JSX.Element
-    renderError?: (message: string) => JSX.Element | undefined
     classes?: {
       root?: string
       content?: string
@@ -531,7 +530,7 @@ export function SessionTurn(
               </Show>
               <Show when={error()}>
                 <Show when={error()?.name === "ContextOverflowError" && props.renderContextOverflow} fallback={
-                  props.renderError?.(errorText()) ?? <Card variant="error" class="error-card">{errorText()}</Card>
+                  <Card variant="error" class="error-card">{errorText()}</Card>
                 }>
                   {props.renderContextOverflow?.()}
                 </Show>
