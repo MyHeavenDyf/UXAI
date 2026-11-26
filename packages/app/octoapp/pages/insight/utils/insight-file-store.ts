@@ -1,12 +1,11 @@
 // SPEC-INS-014 §10.1:文件管理面板的视图状态 store。结构照抄站内 Design 模块
 // (make/utils/artifact-file-store.ts)已验证的分组 / 排序 / 筛选 / 多选 / 文件夹导航逻辑——
 // 这套逻辑与后端存储形态无关,只把数据源从 Design 的 ArtifactFile 换成 Insight 自己的 InsightFile。
-// 文件夹导航:currentPath 相对 .octo/<sessionId>/uploads/ 根;非顶层只列 uploads/<path>/,
-//   不再分"已上传/已生成"两段(generated 产物无子目录,只在顶层并排)。
+// 文件夹路径相对当前分类根目录，顶层同时显示生成文件和上传文件。
 
 import { createStore } from "solid-js/store"
-import { createMemo, createSignal, createEffect, on } from "solid-js"
-import type { InsightFile, InsightFileKind } from "./insight-file-api"
+import { batch, createMemo, createSignal, createEffect, on } from "solid-js"
+import type { InsightFile, InsightFileCategory, InsightFileKind } from "./insight-file-api"
 import { kindSortPriority } from "./insight-file-api"
 
 export type GroupMode = "kind" | "modified"
@@ -54,6 +53,7 @@ export const MODIFIED_SECTION_LABELS: Record<ModifiedSection, string> = {
 
 export type InsightFileStore = {
   currentPath: string
+  currentCategory: InsightFileCategory
   uploadedFiles: InsightFile[]
   generatedFiles: InsightFile[]
   collapsedUploaded: boolean
@@ -136,6 +136,7 @@ function createFileListComputed(
 export function createInsightFileStore() {
   const [store, setStore] = createStore<InsightFileStore>({
     currentPath: "",
+    currentCategory: "uploads",
     uploadedFiles: [],
     generatedFiles: [],
     collapsedUploaded: false,
@@ -182,7 +183,7 @@ export function createInsightFileStore() {
   createEffect(on(() => store.kindFilter, () => setStore("selected", new Set()), { defer: true }))
 
   // 切换文件夹路径:清选中(旧路径的选中不再适用)。
-  createEffect(on(() => store.currentPath, () => {
+  createEffect(on([() => store.currentPath, () => store.currentCategory], () => {
     setStore("selected", new Set())
   }, { defer: true }))
 
@@ -198,9 +199,9 @@ export function createInsightFileStore() {
     Array.from(kindCounts().keys()).sort((a, b) => kindSortPriority(a) - kindSortPriority(b)),
   )
 
-  // 当前页(过滤后)可见文件:顶层 = 已上传+已生成;非顶层(进文件夹)= 仅已上传。
+  const currentFiles = () => store.currentCategory === "outputs" ? generated : uploaded
   const pageFiles = createMemo(() =>
-    isTopLevel() ? [...uploaded.sortedFiles(), ...generated.sortedFiles()] : uploaded.sortedFiles(),
+    isTopLevel() ? [...uploaded.sortedFiles(), ...generated.sortedFiles()] : currentFiles().sortedFiles(),
   )
   // 选区只含文件:文件夹是导航项,不参与批量下载(archive 不递归目录)/批量删除,也不计入全选。
   const selectablePageFiles = createMemo(() => pageFiles().filter((f) => !f.isFolder))
@@ -217,6 +218,7 @@ export function createInsightFileStore() {
     setStore,
     uploaded,
     generated,
+    currentFiles,
     kindCounts,
     availableKinds,
     isTopLevel,
@@ -287,9 +289,12 @@ export function createInsightFileStore() {
       nextSelected.delete(path)
       setStore("selected", nextSelected)
     },
-    navigateToFolder(folder: InsightFile) {
+    navigateToFolder(folder: InsightFile, category: InsightFileCategory) {
       if (!folder.isFolder) return
-      setStore("currentPath", folder.relativePath)
+      batch(() => {
+        setStore("currentCategory", category)
+        setStore("currentPath", folder.relativePath)
+      })
     },
   }
 }
