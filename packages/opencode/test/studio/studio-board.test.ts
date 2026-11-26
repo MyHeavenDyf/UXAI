@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { boardEdgeError, boardDraftReferences, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
+import { BoardSnapshot, BOARD_UPSCALE_PROMPT, BOARD_CUTOUT_PROMPT, boardEdgeError, boardDraftReferences, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
 import { Database, eq } from "@/storage/db"
 import { Instance } from "@/project/instance"
 import { SessionID, MessageID, PartID } from "@/session/schema"
@@ -111,6 +111,19 @@ test("board revision, immutable card types, ownership and duplicate IDs", async 
       expect(getBoard(id).document.cards[0].kind).toBe("image")
       expect(() => getBoard(session("conversation"))).toThrow("画布会话不存在")
       expect(() => saveBoard(id, 1, { ...draft, cards: [...draft.cards, draft.cards[0]] })).toThrow("重复标识")
+    },
+  })
+})
+
+test.each([0.1, 2, 8])("board zoom %s saves and reloads", async (zoom) => {
+  await using dir = await tmpdir()
+  await provideTestInstance({
+    directory: dir.path,
+    fn: async () => {
+      const id = session("board")
+      const document = { ...emptyBoard(), viewport: { x: 320, y: -160, zoom } }
+      expect(saveBoard(id, 0, document).document).toEqual(document)
+      expect(getBoard(id).document).toEqual(document)
     },
   })
 })
@@ -978,8 +991,180 @@ test("board image operations pin their source, validate snapshots and send nativ
         })
         expect(getBoard(id).document.cards.find((card) => card.id === child.id)?.taskLinks[0].snapshot.operation).toEqual(child.operation)
         await cancelGeneration(accepted.id)
+        Database.use((db) => db.update(StudioGenerationTable).set({ status: "succeeded",
+          result: { images: [{ id: "operation-output", url: "https://example.test/processed.png" }] },
+        }).where(eq(StudioGenerationTable.id, accepted.id)).run())
+        const replayBoard = getBoard(id)
+        const replay = newBoardCard(`${child.id}-regeneration`, "image", { x: 1000, y: 100 })
+        replay.operation = child.operation
+        replay.regeneration = { sourceID: child.id, generationID: accepted.id, snapshot: BoardSnapshot.parse(submission.snapshot) }
+        replay.draft = { prompt: submission.snapshot.prompt, settings: { ...submission.snapshot.settings }, assets: [], references: [] }
+        replayBoard.document.cards.push(replay)
+        const replaySaved = saveBoard(id, replayBoard.revision, replayBoard.document)
+        const expectedRequest = requests.at(-1)
+        const rerun = await createGeneration({ sessionID: id, capability, prompt: replay.draft.prompt,
+          extra: { userIdx: "current-upscale-user" },
+          board: { cardID: replay.id, submissionID: crypto.randomUUID(), revision: replaySaved.revision, snapshot: submission.snapshot },
+        })
+        for (const attempt of Array.from({ length: 100 }, (_, index) => index)) {
+          const row = Database.use((db) => db.select().from(StudioGenerationTable).where(eq(StudioGenerationTable.id, rerun.id)).get())
+          if (row?.provider_task_id) break
+          if (row?.status === "failed" || attempt === 99) throw new Error(`Regeneration did not start: ${JSON.stringify(row?.result)}`)
+          await Bun.sleep(25)
+        }
+        expect(requests.at(-1)).toEqual(expectedRequest)
+        expect(replaySaved.document.draftEdges.some((edge) => edge.targetID === replay.id)).toBe(false)
+        await cancelGeneration(rerun.id)
       }
-      expect(requests).toHaveLength(8)
+      expect(requests).toHaveLength(16)
     },
   })
 })
+
+test("video pinned frames validate media ownership and remain stable when their source cover changes", async () => {
+  await using dir = await tmpdir()
+  await provideTestInstance({ directory: dir.path, fn: async () => {
+    const id = session("board")
+    const source = newBoardCard("source", "image")
+    source.draft.prompt = "来源图片"
+    saveBoard(id, 0, { ...emptyBoard(), cards: [source] })
+    task(id, "original-frame", "succeeded")
+    attachBoardGeneration(id, { cardID: source.id, submissionID: crypto.randomUUID(), revision: 1,
+      snapshot: { ...source.draft, references: [] } }, "original-frame")
+    task(id, "changed-cover", "succeeded")
+    attachBoardGeneration(id, { cardID: source.id, submissionID: crypto.randomUUID(), revision: getBoard(id).revision,
+      snapshot: { ...source.draft, references: [] } }, "changed-cover")
+    const board = getBoard(id)
+    board.document.cards[0].cover = { generationID: "changed-cover", mediaID: "image-1" }
+    const video = newBoardCard("video", "video")
+    video.draft.prompt = "镜头推进"
+    video.draft.settings.videoInputMode = "first-last-frame"
+    video.draft.settings.videoMode = "first_last_frame"
+    const reference = { sourceID: source.id, generationID: "original-frame", mediaID: "image-1", title: "原图",
+      image: "https://example.test/image.png", role: "firstFrame" as const }
+    board.document.cards.push(video)
+    board.document.draftEdges.push({ id: "frame", sourceID: source.id, targetID: video.id, role: "firstFrame", reference })
+    const forged = structuredClone(board.document)
+    forged.draftEdges[0].reference!.image = "https://example.test/forged.png"
+    expect(() => saveBoard(id, board.revision, forged)).toThrow("固定引用图片不一致")
+    task(id, "unrelated-frame", "succeeded")
+    forged.draftEdges[0].reference = { ...reference, generationID: "unrelated-frame" }
+    expect(() => saveBoard(id, board.revision, forged)).toThrow("不属于上游卡片")
+    const saved = saveBoard(id, board.revision, board.document)
+    const submission = { cardID: video.id, submissionID: crypto.randomUUID(), revision: saved.revision,
+      snapshot: { ...video.draft, references: [reference] } }
+    expect(validateBoardSubmission(id, submission).input.snapshot.references).toEqual([reference])
+    expect(() => validateBoardSubmission(id, { ...submission, snapshot: { ...submission.snapshot,
+      references: [{ ...reference, generationID: "changed-cover" }] } })).toThrow("参考图已变化")
+    const swapped = structuredClone(saved.document)
+    swapped.draftEdges[0].role = "lastFrame"
+    expect(() => saveBoard(id, saved.revision, swapped)).toThrow("不一致")
+    const multi = structuredClone(saved.document)
+    multi.cards[1].draft.settings.videoInputMode = "multi-reference"
+    const multiSaved = saveBoard(id, saved.revision, multi)
+    expect(validateBoardSubmission(id, { ...submission, revision: multiSaved.revision, snapshot: {
+      ...video.draft, settings: multi.cards[1].draft.settings, references: [{ ...reference, role: "reference" }],
+    } }).input.snapshot.references).toEqual([{ ...reference, role: "reference" }])
+  } })
+})
+
+
+test.each(["image", "video", "upscale", "cutout", "inpaint", "outpaint"] as const)(
+  "regeneration %s validates its source snapshot and preserves inputs without a new edge", async (kind) => {
+    await using dir = await tmpdir()
+    await provideTestInstance({ directory: dir.path, fn: async () => {
+      const id = session("board")
+      const input = newBoardCard("input", "image")
+      saveBoard(id, 0, { ...emptyBoard(), cards: [input] })
+      task(id, `regen-input-${kind}`, "succeeded")
+      attachBoardGeneration(id, { cardID: input.id, revision: 1, submissionID: crypto.randomUUID(),
+        snapshot: { prompt: "原图", settings: input.draft.settings, references: [] } }, `regen-input-${kind}`)
+      const before = getBoard(id)
+      before.document.cards[0].cover = { generationID: `regen-input-${kind}`, mediaID: "image-1" }
+      const origin = newBoardCard("origin", kind === "video" ? "video" : "image")
+      const reference = { sourceID: input.id, generationID: `regen-input-${kind}`, mediaID: "image-1", title: input.title,
+        image: "https://example.test/image.png", role: kind === "video" ? "firstFrame" as const : "reference" as const }
+      const upload = `${dir.path}/.octo/${id}/uploads/source.png`
+      const snapshot = BoardSnapshot.parse({ prompt: "原任务提示词", settings: { styleModel: "seedream-5-pro", count: 2,
+        ...(kind === "video" ? { videoMode: "first_last_frame", videoInputMode: "first-last-frame", duration: "8", quality: "1080" } : {}) },
+        references: [reference, { sourceID: "upload:upload", generationID: "", mediaID: "upload", title: "上传参考图", image: upload,
+          role: kind === "video" ? "lastFrame" : "reference" }],
+      })
+      if (kind !== "image" && kind !== "video") {
+        snapshot.references = []
+        snapshot.settings.count = 1
+        snapshot.prompt = kind === "upscale" ? BOARD_UPSCALE_PROMPT : kind === "cutout" ? BOARD_CUTOUT_PROMPT : "原任务提示词"
+        snapshot.operation = {
+          ...(kind === "upscale" ? { capability: "image.upscale", mode: "super_resolution" } as const
+            : kind === "cutout" ? { capability: "image.cutout" } as const
+            : kind === "inpaint" ? { capability: "image.inpaint", compositeImage: upload, generateMode: "erase", hasDrawing: true, brushSize: 64 } as const
+            : { capability: "image.outpaint", sourceWidth: 600, sourceHeight: 300, left: 100, right: 200, top: 50, bottom: 150,
+              realWidth: 900, realHeight: 500 } as const), sourceImage: upload, source: { ...reference, role: "reference" },
+        }
+      }
+      origin.operation = snapshot.operation
+      origin.draft = { prompt: snapshot.prompt, settings: snapshot.settings, assets: snapshot.operation ? [] : [
+        { id: "upload", name: "上传参考图", url: upload, role: kind === "video" ? "lastFrame" : "reference" },
+      ] }
+      before.document.cards.push(origin)
+      before.document.draftEdges.push({ id: "original-edge", sourceID: input.id, targetID: origin.id, role: reference.role,
+        ...(snapshot.operation ? { purpose: "derivation" } : {}),
+      })
+      const saved = saveBoard(id, before.revision, before.document)
+      const original: BoardSubmission = { cardID: origin.id, revision: saved.revision, submissionID: crypto.randomUUID(), snapshot }
+      validateBoardSubmission(id, original)
+      task(id, `regen-original-${kind}`, "succeeded")
+      attachBoardGeneration(id, original, `regen-original-${kind}`)
+      const board = getBoard(id)
+      board.document.cards.find((card) => card.id === origin.id)!.draft.prompt = "后来修改的草稿"
+      saveBoard(id, board.revision, board.document)
+      const current = getBoard(id)
+      const replay = newBoardCard("regeneration", origin.kind)
+      replay.operation = snapshot.operation
+      replay.regeneration = { sourceID: origin.id, generationID: `regen-original-${kind}`, snapshot: BoardSnapshot.parse(snapshot) }
+      replay.draft = { prompt: snapshot.prompt, settings: { ...snapshot.settings }, assets: [], references: snapshot.references.map((ref) => ({ ...ref })) }
+      current.document.cards.push(replay)
+      const forged = structuredClone(current.document)
+      forged.cards.at(-1)!.regeneration!.snapshot.prompt = "伪造参数"
+      expect(() => saveBoard(id, current.revision, forged)).toThrow("再次生成参数与原任务不一致")
+      const foreign = structuredClone(current.document)
+      foreign.cards.at(-1)!.regeneration!.generationID = `regen-input-${kind}`
+      expect(() => saveBoard(id, current.revision, foreign)).toThrow("再次生成来源任务不可用")
+      const savedReplay = saveBoard(id, current.revision, current.document)
+      const submission: BoardSubmission = { cardID: replay.id, submissionID: crypto.randomUUID(), revision: savedReplay.revision, snapshot }
+      expect(validateBoardSubmission(id, submission).input.snapshot).toEqual(snapshot)
+      expect(savedReplay.document.draftEdges.filter((edge) => edge.targetID === replay.id)).toHaveLength(0)
+      const changed = structuredClone(savedReplay.document)
+      changed.cards.at(-1)!.regeneration!.snapshot.prompt = "改写已保存来源"
+      expect(() => saveBoard(id, savedReplay.revision, changed)).toThrow("任务历史")
+      if (!snapshot.operation) {
+        const tampered = structuredClone(savedReplay.document)
+        tampered.cards.at(-1)!.draft.references![0].image = "https://example.test/forged.png"
+        expect(() => saveBoard(id, savedReplay.revision, tampered)).toThrow("固定参考图不属于原任务")
+        const unverified = structuredClone(savedReplay.document)
+        const fake = newBoardCard("unverified", origin.kind)
+        fake.draft.references = snapshot.references
+        unverified.cards.push(fake)
+        expect(() => saveBoard(id, savedReplay.revision, unverified)).toThrow("固定参考图不属于原任务")
+      }
+      // Frozen inputs and validation survive removing the original graph cards.
+      const detached = { ...savedReplay.document, cards: [savedReplay.document.cards.at(-1)!], draftEdges: [] }
+      const detachedSaved = saveBoard(id, savedReplay.revision, detached)
+      expect(validateBoardSubmission(id, { ...submission, revision: detachedSaved.revision }).input.snapshot).toEqual(snapshot)
+      if (kind !== "video") return
+      detachedSaved.document.cards[0].draft.references = snapshot.references.map((ref) => ({ ...ref,
+        role: ref.role === "firstFrame" ? "lastFrame" : "firstFrame",
+      }))
+      const swapped = saveBoard(id, detachedSaved.revision, detachedSaved.document)
+      const swappedRefs = boardDraftReferences(swapped.document, replay.id, () => undefined)
+      expect(swappedRefs.map((ref) => ref.role)).toEqual(["lastFrame", "firstFrame"])
+      expect(validateBoardSubmission(id, { ...submission, revision: swapped.revision, snapshot: { ...snapshot, references: swappedRefs } }).input.snapshot.references).toEqual(swappedRefs)
+      swapped.document.cards[0].draft.settings.videoInputMode = "multi-reference"
+      const multi = saveBoard(id, swapped.revision, swapped.document)
+      const multiRefs = boardDraftReferences(multi.document, replay.id, () => undefined)
+      expect(multiRefs.map((ref) => ref.role)).toEqual(["reference", "reference"])
+      expect(validateBoardSubmission(id, { ...submission, revision: multi.revision, snapshot: { ...snapshot,
+        settings: multi.document.cards[0].draft.settings, references: multiRefs } }).input.snapshot.references).toEqual(multiRefs)
+    } })
+  },
+)

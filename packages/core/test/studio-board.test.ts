@@ -8,12 +8,22 @@ import {
   BOARD_CUTOUT_PROMPT,
   boardEdgeError,
   boardDraftReferences,
+  boardFrameSourceCount,
   boardGenerationError,
   uniqueBoardReferences,
   emptyBoard,
   newBoardCard,
   recoverBoardDraft,
 } from "../src/studio-board"
+
+test.each([0.1, 0.35, 1, 1.8, 2, 8])("board documents preserve zoom %s", (zoom) => {
+  const document = { ...emptyBoard(), viewport: { x: 320, y: -160, zoom } }
+  expect(BoardDocument.parse(JSON.parse(JSON.stringify(document)))).toEqual(document)
+})
+
+test.each([0.099, 8.001, NaN, Infinity, -Infinity])("board documents reject zoom %s", (zoom) => {
+  expect(BoardDocument.safeParse({ ...emptyBoard(), viewport: { x: 0, y: 0, zoom } }).success).toBe(false)
+})
 
 test.each([
   { model: "seedream-5-pro", limit: 4 },
@@ -262,4 +272,46 @@ test.each(["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"] a
   if (capability === "image.upscale")
     expect(BoardSnapshot.safeParse({ ...snapshot, operation: { ...child.operation, mode: "invalid" } }).success).toBe(false)
   if (capability === "image.cutout") expect(snapshot.operation).not.toHaveProperty("mode")
+})
+
+test("video frame edges freeze the displayed media independently of later covers and survive recovery", () => {
+  const source = newBoardCard("source", "image")
+  source.cover = { generationID: "later", mediaID: "cover" }
+  const video = newBoardCard("video", "video")
+  video.draft.settings.videoInputMode = "first-last-frame"
+  const reference = { sourceID: source.id, generationID: "original", mediaID: "preview", title: "当前图片",
+    image: "/original.png", role: "firstFrame" as const }
+  const edge = { id: "frame", sourceID: source.id, targetID: video.id, role: "firstFrame" as const, reference }
+  const document = BoardDocument.parse({ ...emptyBoard(), cards: [source, video], draftEdges: [edge] })
+  expect(boardDraftReferences(document, video.id, () => { throw new Error("Must not resolve the changed cover") })).toEqual([reference])
+  expect(recoverBoardDraft(document, structuredClone(document)).draftEdges).toEqual([edge])
+  expect(boardEdgeError({ ...document, draftEdges: [] }, source.id, video.id, "lastFrame", undefined, reference)).toContain("不一致")
+  expect(boardEdgeError({ ...document, draftEdges: [] }, source.id, source.id, "firstFrame", undefined, reference)).toBeDefined()
+  document.cards[1].draft.settings.videoInputMode = "multi-reference"
+  expect(boardDraftReferences(document, video.id, () => undefined)).toEqual([{ ...reference, role: "reference" }])
+  document.cards[1].draft.settings.videoInputMode = "first-last-frame"
+  expect(boardDraftReferences(document, video.id, () => undefined)).toEqual([reference])
+  expect(document.draftEdges[0]).toEqual(edge)
+  delete document.cards[0].cover
+  expect(boardEdgeError({ ...document, draftEdges: [] }, source.id, video.id, "firstFrame", undefined, reference)).toBeUndefined()
+})
+
+
+test("regeneration references survive serialization without graph sources and retain frame roles across modes", () => {
+  const card = newBoardCard("replay", "video")
+  card.draft.settings.videoInputMode = "first-last-frame"
+  card.draft.references = [{ sourceID: "removed", generationID: "old-task", mediaID: "old-image", title: "原始参考图",
+    image: "https://example.test/frozen.png", role: "firstFrame" }]
+  card.regeneration = { sourceID: "old-card", generationID: "original-task",
+    snapshot: { prompt: "原提示词", settings: { ...card.draft.settings }, references: card.draft.references.map((ref) => ({ ...ref })) } }
+  const document = BoardDocument.parse(JSON.parse(JSON.stringify({ ...emptyBoard(), cards: [card] })))
+  expect(boardDraftReferences(document, card.id, () => { throw new Error("Should not resolve removed sources") })).toEqual(card.draft.references)
+  expect(boardFrameSourceCount(document, card.id, "firstFrame")).toBe(1)
+  document.cards[0].draft.settings.videoInputMode = "multi-reference"
+  expect(boardDraftReferences(document, card.id, () => undefined)[0].role).toBe("reference")
+  document.cards[0].draft.settings.videoInputMode = "first-last-frame"
+  expect(boardDraftReferences(document, card.id, () => undefined)[0].role).toBe("firstFrame")
+  document.cards[0].draft.references = []
+  expect(boardDraftReferences(document, card.id, () => undefined)).toEqual([])
+  expect(document.cards[0].regeneration?.snapshot.references).toEqual(card.draft.references)
 })

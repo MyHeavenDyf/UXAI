@@ -4,13 +4,17 @@ import { createStore, reconcile as reconcileStore } from "solid-js/store"
 import { render } from "solid-js/web"
 import {
   type BoardSettings,
+  type BoardReference,
   BoardSnapshot,
+  BOARD_MIN_ZOOM,
+  BOARD_MAX_ZOOM,
   BOARD_UPSCALE_PROMPT,
   BOARD_CUTOUT_PROMPT,
   boardImageOperationName,
   boardFrameSourceCount,
   boardGenerationError,
   boardReferenceActive,
+  boardEdgeRole,
   BOARD_VIDEO_REFERENCE_LIMIT,
   recoverBoardDraft,
   type BoardSubmission,
@@ -50,6 +54,7 @@ import {
   boardWheelZoom,
   boardDocumentJSON,
   boardDocumentSnapshot,
+  boardNextCardPosition,
   boardCanGenerate,
   normalizeBoardSettings,
   normalizeBoardDraft,
@@ -60,12 +65,14 @@ import {
 } from "./studio-board-state"
 import { StudioBoardCardView } from "./studio-board-card"
 import { StudioBoardMediaToolbar } from "./studio-board-media-toolbar"
+import { StudioBoardVideo } from "./studio-board-video"
 import { StudioBoardComposer } from "./studio-board-composer"
 import { StudioBoardUpscale } from "./studio-board-upscale"
 import { StudioBoardInpaint } from "./studio-board-inpaint"
 import { StudioBoardOutpaint } from "./studio-board-outpaint"
 import { StudioBoardResults } from "./studio-board-results"
 import { StudioBoardHeader, type BoardSessionPage } from "./studio-board-header"
+import { StudioBoardTools } from "./studio-board-tools"
 import type { ThumbnailMap } from "../session-thumbnail"
 import "./studio-board.css"
 
@@ -148,11 +155,15 @@ export default function StudioBoard(props: {
     fullscreenMedia: undefined as StudioImage | undefined,
     menuTab: "",
     zoom: 1,
+    tool: "select" as "select" | "pan",
+    toolMenu: false,
+    temporaryPan: false,
     menu: undefined as
       | { x: number; y: number; point: { x: number; y: number }; sourceID?: string; previewID?: string }
       | undefined,
     anchor: { left: 0, top: 0, width: 544 },
     mediaToolbarAnchor: { left: 0, top: 0 },
+    video: undefined as { cardID: string; source: BoardReference } | undefined,
     upscaleCardID: "",
     cutoutCardID: "",
     inpaint: undefined as { cardID: string; generationID: string; mediaID: string; image: string; url: string } | undefined,
@@ -175,6 +186,7 @@ export default function StudioBoard(props: {
     draggingCard: false,
   })
   const documentJSON = createMemo(() => boardDocumentJSON(state.document))
+  const panning = () => state.tool === "pan" || state.temporaryPan
   const dirty = () => documentJSON() !== state.savedDocumentJSON
   const operations = createBoardOperations()
   const roots = new Map<string, () => void>()
@@ -211,6 +223,14 @@ export default function StudioBoard(props: {
     key: () => state.inpaint && `${state.inpaint.generationID}:${state.inpaint.mediaID}`,
     brushSize: () => state.inpaintBrush,
     busy: () => busy() || awaitingRecovery(),
+  })
+  createEffect(() => {
+    const edit = state.video
+    if (!edit) return
+    const card = selected()
+    const media = card && boardMedia(card, state.results).find((item) => item.media === boardDisplayedMedia(card, state.results))
+    if (card?.id !== edit.cardID || media?.generationID !== edit.source.generationID || media?.mediaID !== edit.source.mediaID)
+      setState("video", undefined)
   })
   const outpaintEditor = createStudioOutpaint({
     source: () => state.outpaint?.url,
@@ -256,7 +276,7 @@ export default function StudioBoard(props: {
   let titleChange: Promise<void> | undefined
   let stopFlow = () => {}
   let temporaryEdge: Edge | undefined
-  let selectionStart: { x: number; y: number } | undefined
+  let selectionStart: { x: number; y: number; selectedIDs: string[] } | undefined
   let snapping = false
   let outpaintPositionID = ""
   createEffect(() => {
@@ -308,6 +328,7 @@ export default function StudioBoard(props: {
     setState("menuTab", "")
     setState("inpaint", undefined)
     setState("outpaint", undefined)
+    setState("video", undefined)
     setState("upscaleCardID", state.upscaleCardID === card.id ? "" : card.id)
     setState("upscaleMode", "restoration_8k")
     updateAnchor()
@@ -324,6 +345,7 @@ export default function StudioBoard(props: {
     if (!item || !url) return
     batch(() => {
       setState("outpaint", undefined)
+      setState("video", undefined)
       setState("upscaleCardID", "")
       setState("menuTab", "")
       setState("inpaintMode", "qwen_image_edit")
@@ -361,6 +383,7 @@ export default function StudioBoard(props: {
       setState("upscaleCardID", "")
       setState("inpaint", undefined)
       setState("menuTab", "")
+      setState("video", undefined)
       setState("outpaintPrompt", "")
       setState("outpaintError", "")
       setState("outpaint", { cardID: card.id, generationID: item.generationID, mediaID: item.mediaID, url })
@@ -371,6 +394,119 @@ export default function StudioBoard(props: {
     if (!state.outpaint || !outpaintEditor.canSubmit()) return
     outpaintEditor.finish()
     generateDerived("image.outpaint", undefined, outpaintEditor.input(state.outpaintPrompt))
+  }
+  function toggleVideo() {
+    const card = selected()
+    if (!card || card.kind !== "image" || props.demo || busy() || editingBlocked(card) ||
+      state.saveError || studioPermissionState.status !== "ready" || !studioPermissionState.video) return
+    if (state.video?.cardID === card.id) { setState("video", undefined); return }
+    const item = boardMedia(card, state.results).find((item) => item.media === boardDisplayedMedia(card, state.results))
+    if (!item) return
+    batch(() => {
+      setState("menuTab", "")
+      setState("upscaleCardID", "")
+      setState("inpaint", undefined)
+      setState("outpaint", undefined)
+      setState("video", { cardID: card.id, source: {
+        sourceID: card.id, generationID: item.generationID, mediaID: item.mediaID,
+        title: card.title, image: originalMediaSrc(item.media), role: "firstFrame",
+      } })
+    })
+    updateAnchor()
+  }
+  async function uploadVideoFiles(files: File[]) {
+    const assets: BoardCard["draft"]["assets"] = []
+    setState("derivedPreparing", true)
+    await enqueueWrite(async () => {
+      const sessionID = await ensureSession()
+      if (disposed || !sessionID) throw new Error("无法创建画布会话")
+      const results = await Promise.allSettled(files.map(async (file) => {
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("读取图片失败"))
+          reader.onerror = () => reject(new Error("读取图片失败"))
+          reader.readAsDataURL(file)
+        })
+        const id = crypto.randomUUID()
+        const uploaded = await request<{ path: string }>("/artifact/upload", "POST", {
+          sessionId: sessionID, filename: `board-${id}.${file.type === "image/jpeg" ? "jpg" : file.type === "image/webp" ? "webp" : "png"}`,
+          content: data.slice(data.indexOf(",") + 1),
+        })
+        if (!uploaded.path) throw new Error("上传失败，未返回素材路径")
+        return { id, name: file.name, url: uploaded.path, role: "reference" as const }
+      }))
+      assets.push(...results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []))
+      const failure = results.find((result) => result.status === "rejected")
+      if (failure) notify(boardErrorMessage(failure.reason))
+    }).finally(() => { if (!disposed) setState("derivedPreparing", false) })
+    return assets
+  }
+  function nextCardPosition(source: BoardCard) {
+    const bounds = state.document.cards.map((card) => {
+      const node = graph?.getCellById(card.id)
+      return { id: card.id, ...(node?.isNode() ? node.getBBox() : {
+        ...card.position, ...(cardSizes.get(card.id) ?? { width: WIDTH, height: HEIGHT }),
+      }) }
+    })
+    return boardNextCardPosition(bounds.find((rect) => rect.id === source.id)!, bounds)
+  }
+  function focusCreatedCard(card: BoardCard) {
+    select(card.id)
+    const node = graph?.getCellById(card.id)
+    if (!node?.isNode()) return
+    const point = graph!.localToClient(node.getBBox().center)
+    const bounds = board.getBoundingClientRect()
+    if (point.x + node.size().width * state.zoom / 2 > bounds.right - 32 ||
+      point.y + node.size().height * state.zoom / 2 > bounds.bottom - 32 ||
+      point.x - node.size().width * state.zoom / 2 < bounds.left + 32 ||
+      point.y - node.size().height * state.zoom / 2 < bounds.top + 32)
+      graph!.centerCell(node)
+  }
+  function regenerate(source: BoardCard) {
+    if (busy() || editingBlocked(source) || state.saveError) return
+    const item = boardMedia(source, state.results).find((item) => item.media === boardDisplayedMedia(source, state.results))
+    const link = item && source.taskLinks.find((link) => link.generationID === item.generationID)
+    if (!link) { notify("找不到原任务参数，请刷新后重试"); return }
+    const snapshot = BoardSnapshot.parse(link.snapshot)
+    const error = boardGenerationError(source.kind, snapshot)
+    if (error) { notify(error); return }
+    const card = newBoardCard(crypto.randomUUID(), source.kind, nextCardPosition(source))
+    card.operation = snapshot.operation
+    card.regeneration = { sourceID: source.id, generationID: link.generationID, snapshot: BoardSnapshot.parse(snapshot) }
+    card.draft = { prompt: snapshot.prompt, settings: { ...snapshot.settings }, assets: [], references: snapshot.references.map((reference) => ({ ...reference })) }
+    if (!props.demo && !snapshot.operation && !boardCanGenerate(card, studioPermissionState)) {
+      notify("请先加载模型权限或选择有权限的模型")
+      return
+    }
+    const name = card.operation ? boardImageOperationName(card.operation.capability) : card.kind === "image" ? "图片" : "视频"
+    card.title = `${name} ${String(state.document.cards.filter((item) => card.operation
+      ? item.operation?.capability === card.operation.capability : item.kind === card.kind && !item.operation).length + 1).padStart(2, "0")}`
+    setState("document", "cards", (cards) => [...cards, card])
+    mountCard(card)
+    focusCreatedCard(card)
+    void sendGeneration(card, snapshot)
+  }
+  function generateVideo(input: BoardCard, reference?: BoardReference) {
+    const source = selected()
+    if (!source || state.video?.cardID !== source.id || busy() || editingBlocked(source) || state.saveError ||
+      !boardCanGenerate(input, studioPermissionState)) return
+    const card = newBoardCard(input.id, "video", nextCardPosition(source))
+    card.title = `视频 ${String(state.document.cards.filter((card) => card.kind === "video").length + 1).padStart(2, "0")}`
+    card.draft = { prompt: input.draft.prompt.trim(), settings: { ...input.draft.settings }, assets: input.draft.assets.map((asset) => ({ ...asset })) }
+    const edge = reference ? { id: crypto.randomUUID(), sourceID: reference.sourceID, targetID: card.id,
+      role: reference.role, reference: { ...reference } } : undefined
+    const document = { ...state.document, cards: [...state.document.cards, card], draftEdges: edge ? [...state.document.draftEdges, edge] : [...state.document.draftEdges] }
+    const error = boardGenerationError("video", { ...card.draft, references: boardReferences(document, card.id, state.results) })
+    if (error) { notify(error); return }
+    batch(() => {
+      setState("document", "cards", document.cards)
+      setState("document", "draftEdges", document.draftEdges)
+    })
+    mountCard(card)
+    if (edge) graph?.addEdge({ ...edgeStyle, id: edge.id, source: cardTerminal(source.id, "output"), target: cardTerminal(card.id, edge.role) })
+    focusCreatedCard(card)
+    tracker.interaction({ module: "studio", name: "video", extend: JSON.stringify({ inputMode: card.draft.settings.videoInputMode, hasSourceImage: !!reference }) })
+    void generate(card.id)
   }
   async function submitDerived(card: BoardCard, retry = false) {
     if (!card.operation || disposed) return
@@ -422,6 +558,7 @@ export default function StudioBoard(props: {
     }
     batch(() => {
       if (capability === "image.cutout") {
+        setState("video", undefined)
         setState("outpaint", undefined)
         setState("inpaint", undefined)
         setState("upscaleCardID", "")
@@ -452,21 +589,7 @@ export default function StudioBoard(props: {
       const uploaded = uploads.flatMap((upload) => upload.status === "fulfilled" ? [upload.value] : [])
       if (!matches()) return
       if (!props.demo && (!uploaded[0]?.path || (composite && !uploaded[1]?.path))) throw new Error("上传失败，未返回素材路径")
-      const sourceNode = graph?.getCellById(source.id)
-      const sourcePosition = sourceNode?.isNode() ? sourceNode.position() : source.position
-      const origin = { x: sourcePosition.x + (cardSizes.get(source.id)?.width ?? WIDTH) + 120, y: sourcePosition.y }
-      const position = Array.from({ length: state.document.cards.length + 1 }, (_, index) => ({
-        x: origin.x,
-        y: origin.y + index * (HEIGHT + 40),
-      })).find((point) => state.document.cards.every((card) => {
-        const bounds = {
-          ...(card.id === source.id ? sourcePosition : card.position),
-          ...(cardSizes.get(card.id) ?? { width: WIDTH, height: HEIGHT }),
-        }
-        return point.x + WIDTH + 40 < bounds.x || point.x > bounds.x + bounds.width + 40 ||
-          point.y + HEIGHT + 24 < bounds.y || point.y > bounds.y + bounds.height + 24
-      }))!
-      const card = newBoardCard(crypto.randomUUID(), "image", position)
+      const card = newBoardCard(crypto.randomUUID(), "image", nextCardPosition(source))
       card.title = `${name} ${String(state.document.cards.filter((card) => card.operation?.capability === capability).length + 1).padStart(2, "0")}`
       card.operation = {
         ...(capability === "image.outpaint" ? {
@@ -487,14 +610,7 @@ export default function StudioBoard(props: {
       })
       mountCard(card)
       graph?.addEdge({ ...edgeStyle, id: edge.id, source: cardTerminal(source.id, "output"), target: cardTerminal(card.id, "reference") })
-      select(card.id)
-      const node = graph?.getCellById(card.id)
-      if (node?.isNode()) {
-        const point = graph!.localToClient(node.getBBox().center)
-        const bounds = board.getBoundingClientRect()
-        if (point.x + node.size().width * state.zoom / 2 > bounds.right - 32 || point.y + node.size().height * state.zoom / 2 > bounds.bottom - 32)
-          graph!.centerCell(node)
-      }
+      focusCreatedCard(card)
       tracker.interaction({ module: "studio", name: capability.replace("image.", ""), extend: JSON.stringify({
         ...(capability === "image.upscale" ? { mode } : {}),
         ...(input ? { mode: input.mode, brushSize: input.brushSize, hasDrawing: input.hasDrawing, hasCustomPrompt: !!input.prompt } : {}),
@@ -580,6 +696,7 @@ export default function StudioBoard(props: {
     if (selected()?.id !== id || multiple) {
       setState("upscaleCardID", "")
       setState("cutoutCardID", "")
+      setState("video", undefined)
       setState("inpaint", undefined)
       setState("outpaint", undefined)
     }
@@ -608,6 +725,8 @@ export default function StudioBoard(props: {
     const swap = (role: "reference" | "firstFrame" | "lastFrame") =>
       role === "firstFrame" ? ("lastFrame" as const) : role === "lastFrame" ? ("firstFrame" as const) : role
     batch(() => {
+      setState("document", "cards", (item) => item.id === card.id, "draft", "references",
+        (references) => references?.map((reference) => ({ ...reference, role: swap(reference.role) })))
       setState(
         "document",
         "cards",
@@ -617,7 +736,8 @@ export default function StudioBoard(props: {
         (assets) => assets.map((asset) => ({ ...asset, role: swap(asset.role) })),
       )
       setState("document", "draftEdges", (edges) =>
-        edges.map((edge) => (edge.targetID === card.id ? { ...edge, role: swap(edge.role) } : edge)),
+        edges.map((edge) => (edge.targetID === card.id ? { ...edge, role: swap(edge.role),
+          reference: edge.reference ? { ...edge.reference, role: swap(edge.reference.role) } : undefined } : edge)),
       )
     })
   }
@@ -625,6 +745,23 @@ export default function StudioBoard(props: {
     if (temporaryEdge) graph?.removeCell(temporaryEdge)
     temporaryEdge = undefined
     setState("menu", undefined)
+  }
+  function changeTool(tool: "select" | "pan") {
+    document.body.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))
+    closeMenu()
+    stopFlow()
+    selectionStart = undefined
+    batch(() => {
+      setState("tool", tool)
+      setState("toolMenu", false)
+      setState("temporaryPan", false)
+      setState("marquee", undefined)
+      setState("draggingCard", false)
+      setState("guides", { x: undefined, y: undefined })
+    })
+    if (!graph) return
+    graph.options.panning.eventTypes = tool === "pan" ? ["leftMouseDown", "mouseWheelDown"] : ["mouseWheelDown"]
+    graph.enablePanning()
   }
   function openMenu(x: number, y: number, sourceID?: string, previewID?: string) {
     if (!graph || awaitingRecovery()) return
@@ -702,21 +839,20 @@ export default function StudioBoard(props: {
   }
   function addCard(kind: BoardCard["kind"] = "image", fromMenu = false) {
     if (!graph || !state.ready || awaitingRecovery()) return
+    if (kind === "video" && (props.demo || !studioPermissionState.video)) return
     const menu = fromMenu ? state.menu : undefined
     const bounds = board.getBoundingClientRect()
     const center =
       menu?.point ?? graph.clientToLocal(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2 - 50)
     const origin = { x: center.x - (menu?.sourceID ? -20 : WIDTH / 2), y: center.y - HEIGHT / 2 }
+    // Allow overlapping cards; only stagger nearly identical top-left positions.
     const point = Array.from({ length: state.document.cards.length + 1 }, (_, index) => ({
-      x: origin.x,
-      y: origin.y + index * (HEIGHT + 40),
+      x: origin.x + index * 24,
+      y: origin.y + index * 24,
     })).find((item) =>
       state.document.cards.every(
         (card) =>
-          item.x + WIDTH + 40 < card.position.x ||
-          item.x > card.position.x + (cardSizes.get(card.id)?.width ?? WIDTH) + 40 ||
-          item.y + HEIGHT + 24 < card.position.y ||
-          item.y > card.position.y + (cardSizes.get(card.id)?.height ?? HEIGHT) + 24,
+          Math.abs(item.x - card.position.x) >= 12 || Math.abs(item.y - card.position.y) >= 12,
       ),
     )!
     const card = newBoardCard(crypto.randomUUID(), kind, point)
@@ -726,12 +862,14 @@ export default function StudioBoard(props: {
       card.draft.settings.styleModel = defaultStudioStyleModel(studioPermissionState.seedream)
     setState("document", "cards", (cards) => [...cards, card])
     mountCard(card)
+    graph.getCellById(card.id)?.toFront()
     if (menu?.sourceID && !connect(menu.sourceID, card.id, kind === "video" ? "firstFrame" : "reference")) {
       removeCard(card.id)
       closeMenu()
       return
     }
     closeMenu()
+    changeTool("select")
     select(card.id)
     if (!props.demo && !state.saveError) void save(false).catch(() => {})
   }
@@ -808,8 +946,9 @@ export default function StudioBoard(props: {
       const cell = graph?.getCellById(edge.id)
       const card = state.document.cards.find((card) => card.id === edge.targetID)
       if (!cell?.isEdge() || !card) return
-      if (cell.getTargetPortId() !== edge.role) cell.setTarget(cardTerminal(card.id, edge.role))
-      const active = boardReferenceActive(card.kind, card.draft.settings, edge.role)
+      const role = boardEdgeRole(card.kind, card.draft.settings, edge)
+      if (cell.getTargetPortId() !== role) cell.setTarget(cardTerminal(card.id, role))
+      const active = boardReferenceActive(card.kind, card.draft.settings, role)
       if (cell.isVisible() !== active) cell.setVisible(active)
     })
   }
@@ -849,10 +988,10 @@ export default function StudioBoard(props: {
                   onOperate={(action) => void operate(id, action)}
                   onRefresh={() => void reconcile(id)}
                   onRemove={() => removeCard(id)}
-                  submissionError={value().operation && !value().currentGenerationID && !locked(value())
-                    ? state.submissionErrors[id] || `${boardImageOperationName(value().operation!.capability)}任务尚未提交，可重新提交`
+                  submissionError={!value().currentGenerationID && !locked(value())
+                    ? state.submissionErrors[id] || (value().operation ? `${boardImageOperationName(value().operation!.capability)}任务尚未提交，可重新提交` : undefined)
                     : undefined}
-                  onRetry={() => retryDerived(value())}
+                  onRetry={() => value().operation ? retryDerived(value()) : void generate(id, true)}
                   inpaint={state.inpaint?.cardID === id ? inpaintDrawing : undefined}
                   outpaint={state.outpaint?.cardID === id ? outpaintEditor : undefined}
                   outpaintSource={state.outpaint?.cardID === id ? state.outpaint.url : undefined}
@@ -1400,6 +1539,8 @@ export default function StudioBoard(props: {
               ],
             )
             if (role !== "reference" && assets.length) {
+              setState("document", "cards", (item) => item.id === card.id, "draft", "references",
+                (references) => references?.filter((reference) => reference.role !== role))
               const removed = state.document.draftEdges.filter(
                 (edge) => edge.targetID === card.id && edge.role === role,
               )
@@ -1429,11 +1570,11 @@ export default function StudioBoard(props: {
       }
     })
   }
-  async function generate() {
+  async function generate(cardID?: string, retry = false) {
     // ImageSettings commits its local size inputs when the popup is disposed.
     setState("menuTab", "")
     await Promise.resolve()
-    const card = selected()
+    const card = cardID ? state.document.cards.find((card) => card.id === cardID) : selected()
     if (
       disposed ||
       state.exiting ||
@@ -1441,7 +1582,7 @@ export default function StudioBoard(props: {
       busy() ||
       !state.ready ||
       awaitingRecovery() ||
-      state.saveError ||
+      (state.saveError && !retry) ||
       !card.draft.prompt.trim()
     )
       return
@@ -1455,7 +1596,7 @@ export default function StudioBoard(props: {
       notify("请先加载模型权限或选择有权限的模型")
       return
     }
-    const refs = references()
+    const refs = boardReferences(state.document, card.id, state.results)
     const error = boardGenerationError(card.kind, {
       prompt: card.draft.prompt,
       settings: { ...settings, styleModel: styleModelId(settings.styleModel) ?? settings.styleModel },
@@ -1467,31 +1608,35 @@ export default function StudioBoard(props: {
     }
     if (
       state.document.draftEdges
-        .filter((edge) => edge.targetID === card.id && boardReferenceActive(card.kind, settings, edge.role))
+        .filter((edge) => edge.targetID === card.id && boardReferenceActive(card.kind, settings, boardEdgeRole(card.kind, settings, edge)))
         .some((edge) => {
           const source = state.document.cards.find((item) => item.id === edge.sourceID)
-          return !source || !boardCover(source, state.results)
+          return !source || (!edge.reference && !boardCover(source, state.results))
         })
     ) {
       notify("参考图不可用，请重新选择封面")
       return
     }
     const snapshot = BoardSnapshot.parse({ prompt: card.draft.prompt.trim(), settings, references: refs })
+    await sendGeneration(card, snapshot, retry)
+  }
+  async function sendGeneration(card: BoardCard, snapshot: BoardSnapshot, retry = false) {
     setState("historyCoverIDs", (ids) => ids.filter((id) => id !== card.id))
     if (props.demo) {
       simulate(card.id, snapshot)
       return
     }
+    setState("submissionErrors", card.id, "")
     operations.start(card.id, "creating")
     const replacedGenerationID = boardFailed(current(card)) ? card.currentGenerationID : undefined
     if (replacedGenerationID) setState("suppressedFailureIDs", (ids) => [...new Set([...ids, replacedGenerationID])])
     await enqueueWrite(async () => {
-      await persistBoard()
+      await persistBoard(retry)
       if (disposed) return
       if (!state.sessionID) throw new Error("无法创建画布会话")
       await submit({
         sessionID: state.sessionID,
-        capability: card.kind === "image" ? "image.generate" : "video.generate",
+        capability: snapshot.operation?.capability ?? (card.kind === "image" ? "image.generate" : "video.generate"),
         prompt: snapshot.prompt,
         extra: { userIdx: props.userIdx },
         board: {
@@ -1502,8 +1647,11 @@ export default function StudioBoard(props: {
           replacedGenerationID,
         },
       })
+      if (!state.document.cards.find((item) => item.id === card.id)?.currentGenerationID && !pending.has(card.id))
+        setState("submissionErrors", card.id, "任务提交失败，可重新提交")
     }).catch((error: unknown) => {
       operations.finish(card.id)
+      setState("submissionErrors", card.id, boardErrorMessage(error))
       setState("suppressedFailureIDs", (ids) => ids.filter((id) => id !== replacedGenerationID))
       writeBackup()
       notify(boardErrorMessage(error))
@@ -1621,6 +1769,7 @@ export default function StudioBoard(props: {
   }
   function flow(edge: Edge) {
     stopFlow()
+    if (panning()) return
     if (!state.document.draftEdges.some((item) => item.id === edge.id)) return
     const view = graph?.findViewByCell(edge)
     if (!view) return
@@ -1669,15 +1818,16 @@ export default function StudioBoard(props: {
     graph = new Graph({
       container: canvas,
       autoResize: true,
+      scaling: { min: BOARD_MIN_ZOOM, max: BOARD_MAX_ZOOM },
       background: { color: "#f7f8fb" },
       grid: { visible: true, size: 24, type: "dot", args: { color: "#d6d9e2", thickness: 1 } },
-      panning: { enabled: true, eventTypes: ["leftMouseDown", "mouseWheelDown"] },
+      panning: { enabled: true, eventTypes: ["mouseWheelDown"] },
       mousewheel: { enabled: false },
       interacting: (view) => ({
         edgeMovable: false,
         arrowheadMovable: false,
-        nodeMovable: !awaitingRecovery() && state.outpaint?.cardID !== view.cell.id,
-        magnetConnectable: !awaitingRecovery(),
+        nodeMovable: !panning() && !awaitingRecovery() && state.outpaint?.cardID !== view.cell.id,
+        magnetConnectable: !panning() && !awaitingRecovery(),
       }),
       connecting: {
         allowBlank: true,
@@ -1689,6 +1839,7 @@ export default function StudioBoard(props: {
         connector: edgeStyle.connector,
         createEdge: () => new Shape.Edge(edgeStyle),
         validateMagnet: ({ cell, magnet }) =>
+          !panning() &&
           !awaitingRecovery() &&
           magnet.closest("[port]")?.getAttribute("port") === "output" &&
           state.document.cards.some((card) => card.id === cell.id && !!boardCover(card, state.results)),
@@ -1705,12 +1856,15 @@ export default function StudioBoard(props: {
       },
     })
     graph.on("node:mousedown", ({ node, e }) => {
+      if (panning() || e.button !== 0) return
       if (e.button === 0) setState("draggingCard", true)
       if (!e.ctrlKey && !e.metaKey) select(node.id)
     })
-    graph.on("node:click", ({ node, e }) => select(node.id, e.ctrlKey || e.metaKey))
-    graph.on("blank:click", () => {
-      if (state.marquee) return
+    graph.on("node:click", ({ node, e }) => {
+      if (!panning() && e.button === 0) select(node.id, e.ctrlKey || e.metaKey)
+    })
+    graph.on("blank:click", ({ e }) => {
+      if ((e && e.button !== 0) || state.marquee || panning()) return
       select("")
       closeMenu()
     })
@@ -1752,6 +1906,7 @@ export default function StudioBoard(props: {
     })
     const viewport = () => {
       closeMenu()
+      setState("toolMenu", false)
       if (!awaitingRecovery()) setState("document", "viewport", { ...graph!.translate(), zoom: graph!.zoom() })
       updateAnchor()
     }
@@ -1774,7 +1929,7 @@ export default function StudioBoard(props: {
       }),
     )
     graph.on("edge:click", ({ edge, e }) => {
-      if (e.button !== 0 || !graph?.findViewByCell(edge)?.container.classList.contains("studio-board-edge-hover"))
+      if (panning() || e.button !== 0 || !graph?.findViewByCell(edge)?.container.classList.contains("studio-board-edge-hover"))
         return
       removeEdge(edge.id)
     })
@@ -1789,7 +1944,8 @@ export default function StudioBoard(props: {
       wheelFrame = requestAnimationFrame(() => {
         wheelFrame = 0
         const next = boardWheelZoom(graph!.zoom(), wheelDelta, 0, board.clientHeight)
-        const center = graph!.clientToLocal(wheelPoint.x, wheelPoint.y)
+        // Without a scroller, X6 expects the zoom center in graph viewport coordinates.
+        const center = graph!.clientToGraph(wheelPoint.x, wheelPoint.y)
         graph!.zoomTo(next, { center })
         wheelDelta = 0
       })
@@ -1809,6 +1965,7 @@ export default function StudioBoard(props: {
     const down = (event: PointerEvent) => {
       if (state.fullscreenMedia || board.querySelector(".studio-video-player.fullscreen")) return
       dismissDropdown(event)
+      if (!(event.target instanceof Element) || !event.target.closest(".studio-board-tools")) setState("toolMenu", false)
       if (
         event.target instanceof Element &&
         event.target.closest(
@@ -1817,18 +1974,27 @@ export default function StudioBoard(props: {
       )
         return
       closeMenu()
-      if (!event.shiftKey || !(event.target instanceof Element) || event.target.closest(".x6-node")) return
-      event.preventDefault()
-      event.stopPropagation()
+      if (!(event.target instanceof Element) || !event.target.closest(".studio-board-graph")) return
+      if (event.button === 1) {
+        stopFlow()
+        setState("temporaryPan", true)
+        return
+      }
+      if (panning() || event.button !== 0 || awaitingRecovery() || event.target.closest(".x6-node, .x6-edge")) return
       graph?.disablePanning()
       const bounds = board.getBoundingClientRect()
-      selectionStart = { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
+      selectionStart = {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+        selectedIDs: event.shiftKey || event.ctrlKey || event.metaKey ? [...state.selectedIDs] : [],
+      }
     }
     const move = (event: PointerEvent) => {
       if (!selectionStart) return
       const bounds = board.getBoundingClientRect()
       const x = event.clientX - bounds.left
       const y = event.clientY - bounds.top
+      if (!state.marquee && Math.hypot(x - selectionStart.x, y - selectionStart.y) < 4) return
       setState("marquee", {
         x: Math.min(selectionStart.x, x),
         y: Math.min(selectionStart.y, y),
@@ -1838,36 +2004,49 @@ export default function StudioBoard(props: {
     }
     const up = () => {
       endDrag()
+      setState("temporaryPan", false)
       if (!selectionStart) return
       const rect = state.marquee
       const bounds = board.getBoundingClientRect()
       if (rect)
         setState(
           "selectedIDs",
-          graph!
-            .getNodes()
-            .filter((node) => {
-              const box = graph!.localToClient(node.getBBox())
-              return (
-                box.x >= bounds.left + rect.x &&
-                box.y >= bounds.top + rect.y &&
-                box.right <= bounds.left + rect.x + rect.width &&
-                box.bottom <= bounds.top + rect.y + rect.height
-              )
-            })
-            .map((node) => node.id),
+          [...new Set([
+            ...selectionStart.selectedIDs,
+            ...graph!
+              .getNodes()
+              .filter((node) => {
+                const box = graph!.localToClient(node.getBBox())
+                return (
+                  box.x >= bounds.left + rect.x &&
+                  box.y >= bounds.top + rect.y &&
+                  box.right <= bounds.left + rect.x + rect.width &&
+                  box.bottom <= bounds.top + rect.y + rect.height
+                )
+              })
+              .map((node) => node.id),
+          ])],
         )
       selectionStart = undefined
       graph?.enablePanning()
       setTimeout(() => setState("marquee", undefined), 0)
       updateAnchor()
     }
+    const cancel = () => {
+      // Release X6's mouse-based drag handlers when a pointer gesture is interrupted.
+      document.body.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))
+      endDrag()
+      selectionStart = undefined
+      setState("temporaryPan", false)
+      setState("marquee", undefined)
+      graph?.enablePanning()
+    }
     board.addEventListener("pointerdown", down, true)
     board.addEventListener("focusin", dismissDropdown, true)
     document.addEventListener("pointermove", move)
     document.addEventListener("pointerup", up)
-    document.addEventListener("pointercancel", endDrag)
-    window.addEventListener("blur", endDrag)
+    document.addEventListener("pointercancel", cancel)
+    window.addEventListener("blur", cancel)
     const observer = new ResizeObserver(updateAnchor)
     observer.observe(board)
     if (!props.demo) void initialize()
@@ -1886,8 +2065,8 @@ export default function StudioBoard(props: {
       board.removeEventListener("focusin", dismissDropdown, true)
       document.removeEventListener("pointermove", move)
       document.removeEventListener("pointerup", up)
-      document.removeEventListener("pointercancel", endDrag)
-      window.removeEventListener("blur", endDrag)
+      document.removeEventListener("pointercancel", cancel)
+      window.removeEventListener("blur", cancel)
       graph?.dispose()
       roots.forEach((dispose, id) => {
         dispose()
@@ -1903,8 +2082,10 @@ export default function StudioBoard(props: {
       .filter((card) => card.kind === "video")
       .forEach((card) => {
         const mode =
+          (card.draft.references ?? []).some((reference) => boardReferenceActive(card.kind, card.draft.settings,
+            boardEdgeRole(card.kind, card.draft.settings, { role: reference.role, reference }))) ||
           card.draft.assets.some((asset) => boardReferenceActive(card.kind, card.draft.settings, asset.role)) ||
-          state.document.draftEdges.some((edge) => edge.targetID === card.id && boardReferenceActive(card.kind, card.draft.settings, edge.role))
+          state.document.draftEdges.some((edge) => edge.targetID === card.id && boardReferenceActive(card.kind, card.draft.settings, boardEdgeRole(card.kind, card.draft.settings, edge)))
             ? "first_last_frame"
             : "text"
         if (card.draft.settings.videoMode !== mode) draftSetting(card.id, "videoMode", mode)
@@ -1959,6 +2140,7 @@ export default function StudioBoard(props: {
       ref={board}
       inert={state.exiting}
       class="studio-board"
+      data-tool={panning() ? "pan" : "select"}
       tabindex={-1}
       aria-label="Studio 画布"
       onKeyDown={(event) => {
@@ -1975,11 +2157,21 @@ export default function StudioBoard(props: {
         )
           return
         if (event.key === "Escape") {
-          closeMenu()
+          if (state.toolMenu) {
+            setState("toolMenu", false)
+            return
+          }
+          changeTool(state.tool)
           setState("resultsCardID", "")
           select("")
         }
+        if (!event.ctrlKey && !event.metaKey && !event.altKey && ["v", "h"].includes(event.key.toLowerCase())) {
+          event.preventDefault()
+          changeTool(event.key.toLowerCase() === "v" ? "select" : "pan")
+          return
+        }
         if (event.key === "Delete" || event.key === "Backspace") {
+          if (panning()) return
           event.preventDefault()
           ;[...state.selectedIDs].forEach(removeCard)
         }
@@ -2075,21 +2267,21 @@ export default function StudioBoard(props: {
           </Show>
         </div>
       </Show>
-      <div class="studio-board-tools">
-        <button type="button" aria-label="新建图片卡片" disabled={awaitingRecovery()} onClick={() => addCard()}>
-          ＋
-        </button>
-        <Show when={!props.demo && studioPermissionState.video}>
-          <button
-            type="button"
-            aria-label="新建视频卡片"
-            disabled={awaitingRecovery()}
-            onClick={() => addCard("video")}
-          >
-            ▷
-          </button>
-        </Show>
-      </div>
+      <StudioBoardTools
+        tool={state.tool}
+        open={state.toolMenu}
+        disabled={!state.ready || awaitingRecovery()}
+        videoDisabled={!!props.demo || !studioPermissionState.video}
+        videoHint={props.demo ? "演示模式暂不支持视频" : !studioPermissionState.video ? "暂无视频生成权限" : "新建视频卡片"}
+        onToggle={() => {
+          closeMenu()
+          setState("menuTab", "")
+          setState("toolMenu", (open) => !open)
+        }}
+        onSelect={changeTool}
+        onImage={() => addCard()}
+        onVideo={() => addCard("video")}
+      />
       <Show when={!state.initializing && !state.loading && !state.error && !state.document.cards.length}>
         <div class="studio-board-empty">
           <div class="studio-board-empty-art">▧</div>
@@ -2138,6 +2330,11 @@ export default function StudioBoard(props: {
               anchor={state.mediaToolbarAnchor}
               hidden={state.draggingCard}
               onDownload={() => void downloadMedia(card())}
+              regenerateBlocked={busy() || editingBlocked(card()) || !!state.saveError}
+              onRegenerate={() => regenerate(card())}
+              videoActive={state.video?.cardID === card().id}
+              videoBlocked={!!props.demo || busy() || editingBlocked(card()) || !!state.saveError || studioPermissionState.status !== "ready" || !studioPermissionState.video}
+              onVideo={toggleVideo}
               upscaleActive={state.upscaleCardID === card().id}
               upscaleBlocked={editingBlocked(card())}
               onUpscale={toggleUpscale}
@@ -2174,6 +2371,13 @@ export default function StudioBoard(props: {
           onPrompt={(prompt) => setState("inpaintPrompt", prompt)} onCancel={() => setState("inpaint", undefined)}
           onGenerate={generateInpaint} />
       </Show>
+      <Show when={state.video} keyed>
+        {(video) => <StudioBoardVideo source={video.source} anchor={state.anchor} hidden={state.draggingCard}
+          blocked={busy() || awaitingRecovery() || !!state.saveError || state.exiting}
+          canGenerate={studioPermissionState.status === "ready" && studioPermissionState.video}
+          bounds={() => board} mediaURL={mediaURL} onUpload={uploadVideoFiles} onGenerate={generateVideo}
+          onError={notify} onRetryPermission={props.onRetryPermission} />}
+      </Show>
       {/* Keep card identity stable while popup cleanup commits its local inputs. */}
       <Show when={selected() && state.outpaint?.cardID === selected()!.id}>
         <StudioBoardOutpaint anchor={state.outpaintAnchor} editor={outpaintEditor} prompt={state.outpaintPrompt}
@@ -2182,7 +2386,7 @@ export default function StudioBoard(props: {
           onPrompt={(prompt) => setState("outpaintPrompt", prompt)} onCancel={() => setState("outpaint", undefined)}
           onGenerate={generateOutpaint} />
       </Show>
-      <Show when={selected() && !selected()!.operation && state.upscaleCardID !== selected()!.id && state.cutoutCardID !== selected()!.id && state.inpaint?.cardID !== selected()!.id && state.outpaint?.cardID !== selected()!.id ? selected() : undefined} keyed>
+      <Show when={selected() && !selected()!.operation && state.upscaleCardID !== selected()!.id && state.cutoutCardID !== selected()!.id && state.inpaint?.cardID !== selected()!.id && state.outpaint?.cardID !== selected()!.id && state.video?.cardID !== selected()!.id ? selected() : undefined} keyed>
         {(card) => (
           <StudioBoardComposer
             card={card}
@@ -2224,9 +2428,13 @@ export default function StudioBoard(props: {
               if (editingBlocked(card)) return
               const edge = state.document.draftEdges.find(
                 (item) =>
-                  item.targetID === card.id && item.sourceID === reference.sourceID && item.role === reference.role,
+                  item.targetID === card.id && item.sourceID === reference.sourceID && boardEdgeRole(card.kind, card.draft.settings, item) === reference.role,
               )
               if (edge) removeEdge(edge.id)
+              setState("document", "cards", (item) => item.id === card.id, "draft", "references",
+                (items) => items?.filter((item) => item.sourceID !== reference.sourceID ||
+                  item.generationID !== reference.generationID || item.mediaID !== reference.mediaID ||
+                  boardEdgeRole(card.kind, card.draft.settings, { role: item.role, reference: item }) !== reference.role))
               if (reference.sourceID.startsWith("upload:"))
                 setState(
                   "document",
@@ -2351,22 +2559,34 @@ export default function StudioBoard(props: {
         </div>
       </Show>
       <footer class="studio-board-footer">
-        <span class="studio-board-help">拖动平移 · 滚轮缩放 · Shift 拖动框选 · ⌘ / Ctrl 多选 · 悬停连线后单击剪断</span>
+        <span class="studio-board-help">V 选择 · H 平移 · 拖动空白框选 · 滚轮缩放 · ⌘ / Ctrl 多选 · 悬停连线后单击剪断</span>
         <div class="studio-board-zoom">
-          <button type="button" aria-label="缩小画布" onClick={() => graph?.zoomTo(Math.max(0.35, state.zoom - 0.1))}>
+          <button
+            type="button"
+            aria-label="缩小画布"
+            onClick={() => graph?.zoomTo(Math.max(BOARD_MIN_ZOOM, state.zoom - 0.1))}
+          >
             −
           </button>
           <button type="button" onClick={() => graph?.zoomTo(1)}>
             {Math.round(state.zoom * 100)}%
           </button>
-          <button type="button" aria-label="放大画布" onClick={() => graph?.zoomTo(Math.min(1.8, state.zoom + 0.1))}>
+          <button
+            type="button"
+            aria-label="放大画布"
+            onClick={() => graph?.zoomTo(Math.min(BOARD_MAX_ZOOM, state.zoom + 0.1))}
+          >
             ＋
           </button>
           <button
             type="button"
             aria-label="适应全部卡片"
             onClick={() =>
-              graph?.zoomToFit({ padding: { top: 100, right: 80, bottom: 260, left: 80 }, minScale: 0.35, maxScale: 1 })
+              graph?.zoomToFit({
+                padding: { top: 100, right: 80, bottom: 260, left: 80 },
+                minScale: BOARD_MIN_ZOOM,
+                maxScale: 1,
+              })
             }
           >
             适应

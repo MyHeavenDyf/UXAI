@@ -2743,7 +2743,7 @@ async function runGenerationCreatePipeline(id: string) {
         .run(),
     )
     startStudioGenerationWorker()
-    if (!persistedInput.board && shouldGenerateStudioDetailTitle(persistedInput)) {
+    if (shouldGenerateStudioDetailTitle(persistedInput)) {
       const runTitle = Instance.bind(() =>
         runStudioDetailTitleTask({
           id,

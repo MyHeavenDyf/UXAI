@@ -97,10 +97,16 @@ export const BoardCard = z.object({
   title: z.string().max(200),
   position: point,
   operation: BoardImageOperation.optional(),
+  regeneration: z.object({
+    sourceID: z.string().min(1),
+    generationID: z.string().min(1),
+    snapshot: BoardSnapshot,
+  }).optional(),
   draft: z.object({
     prompt: z.string().max(20000),
     settings: BoardSettings,
     assets: z.array(BoardAsset).max(10).default([]),
+    references: z.array(BoardReference).max(10).optional(),
   }),
   taskLinks: z.array(BoardTaskLink).max(2000),
   cover: BoardMediaRef.optional(),
@@ -113,10 +119,13 @@ export const BoardEdge = z.object({
   targetID: z.string(),
   role: z.enum(["reference", "firstFrame", "lastFrame"]).default("reference"),
   purpose: z.literal("derivation").optional(),
+  reference: BoardReference.optional(),
 })
+export const BOARD_MIN_ZOOM = 0.1
+export const BOARD_MAX_ZOOM = 8
 export const BoardDocument = z.object({
   schemaVersion: z.literal(1),
-  viewport: z.object({ ...point.shape, zoom: z.number().min(0.35).max(1.8) }),
+  viewport: z.object({ ...point.shape, zoom: z.number().min(BOARD_MIN_ZOOM).max(BOARD_MAX_ZOOM) }),
   cards: z.array(BoardCard).max(500),
   draftEdges: z.array(BoardEdge).max(2000),
   removedCardIDs: z.array(z.string()).max(10000).default([]),
@@ -153,7 +162,7 @@ export function recoverBoardDraft(remote: BoardDocument, local: BoardDocument): 
     ...remote.draftEdges.filter((edge) => !local.cards.some((card) => card.id === edge.targetID)),
   ]
   candidates.forEach((edge) => {
-    if (!boardEdgeError(document, edge.sourceID, edge.targetID, edge.role, edge.purpose)) document.draftEdges.push(edge)
+    if (!boardEdgeError(document, edge.sourceID, edge.targetID, edge.role, edge.purpose, edge.reference)) document.draftEdges.push(edge)
   })
   return document
 }
@@ -191,6 +200,10 @@ export const BOARD_VIDEO_REFERENCE_LIMIT = 4
 export function boardReferenceActive(kind: BoardCard["kind"], settings: BoardSettings, role: string) {
   if (kind !== "video" || !settings.videoInputMode) return true
   return settings.videoInputMode === "multi-reference" ? role === "reference" : role !== "reference"
+}
+
+export function boardEdgeRole(kind: BoardCard["kind"], settings: BoardSettings, edge: Pick<BoardEdge, "role" | "reference">) {
+  return kind === "video" && edge.reference && settings.videoInputMode === "multi-reference" ? "reference" : edge.role
 }
 
 export function boardGenerationError(kind: BoardCard["kind"], snapshot: BoardSnapshot) {
@@ -249,14 +262,18 @@ export function boardDraftReferences(
   const target = document.cards.find((card) => card.id === targetID)
   if (!target) return []
   return uniqueBoardReferences([
+    ...(target.draft.references ?? [])
+      .map((reference) => ({ ...reference, role: boardEdgeRole(target.kind, target.draft.settings, { role: reference.role, reference }) }))
+      .filter((reference) => boardReferenceActive(target.kind, target.draft.settings, reference.role)),
     ...document.draftEdges
       .filter(
         (edge) =>
           edge.purpose !== "derivation" &&
           edge.targetID === targetID &&
-          boardReferenceActive(target.kind, target.draft.settings, edge.role),
+          boardReferenceActive(target.kind, target.draft.settings, boardEdgeRole(target.kind, target.draft.settings, edge)),
       )
       .flatMap((edge) => {
+        if (edge.reference) return [{ ...edge.reference, role: boardEdgeRole(target.kind, target.draft.settings, edge) }]
         const source = document.cards.find((card) => card.id === edge.sourceID)
         const image = coverURL(source)
         return source?.cover && image
@@ -288,6 +305,7 @@ export function boardDraftReferences(
 export function boardFrameSourceCount(document: BoardDocument, cardID: string, role: string) {
   return (
     document.draftEdges.filter((edge) => edge.targetID === cardID && edge.role === role).length +
+    (document.cards.find((card) => card.id === cardID)?.draft.references?.filter((reference) => reference.role === role).length ?? 0) +
     (document.cards.find((card) => card.id === cardID)?.draft.assets.filter((asset) => asset.role === role).length ?? 0)
   )
 }
@@ -298,12 +316,15 @@ export function boardEdgeError(
   targetID: string,
   role = "reference",
   purpose?: "derivation",
+  reference?: BoardReference,
 ) {
   if (sourceID === targetID) return "不能连接到自身"
   const source = document.cards.find((card) => card.id === sourceID)
   const target = document.cards.find((card) => card.id === targetID)
-  if (source?.kind !== "image" || (!source.cover && purpose !== "derivation")) return "请选择有效的上游图片封面"
+  if (source?.kind !== "image" || (!source.cover && !reference && purpose !== "derivation")) return "请选择有效的上游图片封面"
   if (!target) return "目标卡片不存在"
+  if (reference && (purpose || target.kind !== "video" || reference.sourceID !== sourceID || reference.role !== role))
+    return "固定引用与连线不一致"
   if (purpose === "derivation" && target.operation?.source.sourceID !== sourceID) return "派生连线与任务来源不一致"
   if (purpose !== "derivation" && target.operation) return "派生卡片不接受参考图连线"
   if (target.kind === "image" && role !== "reference") return "图片卡片仅支持参考图"

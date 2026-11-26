@@ -121,6 +121,7 @@ export function saveBoard(sessionID: string, revision: number, value: unknown) {
         card &&
         (card.kind !== old.kind ||
           JSON.stringify(card.operation) !== JSON.stringify(old.operation) ||
+          JSON.stringify(card.regeneration) !== JSON.stringify(old.regeneration) ||
           card.currentGenerationID !== old.currentGenerationID ||
           JSON.stringify(card.taskLinks) !== JSON.stringify(old.taskLinks))
       )
@@ -141,6 +142,23 @@ export function saveBoard(sessionID: string, revision: number, value: unknown) {
       if (["firstFrame", "lastFrame"].some((role) => boardFrameSourceCount(document, card.id, role) > 1))
         throw new BoardError("同一帧槽位不能存在多个来源")
       const uploads = path.join(Instance.directory, ".octo", sessionID, "uploads")
+      if (card.regeneration && !previous.document.cards.some((old) => old.id === card.id)) {
+        const origin = previous.document.cards.find((item) => item.id === card.regeneration!.sourceID)
+        const link = origin?.taskLinks.find((item) => item.visible && item.generationID === card.regeneration!.generationID)
+        if (!link || origin?.kind !== card.kind || generation(sessionID, link.generationID).status !== "succeeded")
+          throw new BoardError("再次生成来源任务不可用")
+        if (JSON.stringify(card.regeneration.snapshot) !== JSON.stringify(link.snapshot) ||
+          card.draft.prompt !== link.snapshot.prompt ||
+          JSON.stringify(card.draft.settings) !== JSON.stringify(link.snapshot.settings) ||
+          JSON.stringify(card.operation) !== JSON.stringify(link.snapshot.operation) ||
+          JSON.stringify(card.draft.references ?? []) !== JSON.stringify(link.snapshot.references) || card.draft.assets.length)
+          throw new BoardError("再次生成参数与原任务不一致")
+      }
+      if ((card.draft.references ?? []).some((reference) => !card.regeneration?.snapshot.references.some((original) =>
+        JSON.stringify(original) === JSON.stringify({ ...reference,
+          role: card.kind === "video" && original.role !== "reference" && reference.role !== "reference" ? original.role : reference.role,
+        }))))
+        throw new BoardError("固定参考图不属于原任务")
       if (card.operation) {
         const name = boardImageOperationName(card.operation.capability)
         if (card.kind !== "image") throw new BoardError(`${name}只能生成图片卡片`)
@@ -152,7 +170,7 @@ export function saveBoard(sessionID: string, revision: number, value: unknown) {
         const source = media(sessionID, card.operation.source)
         if ((source.kind ?? "image") !== "image" || (source.remoteUrl ?? source.url) !== card.operation.source.image)
           throw new BoardError(`${name}来源图片不一致`)
-        if (!previous.document.cards.some((old) => old.id === card.id)) {
+        if (!card.regeneration && !previous.document.cards.some((old) => old.id === card.id)) {
           const origin = document.cards.find((item) => item.id === card.operation!.source.sourceID)
           if (!origin?.taskLinks.some((link) => link.visible && link.generationID === card.operation!.source.generationID))
             throw new BoardError(`${name}来源不属于上游卡片`)
@@ -185,8 +203,17 @@ export function saveBoard(sessionID: string, revision: number, value: unknown) {
         edge.targetID,
         edge.role,
         edge.purpose,
+        edge.reference,
       )
       if (error) throw new BoardError(error)
+      if (edge.reference) {
+        const source = document.cards.find((card) => card.id === edge.sourceID)
+        if (!source?.taskLinks.some((link) => link.visible && link.generationID === edge.reference!.generationID))
+          throw new BoardError("固定引用不属于上游卡片")
+        const image = media(sessionID, edge.reference)
+        if ((image.kind ?? "image") !== "image" || (image.remoteUrl ?? image.url) !== edge.reference.image)
+          throw new BoardError("固定引用图片不一致")
+      }
     })
     const removed = [
       ...new Set([

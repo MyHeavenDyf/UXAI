@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test"
 import { emptyBoard, newBoardCard } from "@opencode-ai/core/studio-board"
-import { BoardRequestError, boardBackup, createBoardRequest, readBoardBackup } from "./studio-board-api"
+import { BoardRequestError, boardBackup, boardResponse, createBoardRequest, readBoardBackup } from "./studio-board-api"
 
 function backupFixture() {
   const card = newBoardCard("pending-card", "image")
@@ -25,6 +25,19 @@ function backupFixture() {
     ],
   }
 }
+
+test.each([0.1, 2, 8])("board responses and local backups restore zoom %s", async (zoom) => {
+  const backup = backupFixture()
+  backup.document.viewport = { x: 320, y: -160, zoom }
+  const key = `studio.board.test.zoom.${zoom}`
+  localStorage.setItem(key, JSON.stringify(backup))
+  const restored = await readBoardBackup(key)
+  localStorage.removeItem(key)
+  expect(restored?.document).toEqual(backup.document)
+  expect(boardResponse.parse({ sessionID: "zoom-session", revision: 3, document: restored?.document }).document).toEqual(
+    backup.document,
+  )
+})
 
 test.each([false, true])(
   "board backups normalize legacy=%s pending requests without changing identity",

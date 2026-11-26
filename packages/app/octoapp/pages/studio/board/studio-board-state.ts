@@ -1,5 +1,7 @@
 import {
   BoardDocument,
+  BOARD_MIN_ZOOM,
+  BOARD_MAX_ZOOM,
   boardEdgeError,
   boardDraftReferences,
   boardReferenceActive,
@@ -33,6 +35,20 @@ export function boardCardSize(width?: number, height?: number) {
     return { width: 304, height: 330 }
   const scale = 300 / Math.max(width, height)
   return { width: width * scale + 4, height: height * scale + 30 }
+}
+
+export function boardNextCardPosition(
+  source: { x: number; y: number; width: number },
+  obstacles: { x: number; y: number; width: number; height: number }[],
+) {
+  return {
+    x: obstacles
+      .filter((rect) => source.y + 330 + 24 >= rect.y && source.y <= rect.y + rect.height + 24)
+      .sort((a, b) => a.x - b.x)
+      .reduce((x, rect) => x + 304 + 40 < rect.x || x > rect.x + rect.width + 40 ? x : rect.x + rect.width + 120,
+        source.x + source.width + 120),
+    y: source.y,
+  }
 }
 
 export function boardDocumentSnapshot(document: unknown) {
@@ -125,5 +141,8 @@ export function boardConnectionError(
 
 export function boardWheelZoom(zoom: number, deltaY: number, deltaMode: number, height: number) {
   const pixels = deltaY * (deltaMode === 1 ? 16 : deltaMode === 2 ? height : 1)
-  return Math.max(0.35, Math.min(1.8, zoom * Math.exp(-Math.max(-60, Math.min(60, pixels)) * 0.0015)))
+  return Math.max(
+    BOARD_MIN_ZOOM,
+    Math.min(BOARD_MAX_ZOOM, zoom * Math.exp(-Math.max(-60, Math.min(60, pixels)) * 0.0015)),
+  )
 }

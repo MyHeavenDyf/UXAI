@@ -5,6 +5,11 @@ export function StudioBoardMediaToolbar(props: {
   anchor: { left: number; top: number }
   hidden: boolean
   onDownload: () => void
+  regenerateBlocked: boolean
+  onRegenerate: () => void
+  videoActive: boolean
+  videoBlocked: boolean
+  onVideo: () => void
   upscaleActive: boolean
   upscaleBlocked: boolean
   onUpscale: () => void
@@ -49,16 +54,19 @@ export function StudioBoardMediaToolbar(props: {
               classList={{
                 "studio-board-image-action-generate": action.icon === "regenerate" || action.icon === "video",
                 active:
+                  (action.icon === "video" && props.videoActive) ||
                   (action.icon === "upscale" && props.upscaleActive) ||
                   (action.icon === "cutout" && props.cutoutActive) ||
                   (action.icon === "redraw" && props.inpaintActive) ||
                   (action.icon === "expand" && props.outpaintActive),
               }}
               aria-pressed={
-                action.icon === "upscale" ? props.upscaleActive : action.icon === "cutout" ? props.cutoutActive
+                action.icon === "video" ? props.videoActive : action.icon === "upscale" ? props.upscaleActive : action.icon === "cutout" ? props.cutoutActive
                   : action.icon === "redraw" ? props.inpaintActive : action.icon === "expand" ? props.outpaintActive : undefined
               }
               disabled={
+                (action.icon === "regenerate" && props.regenerateBlocked) ||
+                (action.icon === "video" && props.videoBlocked) ||
                 (action.icon === "upscale" && props.upscaleBlocked) ||
                 (action.icon === "cutout" && props.cutoutBlocked) ||
                 (action.icon === "redraw" && props.inpaintBlocked) ||
@@ -66,6 +74,8 @@ export function StudioBoardMediaToolbar(props: {
               }
               onClick={
                 action.icon === "download" ? props.onDownload
+                  : action.icon === "regenerate" ? props.onRegenerate
+                  : action.icon === "video" ? props.onVideo
                   : action.icon === "upscale" ? props.onUpscale
                   : action.icon === "cutout" ? props.onCutout
                   : action.icon === "redraw" ? props.onInpaint

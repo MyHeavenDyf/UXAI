@@ -5,7 +5,7 @@ import solid from "vite-plugin-solid"
 import { createComponent } from "solid-js"
 import { render } from "solid-js/web"
 import { createStore } from "solid-js/store"
-import { BoardDocument, BOARD_CUTOUT_PROMPT, BOARD_UPSCALE_PROMPT, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
+import { BoardDocument, BoardSnapshot, BOARD_CUTOUT_PROMPT, BOARD_UPSCALE_PROMPT, emptyBoard, newBoardCard, type BoardSubmission } from "@opencode-ai/core/studio-board"
 import { STUDIO_STYLE_MODEL_CONFIG, defaultStudioStyleModel } from "@opencode-ai/core/studio/model-availability"
 import { styleModelLabel } from "../data"
 import { clearStudioPermissionCache, ensureStudioPermission } from "../studio-permission-store"
@@ -57,6 +57,7 @@ async function setup(
     failure?: boolean
     reject?: number | "save" | "network"
     seedream?: boolean
+    video?: boolean
     backup?: boolean
     accepted?: boolean
     acceptedResult?: StudioGenerationResult
@@ -139,7 +140,7 @@ async function setup(
         const generation = options.results?.[path.replace("/studio/generations/", "")]
         if (generation && (!init?.method || init.method === "GET")) return Response.json(generation)
         if (path.endsWith("/permissions/check"))
-          return Response.json({ code: 200, data: [true, options.seedream ?? true, false] })
+          return Response.json({ code: 200, data: [options.video ?? true, options.seedream ?? true, false] })
         if (path.endsWith("/board")) {
           if (init?.method !== "PUT") loads.push(path)
           if (init?.method !== "PUT" && loadFailures > 0) {
@@ -792,7 +793,6 @@ test.each(
         kind === "video" ? ["再次生成", "下载"]
           : ["再次生成", "视频生成", "变清晰", "抠图", "智能重绘", "扩图", "下载"],
       )
-      button(toolbar, "再次生成").click()
       expect(value.downloads).toEqual([])
       button(toolbar, "下载").click()
       await Bun.sleep(30)
@@ -1535,6 +1535,249 @@ test.each(["图片", "视频"])(
     }
   },
 )
+
+test.each([
+  { entry: "sidebar", near: false },
+  { entry: "sidebar", near: true },
+  { entry: "menu", near: false },
+  { entry: "menu", near: true },
+])("$entry creation stays at its anchor and staggers near-identical positions=$near", async ({ entry, near }) => {
+  const origin = { x: 448, y: entry === "menu" ? 235 : 265 }
+  const value = await setup({
+    document: {
+      ...emptyBoard(),
+      cards: [newBoardCard("existing", "image", {
+        x: origin.x + (near ? 5 : -100),
+        y: origin.y + (near ? -4 : -80),
+      })],
+    },
+  })
+  try {
+    value.container.querySelector<HTMLElement>(".studio-board")!.getBoundingClientRect =
+      () => new DOMRect(100, 80, 1000, 800)
+    for (const index of [0, 1, 2]) {
+      if (entry === "menu") {
+        value.container.querySelector(".x6-graph")!.dispatchEvent(new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          clientX: 600,
+          clientY: 400,
+        }))
+        button(value.container.querySelector<HTMLElement>('[role="menu"]')!, "＋ 新建图片卡片").click()
+      }
+      if (entry === "sidebar") button(value.container, "新建图片卡片").click()
+      await Bun.sleep(30)
+      const card = value.stored.document.cards.at(-1)!
+      expect(card.position).toEqual({
+        x: origin.x + (index + Number(near)) * 24,
+        y: origin.y + (index + Number(near)) * 24,
+      })
+      expect(value.container.querySelectorAll(".studio-board-card.selected")).toHaveLength(1)
+      expect(value.container.querySelector(".studio-board-card.selected")?.closest(".x6-node")?.getAttribute("data-cell-id"))
+        .toBe(card.id)
+      expect(value.container.querySelectorAll(".x6-node").item(value.stored.document.cards.length - 1)?.getAttribute("data-cell-id"))
+        .toBe(card.id)
+      expect(value.stored.document.viewport).toEqual({ x: 0, y: 0, zoom: 1 })
+    }
+    expect(value.requests).toHaveLength(0)
+  } finally {
+    value.dispose()
+  }
+})
+
+test("board tools show five controls, switch modes with a keyboard menu and ignore shortcuts while typing", async () => {
+  const value = await setup()
+  try {
+    const board = value.container.querySelector<HTMLElement>(".studio-board")!
+    expect(value.container.querySelectorAll(".studio-board-tools > button")).toHaveLength(5)
+    expect(button(value.container, "素材库").disabled).toBe(true)
+    expect(button(value.container, "上传素材").disabled).toBe(true)
+    expect(board.dataset.tool).toBe("select")
+    const trigger = button(value.container, "操作工具")
+    trigger.click()
+    await Bun.sleep(0)
+    expect(trigger.getAttribute("aria-expanded")).toBe("true")
+    const menu = value.container.querySelector<HTMLElement>('[aria-label="操作工具选项"]')!
+    expect(document.activeElement?.getAttribute("aria-checked")).toBe("true")
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
+    expect(document.activeElement?.textContent).toBe("平移画布H")
+    button(menu, "平移画布H").click()
+    expect(board.dataset.tool).toBe("pan")
+    expect(document.activeElement).toBe(trigger)
+    expect(trigger.querySelector("img")?.getAttribute("src")).toBe("/studio/board-tool-pan.svg")
+    board.dispatchEvent(new KeyboardEvent("keydown", { key: "v", bubbles: true }))
+    expect(board.dataset.tool).toBe("select")
+    button(value.container, "新建图片卡片").click()
+    const prompt = value.container.querySelector<HTMLTextAreaElement>("textarea")!
+    prompt.dispatchEvent(new KeyboardEvent("keydown", { key: "h", bubbles: true }))
+    board.dispatchEvent(new KeyboardEvent("keydown", { key: "h", ctrlKey: true, bubbles: true }))
+    board.dispatchEvent(new KeyboardEvent("keydown", { key: "h", isComposing: true, bubbles: true }))
+    expect(board.dataset.tool).toBe("select")
+    board.dispatchEvent(new KeyboardEvent("keydown", { key: "H", bubbles: true }))
+    expect(board.dataset.tool).toBe("pan")
+    button(value.container, "新建视频卡片").click()
+    expect(board.dataset.tool).toBe("select")
+    await Bun.sleep(30)
+    expect(value.container.querySelectorAll(".studio-board-card-video")).toHaveLength(1)
+    trigger.click()
+    await Bun.sleep(0)
+    value.container
+      .querySelector('[aria-label="操作工具选项"]')!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    expect(trigger.getAttribute("aria-expanded")).toBe("false")
+    expect(value.container.querySelectorAll(".studio-board-card.selected")).toHaveLength(1)
+  } finally {
+    value.dispose()
+  }
+})
+
+test.each([{ demo: true }, { video: false }])("board tools retain a disabled video entry with %j", async (options) => {
+  const value = await setup(options)
+  try {
+    expect(value.container.querySelectorAll(".studio-board-tools > button")).toHaveLength(5)
+    expect(button(value.container, "新建视频卡片").disabled).toBe(true)
+    button(value.container, "新建视频卡片").click()
+    expect(value.container.querySelectorAll(".studio-board-card-video")).toHaveLength(0)
+  } finally {
+    value.dispose()
+  }
+})
+
+test.each(["blank", "node", "port", "edge", "middle"])(
+  "board pan gestures on %s move only the viewport",
+  async (target) => {
+    const { Graph } = await import("@antv/x6")
+    const addNode = spyOn(Graph.prototype, "addNode")
+    const value = await setup({
+      document: {
+        ...emptyBoard(),
+        cards: [newBoardCard("a", "image", { x: 100, y: 100 }), newBoardCard("b", "image", { x: 600, y: 100 })],
+        draftEdges: [{ id: "a-b", sourceID: "a", targetID: "b", role: "reference" }],
+      },
+    })
+    try {
+      const result = addNode.mock.results[0]
+      if (result.type !== "return") throw new Error("Expected a real X6 node")
+      const graph = result.value.model!.graph
+      const board = value.container.querySelector<HTMLElement>(".studio-board")!
+      const node = value.container.querySelector('[data-cell-id="a"]')!
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      const element =
+        target === "blank"
+          ? value.container.querySelector(".studio-board-graph")!
+          : target === "port"
+            ? node.querySelector('[port="output"]')!
+            : target === "edge"
+              ? value.container.querySelector('[data-cell-id="a-b"]')!
+              : node
+      if (target !== "middle") board.dispatchEvent(new KeyboardEvent("keydown", { key: "h", bubbles: true }))
+      const button = target === "middle" ? 1 : 0
+      element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button, clientX: 40, clientY: 40 }))
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button, clientX: 40, clientY: 40 }))
+      expect(graph.findViewByCell("a")?.can("nodeMovable")).toBe(false)
+      expect(graph.findViewByCell("a")?.can("magnetConnectable")).toBe(false)
+      document.body.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, button, clientX: 100, clientY: 90 }))
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button, clientX: 100, clientY: 90 }))
+      document.body.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button, clientX: 100, clientY: 90 }))
+      expect(graph.translate()).toEqual({ tx: 60, ty: 50 })
+      expect(graph.getCellById("a")?.getBBox().topLeft.toJSON()).toEqual({ x: 100, y: 100 })
+      expect(
+        value.container.querySelector(".studio-board-card.selected")?.closest(".x6-node")?.getAttribute("data-cell-id"),
+      ).toBe("a")
+      expect(graph.getEdges()).toHaveLength(1)
+      expect(value.container.querySelector(".studio-board-marquee")).toBeNull()
+      expect(board.dataset.tool).toBe(target === "middle" ? "select" : "pan")
+      element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button, clientX: 100, clientY: 90 }))
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button, clientX: 100, clientY: 90 }))
+      document.body.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, button, clientX: 120, clientY: 110 }))
+      document.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, button }))
+      document.body.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, button, clientX: 150, clientY: 140 }))
+      expect(graph.translate()).toEqual({ tx: 80, ty: 70 })
+      board.dispatchEvent(new KeyboardEvent("keydown", { key: "v", bubbles: true }))
+      expect(graph.options.panning.eventTypes).toEqual(["mouseWheelDown"])
+      expect(graph.findViewByCell("a")?.can("nodeMovable")).toBe(true)
+    } finally {
+      value.dispose()
+      addNode.mockRestore()
+    }
+  },
+)
+
+test.each(["pointerup", "pointercancel", "blur"])(
+  "board selection marquee cleans up on %s without enabling left panning",
+  async (end) => {
+    const value = await setup({
+      document: { ...emptyBoard(), cards: [newBoardCard("a", "image", { x: 100, y: 100 })] },
+    })
+    try {
+      const canvas = value.container.querySelector(".studio-board-graph")!
+      canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 80, clientY: 80 }))
+      document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 450, clientY: 460 }))
+      expect(value.container.querySelector(".studio-board-marquee")).not.toBeNull()
+      if (end === "blur") window.dispatchEvent(new Event(end))
+      if (end !== "blur") document.dispatchEvent(new PointerEvent(end, { bubbles: true }))
+      await Bun.sleep(10)
+      expect(value.container.querySelector(".studio-board-marquee")).toBeNull()
+      expect(value.container.querySelectorAll(".studio-board-card.selected")).toHaveLength(end === "pointerup" ? 1 : 0)
+      expect(value.container.querySelector<HTMLElement>(".studio-board")?.dataset.tool).toBe("select")
+      canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 80, clientY: 80 }))
+      document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 450, clientY: 460 }))
+      expect(value.container.querySelector(".studio-board-marquee")).not.toBeNull()
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))
+    } finally {
+      value.dispose()
+    }
+  },
+)
+
+test("board selection preserves native blank clicks, additive marquee and Escape cancellation", async () => {
+  const value = await setup({
+    document: {
+      ...emptyBoard(),
+      cards: [newBoardCard("a", "image", { x: 100, y: 100 }), newBoardCard("b", "image", { x: 600, y: 100 })],
+    },
+  })
+  try {
+    const canvas = value.container.querySelector(".studio-board-graph")!
+    const board = value.container.querySelector<HTMLElement>(".studio-board")!
+    const node = value.container.querySelector('[data-cell-id="a"]')!
+    node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+    node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+    expect(value.container.querySelectorAll(".studio-board-card.selected")).toHaveLength(1)
+    const down = new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 950,
+      clientY: 50,
+    })
+    canvas.dispatchEvent(down)
+    expect(down.defaultPrevented).toBe(false)
+    canvas.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 950, clientY: 50 }))
+    document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }))
+    canvas.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: 950, clientY: 50 }))
+    expect(value.container.querySelectorAll(".studio-board-card.selected")).toHaveLength(0)
+    node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+    node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+    canvas.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, button: 0, shiftKey: true, clientX: 580, clientY: 80 }),
+    )
+    document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 930, clientY: 460 }))
+    document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }))
+    await Bun.sleep(10)
+    expect(value.container.querySelectorAll(".studio-board-card.selected")).toHaveLength(2)
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 580, clientY: 80 }))
+    document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 930, clientY: 460 }))
+    board.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 940, clientY: 470 }))
+    expect(value.container.querySelector(".studio-board-marquee")).toBeNull()
+    expect(value.container.querySelectorAll(".studio-board-card.selected")).toHaveLength(0)
+  } finally {
+    value.dispose()
+  }
+})
 
 test("extracted card views keep one composer across selection, then dispose a removed card", async () => {
   const value = await setup()
@@ -3306,5 +3549,288 @@ test.each([
       uploadResponse.resolve(Response.json({ path: "/test/.octo/test-board/uploads/composite.png" }))
       value.dispose()
     }
+  },
+)
+
+test.each(["success", "cancel", "swap", "replace", "multi-reference", "multi-source-only", "remove", "uncertain", "save-failed", "rejected", "no-permission"] as const)(
+  "image video shortcut %s uses an independent video draft and pins the displayed source", async (scenario) => {
+    const source = newBoardCard("video-source", "image", { x: 100, y: 100 })
+    source.draft.prompt = "原图片草稿保持不变"
+    source.cover = { generationID: "source-result", mediaID: "cover" }
+    source.preview = { generationID: "source-result", mediaID: "shown" }
+    source.currentGenerationID = "source-result"
+    source.taskLinks = [{ generationID: "source-result", submissionID: crypto.randomUUID(), visible: true,
+      snapshot: { prompt: source.draft.prompt, settings: source.draft.settings, references: [] } }]
+    const options: NonNullable<Parameters<typeof setup>[0]> = {
+      document: { ...emptyBoard(), cards: [source] }, video: scenario !== "no-permission", accepted: scenario !== "rejected",
+      reject: scenario === "uncertain" ? "network" : undefined, saveFailures: scenario === "save-failed" ? 1 : undefined,
+      acceptedResult: { id: "accepted-new", status: "succeeded", capability: "video.generate", provider: "internel",
+        model: "seedance", aspectRatio: "1:1", prompt: "镜头向远方推进", createdAt: 2,
+        images: [{ id: "video-result", kind: "video", url: "https://example.test/video.mp4" }] },
+      results: { "source-result": { id: "source-result", status: "succeeded", capability: "image.generate", provider: "internel",
+        model: "seedream-5-pro", aspectRatio: "1:1", prompt: source.draft.prompt, createdAt: 1,
+        images: [{ id: "cover", url: "https://example.test/cover.png" },
+          { id: "shown", url: "https://example.test/preview.png", remoteUrl: "https://example.test/original.png" }] } },
+    }
+    let value = await setup(options)
+    try {
+      const node = value.container.querySelector('[data-cell-id="video-source"]')!
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      const toggle = button(value.container, "视频生成")
+      if (scenario === "no-permission") { expect(toggle.disabled).toBe(true); return }
+      toggle.click()
+      expect(toggle.getAttribute("aria-pressed")).toBe("true")
+      expect(value.container.querySelector(".studio-board-composer.video")).not.toBeNull()
+      expect(value.container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("")
+      expect(value.container.querySelector<HTMLImageElement>(".studio-composer-video-image")?.src).toBe("https://example.test/original.png")
+      expect(button(value.container, "上传尾帧").disabled).toBe(false)
+      expect(button(value.container, "发送新任务").disabled).toBe(true)
+      expect(value.stored.document.cards).toEqual([source])
+      const prompt = value.container.querySelector<HTMLTextAreaElement>("textarea")!
+      prompt.value = "镜头向远方推进"
+      prompt.dispatchEvent(new Event("input", { bubbles: true }))
+      const upload = async (label: string) => {
+        button(value.container, label).click()
+        const input = value.container.querySelector<HTMLInputElement>('input[type="file"]')!
+        const transfer = new DataTransfer()
+        transfer.items.add(new File(["frame"], "frame.png", { type: "image/png" }))
+        input.files = transfer.files
+        input.dispatchEvent(new Event("change", { bubbles: true }))
+        await Bun.sleep(60)
+      }
+      if (scenario === "cancel") {
+        button(value.container, "视频设置").click()
+        expect(value.container.querySelector('[role="dialog"]')).not.toBeNull()
+        prompt.dispatchEvent(new FocusEvent("focusin", { bubbles: true }))
+        expect(value.container.querySelector('[role="dialog"]')).toBeNull()
+        button(value.container, "视频设置").click()
+        prompt.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+        expect(value.container.querySelector('[role="dialog"]')).toBeNull()
+        expect(toggle.getAttribute("aria-pressed")).toBe("true")
+        toggle.click()
+        expect(value.container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(source.draft.prompt)
+        expect(value.requests).toHaveLength(0)
+        expect(value.stored.document.cards).toEqual([source])
+        return
+      }
+      if (scenario === "swap") {
+        button(value.container, "交换首尾帧").click()
+        expect(button(value.container, "发送新任务").disabled).toBe(true)
+        await upload("上传首帧")
+      }
+      if (scenario === "replace") await upload("替换首帧")
+      if (scenario === "remove") button(value.container, "删除首帧").click()
+      if (scenario === "multi-reference" || scenario === "multi-source-only") {
+        button(value.container, "首尾帧").click()
+        button(value.container, "多图参考").click()
+        expect(value.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(1)
+        expect(value.container.querySelector<HTMLImageElement>(".studio-composer-ref-image")?.src).toBe("https://example.test/original.png")
+        button(value.container, "多图参考").click()
+        button(value.container, "首尾帧").click()
+        expect(value.container.querySelector<HTMLImageElement>(".studio-composer-video-image")?.src).toBe("https://example.test/original.png")
+        button(value.container, "首尾帧").click()
+        button(value.container, "多图参考").click()
+        expect(value.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(1)
+        if (scenario === "multi-reference") await upload("继续上传参考图")
+      }
+      const send = button(value.container, "发送新任务")
+      expect(send.disabled).toBe(false)
+      send.click()
+      send.click()
+      await Bun.sleep(100)
+      if (scenario === "save-failed" || scenario === "rejected") {
+        expect(value.container.querySelectorAll(".studio-board-card")).toHaveLength(2)
+        options.accepted = true
+        button(value.container, "重新提交").click()
+        await Bun.sleep(100)
+      }
+      if (scenario === "uncertain") {
+        const pending = structuredClone(value.requests[0])
+        options.reject = undefined
+        button(value.container, "刷新状态").click()
+        await Bun.sleep(100)
+        expect(value.requests[1]).toEqual(pending)
+      }
+      expect(value.requests).toHaveLength(scenario === "uncertain" || scenario === "rejected" ? 2 : 1)
+      expect(value.stored.document.cards).toHaveLength(2)
+      expect(value.stored.document.cards[0]).toEqual(source)
+      const child = value.stored.document.cards[1]
+      expect(child.kind).toBe("video")
+      expect(child.position.x).toBeGreaterThan(source.position.x + 304)
+      const refs = value.requests.at(-1)!.board.snapshot.references
+      if (scenario === "replace" || scenario === "remove") expect(value.stored.document.draftEdges).toHaveLength(0)
+      if (scenario !== "replace" && scenario !== "remove") expect(value.stored.document.draftEdges[0]).toMatchObject({
+        sourceID: source.id, targetID: child.id, role: scenario === "swap" ? "lastFrame" : "firstFrame",
+        reference: { mediaID: "shown", image: "https://example.test/original.png" },
+      })
+      if (scenario === "multi-reference" || scenario === "multi-source-only") {
+        expect(refs).toHaveLength(scenario === "multi-reference" ? 2 : 1)
+        expect(refs[0]).toMatchObject({ role: "reference", mediaID: "shown", image: "https://example.test/original.png" })
+      }
+      if (scenario === "replace") {
+        expect(refs[0].role).toBe("firstFrame")
+        expect(refs[0].sourceID.startsWith("upload:")).toBe(true)
+      }
+      if (scenario === "remove") expect(refs).toHaveLength(0)
+      if (!["multi-reference", "multi-source-only", "replace", "remove"].includes(scenario)) expect(refs[0]).toMatchObject({
+        sourceID: source.id, generationID: "source-result", mediaID: "shown", image: "https://example.test/original.png",
+        role: scenario === "swap" ? "lastFrame" : "firstFrame",
+      })
+      expect(value.requests.at(-1)).toMatchObject({ capability: "video.generate", prompt: "镜头向远方推进",
+        board: { snapshot: { settings: { videoInputMode: scenario === "multi-reference" || scenario === "multi-source-only" ? "multi-reference" : "first-last-frame",
+          videoMode: scenario === "remove" ? "text" : "first_last_frame", duration: "5", quality: "720", count: 1 } } } })
+      expect(value.container.querySelectorAll(".studio-board-media-toolbar button")).toHaveLength(2)
+      const restored = { ...options, reject: undefined, document: BoardDocument.parse(value.stored.document), revision: value.stored.revision }
+      value.dispose()
+      value = await setup(restored)
+      expect(value.stored.document.draftEdges).toEqual(restored.document.draftEdges)
+      expect(value.stored.document.cards[1].taskLinks[0].snapshot.references).toEqual(refs)
+      if (scenario === "success") {
+        const childNode = value.container.querySelector(`[data-cell-id="${child.id}"]`)!
+        childNode.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+        childNode.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+        button(value.container, "首尾帧").click()
+        button(value.container, "多图参考").click()
+        expect(value.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(1)
+        expect(value.container.querySelector<HTMLImageElement>(".studio-composer-ref-image")?.src).toBe("https://example.test/original.png")
+        expect(value.container.querySelector<SVGElement>(".x6-edge")?.style.display).not.toBe("none")
+        button(value.container, "删除参考图 图片").click()
+        expect(value.container.querySelectorAll(".studio-composer-ref-image")).toHaveLength(0)
+        await Bun.sleep(20)
+        expect(value.container.querySelectorAll(".x6-edge")).toHaveLength(0)
+      }
+    } finally { value.dispose() }
+  },
+)
+
+
+test.each(["image", "video", "upscale", "cutout", "inpaint", "outpaint", "save-failed", "rejected", "uncertain", "no-permission", "video-edit", "video-replace"] as const)(
+  "regenerate %s replays the displayed task without edges or reused task history", async (scenario) => {
+    const kind = scenario.startsWith("video") ? "video" : "image"
+    const source = newBoardCard("regenerate-source", kind, { x: 100, y: 100 })
+    source.draft.prompt = "后来修改的草稿"
+    const snapshot = BoardSnapshot.parse({
+      prompt: scenario === "upscale" ? BOARD_UPSCALE_PROMPT : scenario === "cutout" ? BOARD_CUTOUT_PROMPT : "原始任务的提示词",
+      settings: { styleModel: "seedream-5-pro", count: 2, aspectRatio: "16:9", duration: "8", quality: "1080",
+        ...(kind === "video" ? { videoMode: "first_last_frame", videoInputMode: "first-last-frame" } : {}) },
+      references: [{ sourceID: "removed-upstream", generationID: "old-reference-task", mediaID: "old-reference", title: "固定原图",
+        image: "https://example.test/frozen-reference.png", role: kind === "video" ? "firstFrame" : "reference" }],
+    })
+    if (["upscale", "cutout", "inpaint", "outpaint"].includes(scenario)) {
+      snapshot.settings.count = 1
+      snapshot.references = []
+      snapshot.operation = {
+        ...(scenario === "upscale" ? { capability: "image.upscale", mode: "super_resolution" } as const
+          : scenario === "cutout" ? { capability: "image.cutout" } as const
+          : scenario === "inpaint" ? { capability: "image.inpaint", compositeImage: "/test/.octo/test-board/uploads/mask.png",
+            generateMode: "erase", hasDrawing: true, brushSize: 64 } as const
+          : { capability: "image.outpaint", sourceWidth: 600, sourceHeight: 300, left: 100, right: 200, top: 50, bottom: 150,
+            realWidth: 900, realHeight: 500 } as const),
+        sourceImage: "/test/.octo/test-board/uploads/original.png",
+        source: { sourceID: "original-source", generationID: "input-task", mediaID: "input", title: "原始输入",
+          image: "https://example.test/input.png", role: "reference" },
+      }
+      source.operation = snapshot.operation
+    }
+    source.taskLinks = ["original-result", "latest-result"].map((generationID) => ({
+      generationID, submissionID: crypto.randomUUID(), visible: true,
+      snapshot: generationID === "original-result" ? snapshot : { ...snapshot, prompt: "较新的历史参数" },
+    }))
+    source.currentGenerationID = "latest-result"
+    source.cover = { generationID: "latest-result", mediaID: "shown" }
+    source.preview = { generationID: "original-result", mediaID: "shown" }
+    const results = Object.fromEntries(source.taskLinks.map((link) => [link.generationID, {
+      id: link.generationID, status: "succeeded", capability: snapshot.operation?.capability ?? (kind === "video" ? "video.generate" : "image.generate"),
+      provider: "internel", model: "seedream-5-pro", aspectRatio: "16:9", prompt: link.snapshot.prompt, createdAt: 1,
+      images: [{ id: "shown", kind, url: "https://example.test/output.png" }],
+    } satisfies StudioGenerationResult]))
+    const options: NonNullable<Parameters<typeof setup>[0]> = {
+      document: { ...emptyBoard(), cards: [source, newBoardCard("occupied", "image", { x: 524, y: 100 })] }, results,
+      accepted: scenario !== "rejected", seedream: scenario !== "no-permission",
+      reject: scenario === "uncertain" ? "network" : undefined,
+      saveFailures: scenario === "save-failed" ? 1 : undefined,
+      acceptedResult: { ...results["original-result"], id: "accepted-new" },
+    }
+    let value = await setup(options)
+    try {
+      const node = value.container.querySelector('[data-cell-id="regenerate-source"]')!
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      const regenerate = button(value.container, "再次生成")
+      regenerate.click()
+      regenerate.click()
+      await Bun.sleep(100)
+      if (scenario === "no-permission") {
+        expect(value.stored.document.cards).toHaveLength(2)
+        expect(value.requests).toHaveLength(0)
+        return
+      }
+      if (scenario === "save-failed" || scenario === "rejected") {
+        expect(value.container.querySelectorAll(".studio-board-card")).toHaveLength(3)
+        options.accepted = true
+        button(value.container, "重新提交").click()
+        await Bun.sleep(100)
+      }
+      if (scenario === "uncertain") {
+        const pending = structuredClone(value.requests[0])
+        options.reject = undefined
+        button(value.container, "刷新状态").click()
+        await Bun.sleep(100)
+        expect(value.requests[1]).toEqual(pending)
+      }
+      expect(value.stored.document.cards).toHaveLength(3)
+      expect(value.stored.document.draftEdges).toHaveLength(0)
+      expect(value.stored.document.cards[0]).toEqual(source)
+      const child = value.stored.document.cards[2]
+      expect(child.kind).toBe(kind)
+      expect(child.position.y).toBe(source.position.y)
+      expect(child.position.x).toBeGreaterThan(524 + 304)
+      expect(child.regeneration).toEqual({ sourceID: source.id, generationID: "original-result", snapshot })
+      expect(child.taskLinks).toHaveLength(1)
+      expect(child.taskLinks[0].generationID).toBe("accepted-new")
+      expect(value.requests.at(-1)).toMatchObject({
+        capability: snapshot.operation?.capability ?? (kind === "video" ? "video.generate" : "image.generate"),
+        prompt: snapshot.prompt, board: { cardID: child.id, snapshot },
+      })
+      expect(value.requests.at(-1)!.board.replacedGenerationID).toBeUndefined()
+      expect(value.requests).toHaveLength(scenario === "uncertain" || scenario === "rejected" ? 2 : 1)
+      expect(value.uploads).toHaveLength(0)
+      if (scenario !== "video-edit" && scenario !== "video-replace") return
+      const restored = { ...options, document: BoardDocument.parse(value.stored.document), revision: value.stored.revision }
+      value.dispose()
+      value = await setup(restored)
+      const childNode = value.container.querySelector(`[data-cell-id="${child.id}"]`)!
+      childNode.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
+      childNode.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+      expect(value.container.querySelector<HTMLImageElement>(".studio-composer-video-image")?.src).toBe(snapshot.references[0].image)
+      button(value.container, "首尾帧").click()
+      button(value.container, "多图参考").click()
+      expect(value.container.querySelector<HTMLImageElement>(".studio-composer-ref-image")?.src).toBe(snapshot.references[0].image)
+      button(value.container, "多图参考").click()
+      button(value.container, "首尾帧").click()
+      if (scenario === "video-replace") {
+        button(value.container, "替换首帧").click()
+        const input = value.container.querySelector<HTMLInputElement>('input[type="file"]')!
+        const transfer = new DataTransfer()
+        transfer.items.add(new File(["frame"], "frame.png", { type: "image/png" }))
+        input.files = transfer.files
+        input.dispatchEvent(new Event("change", { bubbles: true }))
+        await Bun.sleep(60)
+        const replaced = BoardDocument.parse(JSON.parse(localStorage.getItem("studio.board.backup:http://board.test:/test:test-board")!).document).cards[2]
+        expect(replaced.draft.references).toEqual([])
+        expect(replaced.draft.assets).toHaveLength(1)
+        expect(replaced.regeneration?.snapshot).toEqual(snapshot)
+        return
+      }
+      button(value.container, "交换首尾帧").click()
+      await Bun.sleep(40)
+      const edited = BoardDocument.parse(JSON.parse(localStorage.getItem("studio.board.backup:http://board.test:/test:test-board")!).document).cards[2]
+      expect(edited.draft.references?.[0].role).toBe("lastFrame")
+      expect(edited.regeneration?.snapshot).toEqual(snapshot)
+      button(value.container, "删除尾帧").click()
+      await Bun.sleep(40)
+      expect(BoardDocument.parse(JSON.parse(localStorage.getItem("studio.board.backup:http://board.test:/test:test-board")!).document).cards[2].draft.references).toEqual([])
+    } finally { value.dispose() }
   },
 )

@@ -7,14 +7,28 @@ import {
   boardMedia,
   boardRebootable,
   boardCardSize,
+  boardNextCardPosition,
   boardWheelZoom,
   boardDocumentJSON,
   boardDocumentSnapshot,
   boardCanGenerate,
   emptyBoard,
   newBoardCard,
+  type BoardDocument,
   type BoardResults,
 } from "./studio-board-state"
+
+test("new cards skip occupied space to the right using measured bounds and keep the source row", () => {
+  const source = { x: -100, y: -80, width: 500, height: 700 }
+  expect(boardNextCardPosition(source, [source])).toEqual({ x: 520, y: -80 })
+  const obstacles = [source,
+    { x: 1000, y: -60, width: 800, height: 600 },
+    { x: 520, y: -200, width: 380, height: 500 },
+    { x: 1920, y: 500, width: 1000, height: 330 },
+  ]
+  expect(boardNextCardPosition(source, obstacles)).toEqual({ x: 1920, y: -80 })
+  expect(obstacles[1].x).toBe(1000)
+})
 
 test("card geometry preserves the actual media ratio with a bounded longest side", () => {
   expect(boardCardSize()).toEqual({ width: 304, height: 330 })
@@ -24,6 +38,21 @@ test("card geometry preserves the actual media ratio with a bounded longest side
   expect(boardCardSize(0, 1080)).toEqual({ width: 304, height: 330 })
   expect(boardCardSize(Number.NaN, 1080)).toEqual({ width: 304, height: 330 })
   expect(boardCardSize(undefined, 1080)).toEqual({ width: 304, height: 330 })
+})
+
+test.each([
+  { delta: 60, expected: 0.1 },
+  { delta: -60, expected: 8 },
+])("wheel zoom remains serializable through the $expected boundary", ({ delta, expected }) => {
+  const document = Array.from({ length: 100 }).reduce<BoardDocument>((document) => {
+    const snapshot = boardDocumentSnapshot({
+      ...document,
+      viewport: { ...document.viewport, zoom: boardWheelZoom(document.viewport.zoom, delta, 0, 800) },
+    })
+    expect(boardDocumentSnapshot(JSON.parse(boardDocumentJSON(snapshot)))).toEqual(snapshot)
+    return snapshot
+  }, { ...emptyBoard(), viewport: { x: 320, y: -160, zoom: 1 } })
+  expect(document.viewport).toEqual({ x: 320, y: -160, zoom: expected })
 })
 
 function fixture() {
@@ -192,7 +221,10 @@ describe("board task and draft boundaries", () => {
     expect(boardWheelZoom(1, 1, 1, 800)).toBe(boardWheelZoom(1, 16, 0, 800))
     expect(Math.abs(boardWheelZoom(1, 1, 0, 800) - 1)).toBeLessThan(0.002)
     expect(boardWheelZoom(1, 10000, 0, 800)).toBeGreaterThan(0.9)
-    expect(boardWheelZoom(0.35, 100, 0, 800)).toBe(0.35)
+    expect(boardWheelZoom(0.1, 100, 0, 800)).toBe(0.1)
+    expect(boardWheelZoom(8, -100, 0, 800)).toBe(8)
+    expect(boardWheelZoom(0.35, 100, 0, 800)).toBeLessThan(0.35)
+    expect(boardWheelZoom(1.8, -100, 0, 800)).toBeGreaterThan(1.8)
   })
 })
 

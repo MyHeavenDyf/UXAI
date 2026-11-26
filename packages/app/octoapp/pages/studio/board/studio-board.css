@@ -270,26 +270,93 @@
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  padding: 6px;
-  gap: 8px;
-  border: 1px solid #e0e2ea;
-  border-radius: 14px;
+  padding: 4px;
+  gap: 4px;
+  width: 46px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  outline: 1px solid #f3f5f7;
   background: #fff;
-  box-shadow: 0 4px 20px #29304d08;
+  box-shadow: 0 8px 24px #00000014;
   z-index: 3;
 }
-.studio-board-tools button {
+.studio-board-tools > button {
   width: 38px;
   height: 38px;
   display: grid;
   place-items: center;
-  border-radius: 9px;
-  background: #f2effb;
-  color: #7264b7;
-  font-size: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #191919;
 }
-.studio-board-tools button:hover {
-  background: #e8e2fa;
+.studio-board-tools button:not(:disabled):hover,
+.studio-board-tools .studio-board-tool-current,
+.studio-board-tool-menu button[aria-checked="true"] {
+  background: #1919190d;
+}
+.studio-board-tools img {
+  width: 16px;
+  height: 16px;
+  object-fit: none;
+  pointer-events: none;
+}
+.studio-board-tool-menu {
+  position: absolute;
+  left: calc(100% + 6px);
+  top: -24px;
+  width: 161px;
+  padding: 4px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 24px #00000014;
+}
+.studio-board-tool-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: #191919;
+  background: transparent;
+  font-size: 14px;
+  line-height: 22px;
+}
+.studio-board-tool-menu span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.studio-board-tool-menu kbd {
+  font: inherit;
+  color: #0009;
+}
+.studio-board[data-tool="select"] .studio-board-graph {
+  cursor: default;
+}
+.studio-board[data-tool="select"] .studio-board-card {
+  cursor: move;
+}
+.studio-board[data-tool="pan"] .studio-board-graph,
+.studio-board[data-tool="pan"] .studio-board-graph * {
+  cursor: grab;
+}
+.studio-board[data-tool="pan"] .studio-board-graph.x6-graph-panning,
+.studio-board[data-tool="pan"] .studio-board-graph.x6-graph-panning * {
+  cursor: grabbing;
+}
+.studio-board[data-tool="pan"] .studio-inpaint-drawing,
+.studio-board[data-tool="pan"] .studio-enlarging-stage {
+  pointer-events: none;
 }
 .studio-board-empty {
   position: absolute;
