@@ -186,8 +186,8 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(18px);
   padding: 4px;
-  width: 175px;
-  z-index: 9999;
+  width: 190px;
+  z-index: 120;
 }
 
 .studio-composer-toolbar-more-item {
@@ -214,6 +214,23 @@
 .studio-composer-toolbar-more-item-arrow {
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.studio-composer-toolbar-more-audio {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px 4px 12px;
+}
+
+.studio-composer-toolbar-more-audio .studio-composer-audio-toggle {
+  width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.studio-composer-toolbar-more-audio .studio-composer-audio-track {
+  margin-left: auto;
 }
 
 .studio-composer-toolbar-more-item-icon {
@@ -516,9 +533,9 @@
 
 .studio-menu {
   position: absolute;
-  /* 高于视频播放器(z-index:41)与悬浮抽屉(40)，低于浮层侧边栏(101)/弹窗(150) */
-  z-index: 42;
-  bottom: calc(100% + 8px);
+  /* 高于全部页面内容（侧边栏101/通知60/视频播放器41等），低于弹窗(150)与全屏(1000) */
+  z-index: 149;
+  bottom: calc(100% + 16px);
   left: 0;
   right: auto;
   background: rgba(255, 255, 255, 1);
@@ -531,12 +548,12 @@
    .studio-composer-toolbar-items so overflow:hidden doesn't clip it.
    left is set dynamically via JS based on button measurement.
    height:0 so inner .studio-menu's bottom:calc(100%+8px) = 8px above toolbar. */
-.studio-composer-dropdown-anchor {
-  position: absolute;
-  bottom: 100%;
-  height: 0;
-  z-index: 42;
-}
+ .studio-composer-dropdown-anchor {
+   position: absolute;
+   bottom: 100%;
+   height: 0;
+   z-index: 149;
+ }
 
 .studio-image-settings-menu {
   width: 532px;
@@ -549,6 +566,7 @@
   padding: 14px 16px;
   box-sizing: border-box;
   gap:0;
+  overflow-y: auto;
 }
 
 .studio-material-title {

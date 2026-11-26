@@ -997,3 +997,166 @@
 .studio-composer-recommendation-close img { width: 12px; height: 12px; }
 .studio-composer-recommendation-placeholder { color: #999; cursor: text; }
 .studio-recommendation-recover { font-size: 12px; color: #777; cursor: pointer; }
+
+/* 视频生成 · 音频开关（参考《音频开关示意》方案 A+B：开关 + 输入框内引导 + 说明气泡） */
+.studio-composer-audio-cluster {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.studio-composer-audio-toggle {
+  height: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #f3f3f3;
+  color: #191919;
+  font-size: 12px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.studio-composer-audio-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.studio-composer-audio-label {
+  white-space: nowrap;
+}
+
+.studio-composer-audio-track {
+  width: 30px;
+  height: 16px;
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #c9cdd4;
+  transition: background-color 0.15s ease;
+}
+
+.studio-composer-audio-knob {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  margin: 0 auto 0 0;
+  transition: margin 0.15s ease;
+}
+
+.studio-composer-audio-toggle.active {
+  font-weight: 500;
+}
+
+.studio-composer-audio-toggle.active .studio-composer-audio-track {
+  background: #0a59f7;
+}
+
+.studio-composer-audio-toggle.active .studio-composer-audio-knob {
+  margin: 0 0 0 auto;
+}
+
+.studio-composer-audio-toggle:focus-visible,
+.studio-composer-audio-info:focus-visible,
+.studio-composer-audio-chip:focus-visible {
+  outline: 2px solid #1769ff;
+  outline-offset: 2px;
+}
+
+.studio-composer-audio-badge {
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.studio-composer-audio-info {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  color: rgba(0, 0, 0, 0.9);
+  cursor: pointer;
+}
+
+.studio-composer-audio-hint-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.studio-composer-audio-hint-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding-left: 16px;
+}
+
+.studio-composer-audio-chip {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(25, 25, 25, 0.05);
+  color: #191919;
+  font-size: 10px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.studio-composer-audio-chip:hover {
+  background: #e8f1ff;
+}
+
+.studio-composer-audio-chip-tag {
+  color: #0a59f7;
+  font-weight: 600;
+}
+
+.studio-composer-audio-popover {
+  position: fixed;
+  z-index: 121;
+  box-sizing: border-box;
+  width: 270px;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid #e3e6ec;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 36px rgba(20, 30, 60, 0.14);
+}
+
+.studio-composer-audio-popover-icon {
+  height: 9px;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 5.5px;
+}
+
+.studio-composer-audio-popover-text {
+  color: #191919;
+  font-size: 10px;
+  line-height: 20px;
+}
+
+.studio-empty-stack .studio-composer-audio-toggle {
+  height: 28px;
+  min-height: 28px;
+}
