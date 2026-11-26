@@ -95,7 +95,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         repoUrl: repoUrl() || undefined,
       }),
     })
-    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domain/productLine/product/version 取各对象 name; designOwner←version.ownerList、designDl←version.uxDlList 由 joinNickNames 拼接; fire-and-forget, 失败 silent 不阻断)
+    // 数据看板统计: 上报用户项目选择(复用 auth.getUser() 取登录身份; userName←nickName, userId←account; domainId/productLineId/productId/versionId 及 domain/productLine/product/version 取各对象 id/name; designOwner←version.ownerList、designDl←version.uxDlList 由 joinNickNames 拼接; fire-and-forget, 失败 silent 不阻断)
     // 登录态缺失或 nickName/account 为空时跳过上报(打点不受影响), console.warn 留痕便于排查"有打点无统计"问题
     const user = getUser()
     const userName = user?.nickName?.trim()
