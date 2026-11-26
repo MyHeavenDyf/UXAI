@@ -55,7 +55,7 @@ export function DialogShareSession(props: { session: Session; trackerModule?: st
         const endpoint = new URL(
           `${globalSDK.url.replace(/\/$/, "")}/session/${encodeURIComponent(props.session.id)}/portable-share`,
         )
-        if (workspaceKind() === "code") endpoint.searchParams.set("scope", "project")
+        if (props.session.agent !== "octo_insight" && workspaceKind() === "code") endpoint.searchParams.set("scope", "project")
         if (operationID) endpoint.searchParams.set("operationID", operationID)
         const response = await (platform.fetch ?? fetch)(endpoint, {
           method: "POST",

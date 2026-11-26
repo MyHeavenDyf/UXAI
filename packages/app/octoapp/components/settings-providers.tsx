@@ -14,6 +14,7 @@ import { DialogConnectProvider } from "./dialog-connect-provider"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
 import { SettingsList } from "./settings-list"
+import { compareProviderSortOrder } from "@/utils/provider-sort"
 
 type ProviderSource = "env" | "api" | "config" | "custom" | "remote"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
@@ -75,7 +76,7 @@ export const SettingsProviders: Component = () => {
     return providers
       .connected()
       .filter((p) => p.source === "remote" || !disabled.has(p.id))
-      .sort((a, b) => Number(b.source === "remote") - Number(a.source === "remote"))
+      .sort((a, b) => compareProviderSortOrder(a, b) || Number(b.source === "remote") - Number(a.source === "remote"))
   })
 
   const popular = createMemo(() => {
@@ -84,7 +85,7 @@ export const SettingsProviders: Component = () => {
       .popular()
       .filter((p) => !connectedIDs.has(p.id))
       .slice()
-    items.sort((a, b) => popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))
+    items.sort((a, b) => compareProviderSortOrder(a, b) || popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))
     return items
   })
 

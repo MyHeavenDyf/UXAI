@@ -200,6 +200,8 @@ const createPlatform = (): Platform => {
       return window.api.checkUpdate()
     },
 
+    checkUpdateReadiness: () => window.api.checkUpdateReadiness(),
+
     updateAndRestart: async (onProgress) => {
       const config = await window.api.getWindowConfig().catch(() => ({ updaterEnabled: false }))
       if (!config.updaterEnabled) return

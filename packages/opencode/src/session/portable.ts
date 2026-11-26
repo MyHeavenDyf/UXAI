@@ -16,6 +16,7 @@ import { Session } from "./session"
 import { SessionStatus } from "./status"
 import { Todo } from "./todo"
 import { collectPortableDependencies } from "./portable-dependencies"
+import { collectInsightSharedFiles } from "./portable-insight-files"
 import { planPortablePaths, rewritePortableDocument } from "./portable-paths"
 import { isExcludedPortableFile, loadPortableFileBlacklist } from "./portable-exclusions"
 import { materializeStudioSessionParts } from "@/studio/studio-history-service"
@@ -293,6 +294,7 @@ function collectFiles(
 ) {
   return Effect.gen(function* () {
     const blobs = new Set<string>()
+    const insight = entries[0].info.agent === "octo_insight"
     const global = Option.getOrElse(yield* Effect.serviceOption(Global.Service), Global.make)
     const contents = new Map<string, Promise<Uint8Array>>()
     const read = (file: string) => {
@@ -316,15 +318,26 @@ function collectFiles(
           root: path.join(sourceDirectory, sessionDirectory, "design", "history", entry.info.id),
         },
       ]),
-      scope === "project" ? [{ scope: "project" as const, sessionID: entries[0].info.id, root: sourceDirectory }] : [],
+      insight || scope === "project" ? [{ scope: "project" as const, sessionID: entries[0].info.id, root: sourceDirectory }] : [],
     ].flat()
+    const owned = new Map(insight ? yield* Effect.forEach(
+      locations.filter((location) => location.scope !== "project"),
+      (location) => Effect.promise(async () => [location.root, await listFiles(location.root, false, blacklist)] as const),
+      { concurrency: 2 },
+    ) : [])
     const files = yield* Effect.forEach(
       locations,
       (location) =>
         Effect.promise(async () => {
-          const files = (await listFiles(location.root, location.scope === "project", blacklist)).filter((file) => path.resolve(file) !== output)
+          const files = (insight && location.scope === "project"
+            ? await collectInsightSharedFiles({ root: sourceDirectory, sessions: entries, list: (directory) => listFiles(directory, true, blacklist) })
+            : owned.get(location.root) ?? await listFiles(location.root, location.scope === "project", blacklist))
+            .filter((file) => path.resolve(file) !== output && !isExcludedPortableFile(file, blacklist) &&
+              (location.scope !== "project" || isProjectFile(path.relative(location.root, file), true)))
           const dependencies = await collectPortableDependencies({
             root: location.root, files, read, blacklist,
+            ...(insight ? { markdown: true } : {}),
+            ...(insight && location.scope === "project" ? { entries: [...files, ...[...owned.values()].flat()] } : {}),
             trustedRoots: ["skill", "skills"].map((dir) => path.join(global.octoConfig, dir, "ict-react-coder", "scripts", "preview", "assets")),
           })
           return [
@@ -950,9 +963,13 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
       }),
     )).map((value) => {
       if (!value.startsWith("file://")) return value.replaceAll("\\", "/")
-      const url = new URL(value)
-      const decoded = decodeURIComponent(url.pathname)
-      return url.hostname ? `//${url.hostname}${decoded}` : decoded.replace(/^\/([A-Za-z]:\/)/, "$1")
+      try {
+        const url = new URL(value)
+        const decoded = decodeURIComponent(url.pathname)
+        return url.hostname ? `//${url.hostname}${decoded}` : decoded.replace(/^\/([A-Za-z]:\/)/, "$1")
+      } catch {
+        return value
+      }
     }))
     const files = new Map<string, FileEntry>()
     const paths = new Map<string, FileEntry>()
@@ -964,9 +981,10 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
           "[octo:import] skipped file",
           JSON.stringify({ path: file.path, reason: "private-content-conflict" }),
         )
-        return
+        return false
       }
       if (!existing) files.set(key, file)
+      return true
     }
     manifest.files.filter((file) => file.scope !== "project").forEach(add)
     for (const file of manifest.files.filter((file) => file.scope === "project")) {
@@ -974,11 +992,11 @@ function importFiles(manifest: Manifest, scope?: "project" | "session") {
       const source = `${manifest.sourceDirectory.replaceAll("\\", "/").replace(/\/+$/, "")}/${relative}`
       const entry = { ...file, scope: "session" as const, directory: ".", path: `outputs/${relative}` }
       // Keep the complete shared tree together so relative HTML/CSS/image dependencies still resolve.
-      add(entry)
+      const kept = add(entry)
       const upload = attachments.has(source)
       const target = upload ? { ...entry, path: `uploads/${relative}` } : entry
-      if (upload) add(target)
-      paths.set(relative, target)
+      const targetKept = upload ? add(target) : kept
+      if (targetKept) paths.set(relative, target)
     }
     return { files: [...files.values()], paths }
   }
@@ -1028,7 +1046,8 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
   )
   if (bundle.manifest.sessions.some((entry) => entry.info.studio_mode === "board"))
     return yield* new PortableValidationError({ message: "画布暂不支持导入" })
-  const plan = importFiles(bundle.manifest, scope)
+  const insight = bundle.manifest.sessions.find((entry) => entry.info.id === bundle.manifest.rootSessionID)?.info.agent === "octo_insight"
+  const plan = importFiles(bundle.manifest, insight ? "session" : scope)
   const files = plan.files
   const sessionIDs = new Map<string, SessionID>()
   const created: SessionID[] = []
@@ -1076,6 +1095,55 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
     const relocate: ReferencePaths["relocate"] = pattern
       ? (value, rewrite) => value.split(pattern).map((part, index) => index % 2 ? paths.get(part)! : rewrite(part)).join("")
       : undefined
+
+    // Insight keeps formerly shared files under the imported session. Rewrite
+    // references in owned documents as well as in chat messages, preserving
+    // cross-session relative paths and avoiding changes to shared blob bytes.
+    const originals = new Map(bundle.manifest.files.map((file) => [
+      `${file.sessionID}\0${file.scope ?? "session"}\0${file.directory}\0${file.path}\0${file.blob}`, file,
+    ]))
+    const insightDocument = (file: FileEntry, target: string, content: Uint8Array) => {
+      if (!insight || !plan.paths.size || !/\.(?:html?|css|[cm]?js|jsx|tsx?|json|svg|md|txt)$/i.test(file.path)) return content
+      const key = `${file.sessionID}\0${file.scope ?? "session"}\0${file.directory}\0${file.path}\0${file.blob}`
+      const projectKey = `${file.sessionID}\0project\0.\0${file.path.replace(/^(?:uploads|outputs)\//, "")}\0${file.blob}`
+      const original = originals.get(key) ?? originals.get(projectKey)
+      if (!original) return content
+      const sourceRoot = bundle.manifest.sourceDirectory.replaceAll("\\", "/").replace(/\/+$/, "")
+      const source = original.scope === "project"
+        ? path.posix.join(sourceRoot, original.directory, original.path)
+        : path.posix.join(sourceRoot, sessionDirectory, file.sessionID, original.directory, original.path)
+      const sourceBase = path.posix.dirname(source)
+      const text = Buffer.from(content).toString("utf8")
+      const rewritten = rewritePortableDocument(text, source, (value, base) => {
+        if (!value || /^(?:https?:|data:|blob:|javascript:|mailto:|#|\/\/)/i.test(value)) return value
+        const match = /^([^?#]*)([?#].*)?$/.exec(value)
+        if (!match) return value
+        const raw = match[1]
+        const url = /^file:\/\//i.test(raw) && URL.canParse(raw) ? new URL(raw) : undefined
+        if (/^file:/i.test(raw) && !url) return value
+        const decoded = (() => { try { return decodeURIComponent(url ? `${url.hostname ? `//${url.hostname}` : ""}${url.pathname}`.replace(/^\/([a-z]:\/)/i, "$1") : raw) } catch { return undefined } })()
+        if (!decoded) return value
+        const normalized = decoded.replaceAll("\\", "/")
+        const absolute = path.posix.isAbsolute(normalized) || /^[a-z]:\//i.test(normalized)
+        const resolved = path.posix.normalize(absolute ? normalized : path.posix.join(base ?? sourceBase, normalized))
+        const prefix = `${sourceRoot}/`
+        const comparable = bundle.manifest.sourcePlatform === "win32" ? resolved.toLowerCase() : resolved
+        const root = bundle.manifest.sourcePlatform === "win32" ? prefix.toLowerCase() : prefix
+        if (!comparable.startsWith(root)) return value
+        const relative = resolved.slice(prefix.length)
+        const entry = plan.paths.get(relative)
+        if (!entry) return value
+        // Documents use the outputs copy so relative links between project files remain valid.
+        const destination = path.join(context.directory, sessionDirectory, sessionIDs.get(entry.sessionID)!, "outputs", relative)
+        if (url) return pathToFileURL(destination).href + (match[2] ?? "")
+        const mapped = absolute ? destination.replaceAll("\\", "/") : path.relative(path.dirname(target), destination).replaceAll("\\", "/")
+        // Keep module specifiers relative, and write URL paths rather than raw
+        // filenames so spaces, #, ?, and % retain their resource-name meaning.
+        const relativePath = !absolute && /^\.\.?\//.test(normalized) && !mapped.startsWith(".") ? `./${mapped}` : mapped
+        return relativePath.split("/").map((part, index) => absolute && index === 0 && /^[a-z]:$/i.test(part) ? part : encodeURIComponent(part)).join("/") + (match[2] ?? "")
+      })
+      return rewritten === text ? content : new TextEncoder().encode(rewritten)
+    }
 
     const totalMessages = ordered.reduce((total, entry) => total + entry.messages.length, 0)
     let completedMessages = 0
@@ -1207,7 +1275,7 @@ export const importPortableSession = Effect.fn("SessionPortable.import")(functio
             )
           : path.join(context.directory, sessionDirectory, sessionID, fileEntry.directory, fileEntry.path)
       yield* Effect.promise(() =>
-        Filesystem.write(target, bundle.blobs.get(fileEntry.blob)!).catch((error) => {
+        Filesystem.write(target, insightDocument(fileEntry, target, bundle.blobs.get(fileEntry.blob)!)).catch((error) => {
           console.warn(
             "[octo:import] skipped file",
             JSON.stringify({

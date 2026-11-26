@@ -7,7 +7,7 @@ type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean; defaultPath?: string }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
-type UpdateInfo = { updateAvailable: boolean; version?: string; releaseNotes?: string }
+type UpdateInfo = { updateAvailable: boolean; version?: string; releaseNotes?: string; forceUpdate?: boolean; failed?: boolean }
 
 export type Platform = {
   prepareSharedSession?(uniqueId: string, operationID?: string): Promise<{ token: string; agent?: string; module: "design" | "insight" | "pattern" | "studio" }>
@@ -69,6 +69,7 @@ export type Platform = {
 
   /** Check for a downloadable desktop update */
   checkUpdate?(): Promise<UpdateInfo>
+  checkUpdateReadiness?(): Promise<{ ready: boolean; reason?: string }>
 
   /** Install the downloaded update using the platform restart flow */
   updateAndRestart?(onProgress?: (percent: number) => void): Promise<void>

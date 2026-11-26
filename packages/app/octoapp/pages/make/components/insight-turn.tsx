@@ -534,6 +534,8 @@ export function InsightTurn(props: {
   onRevertToMessage?: () => Promise<void> | void
   onRegenerateMessage?: () => Promise<void> | void
   onArtifactSaved?: (filePath: string) => void
+  /** html 类型产物自动落盘成功后回调（自动归档等后台流程的触发点； */
+  onHtmlArtifactSaved?: (card: OutputCard, filePath: string, sessionID: string) => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1342,7 +1344,11 @@ const stateStatus = state.status as string | undefined
         // 创建与 skip-existing 都返回路径：经伪 tab 补 init 基线（已有历史则内部跳过），
         // 使产物版本体系不依赖 tab 打开（回退恢复/删除需要）
         if (filePath === undefined) autoSavedArtifacts.delete(key)
-        if (filePath) props.onArtifactSaved?.(filePath)
+        if (filePath) {
+          props.onArtifactSaved?.(filePath)
+          // html 产物触发自动归档
+          if (card.type === "html") props.onHtmlArtifactSaved?.(card, filePath, props.sessionID)
+        }
         props.onFilesRefresh?.()
       }).catch(err => {
         autoSavedArtifacts.delete(key)

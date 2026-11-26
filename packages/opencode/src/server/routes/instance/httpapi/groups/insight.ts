@@ -35,7 +35,7 @@ export const InsightFileCategory = Schema.Union([Schema.Literal("uploads"), Sche
 export const InsightFileListQuery = Schema.Struct({
   sessionId: Schema.String,
   category: InsightFileCategory,
-  // 子路径(相对 uploads 根):非空时列 <uploads>/<path>/ 下的文件+文件夹,支持文件夹导航。
+  // 普通列表中的子路径相对当前分类根目录。
   path: Schema.optional(Schema.String),
   recursive: Schema.optional(Schema.Boolean),
 })
@@ -46,7 +46,7 @@ export const InsightFileEntry = Schema.Struct({
   size: Schema.Number,
   mtime: Schema.Number,
   isFolder: Schema.Boolean,
-  // 相对 uploads 根的路径(文件夹导航 / 面包屑用);outputs 段无子目录,留空即可。
+  // 相对当前分类根目录的路径，用于文件夹导航和面包屑。
   relativePath: Schema.String,
 })
 

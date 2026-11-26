@@ -66,13 +66,19 @@ test("Markdown real disk save reports success; missing path/IPC and rejection re
 
 test("file upload emits one successful result even if UI refresh subsequently fails, and records validation rejection", async () => {
   const captured = telemetry()
-  const upload = handler<(file: File) => Promise<void>>("../components/file-manager/index.tsx", "uploadSingleFile", {
+  const file = "../components/file-manager/index.tsx"
+  const uploadPath = handler<() => string>(file, "uploadPath", {
+    store: () => ({ currentCategory: "outputs", currentPath: "report/charts" }),
+  })
+  const destinations: string[] = []
+  const upload = handler<(file: File) => Promise<void>>(file, "uploadSingleFile", {
     ...captured, props: { sessionId: "original" }, checkExternalFile: (file: File) => file.name !== "rejected",
-    fileStore: { isTopLevel: () => true }, store: () => ({ currentPath: "" }), tryStreamUpload: async () => true,
+    uploadPath, tryStreamUpload: async (_file: File, destination: string) => { destinations.push(destination); return true },
     showToast: () => {}, refresh: async () => { throw new Error("refresh only") },
   })
   await upload(new File(["hello"], "allowed.txt"))
   await upload(new File(["hello"], "rejected"))
+  expect(destinations).toEqual([""])
   expect(captured.events.filter((event) => event.name.endsWith("-result")).map((event) => event.fields.status)).toEqual(["success", "failure"])
 })
 
@@ -127,11 +133,18 @@ test("archive records missing file, zero bytes and missing activity as failures"
 test("folder upload reports filtered files as partial in streaming and fallback paths", async () => {
   for (const streaming of [true, false]) {
     const captured = telemetry()
-    const upload = handler<(files: File[]) => Promise<void>>("../components/file-manager/index.tsx", "handleFolderUpload", {
+    const file = "../components/file-manager/index.tsx"
+    const uploadPath = handler<() => string>(file, "uploadPath", {
+      store: () => ({ currentCategory: "uploads", currentPath: "existing/folder" }),
+    })
+    const upload = handler<(files: File[]) => Promise<void>>(file, "handleFolderUpload", {
       ...captured, uploadStatus, props: { sessionId: "original" },
-      fileStore: { isTopLevel: () => true }, store: () => ({ currentPath: "" }),
+      uploadPath,
       checkExternalFile: (file: File) => file.name !== "rejected",
-      tryStreamFolderUpload: async () => streaming ? { okCount: 1, finalFolderName: "folder", errors: [] } : null,
+      tryStreamFolderUpload: async (_entries: unknown, _name: string, destination: string) => {
+        expect(destination).toBe("existing/folder")
+        return streaming ? { okCount: 1, finalFolderName: "folder", errors: [] } : null
+      },
       sdk: { url: "", directory: "" }, readFileAsBase64: async () => "eA==",
       uploadInsightFolder: async () => ({ name: "folder", fileCount: 1 }),
       showFolderUploadResult: () => {}, showToast: () => {}, refresh: async () => {},

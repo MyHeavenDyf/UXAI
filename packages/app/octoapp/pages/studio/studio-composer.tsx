@@ -1,5 +1,8 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
+import audioNewPng from "./audio_new.png"
+import questionmarkCirclePng from "./questionmark_circle.png"
+import audioSpeakerPng from "./audio_speaker.png"
 import { usePlatform } from "@/context/platform"
 import { tracker } from "@/utils/tracker"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, isSeedreamStyleModel, styleModelLabel } from "./data"
@@ -22,6 +25,12 @@ import { StudioReferenceImages, StudioImageSettingsLabel, StudioMentionMenu } fr
 
 const STUDIO_VIDEO_GUIDE_URL = "https://www.volcengine.com/docs/82379/2222480?lang=zh"
 const STUDIO_IMAGE_DRAG_TYPE = "application/x-octo-studio-image"
+const STUDIO_AUDIO_PRESETS = [
+  { tag: "背景音乐", label: "轻快的电子音乐", text: "背景播放轻快的电子音乐" },
+  { tag: "环境音", label: "只有雨声", text: "只有雨声，无背景音乐" },
+  { tag: "旁白", label: "平静男声", text: "用平静的男声中文旁白" },
+  { tag: "音效", label: "ASMR 细节声", text: "清晰的磨砂玻璃刮擦声、绒布揉搓声" },
+]
 type StudioExtractStyleTemplate = Extract<StudioStyleTemplateListItem, { template_type: "extract_style" }>
 
 export type StudioComposerMenu = "capability" | "style" | "settings" | "material" | "style-template" | null
@@ -67,6 +76,8 @@ export function StudioComposer(props: {
   videoQualityMode: StudioVideoQualityMode
   videoMode: StudioVideoMode
   videoInputMode: StudioVideoInputMode
+  videoGenerateAudio: boolean
+  videoGenerateAudioNew?: boolean
   status: StudioGenerationStatus
   busy: boolean
   openMenu: StudioComposerMenu
@@ -89,6 +100,7 @@ export function StudioComposer(props: {
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onVideoMode: (value: StudioVideoMode) => void
   onVideoInputMode: (value: StudioVideoInputMode) => void
+  onVideoGenerateAudio: (value: boolean) => void
   onOpenMenu: (value: StudioComposerMenu) => void
   onCreateTemplate?: () => void
   onListStyleTemplates?: (input: StudioStyleTemplateListInput) => Promise<StudioStyleTemplateListResult>
@@ -376,14 +388,69 @@ export function StudioComposer(props: {
   let videoInputModeAnchorRef!: HTMLDivElement
   const [atMenuOpen, setAtMenuOpen] = createSignal(false)
   let atAnchorRef!: HTMLDivElement
+  const [audioInfoOpen, setAudioInfoOpen] = createSignal(false)
+  const [audioInfoTick, setAudioInfoTick] = createSignal(0)
+  let audioInfoBtnRef!: HTMLSpanElement
+  let audioInfoHoverTimeout: ReturnType<typeof setTimeout> | undefined
   const videoModeLabel = createMemo(() => STUDIO_VIDEO_MODES.find((item) => item.value === props.videoMode)?.label ?? "全能参考")
   const videoInputModeLabel = createMemo(() => STUDIO_VIDEO_INPUT_MODES.find((item) => item.value === props.videoInputMode)?.label ?? "首尾帧")
+  const toggleVideoGenerateAudio = () => {
+    const next = !props.videoGenerateAudio
+    tracker.interaction({ module: "studio", name: "video-audio-toggle", extend: JSON.stringify({ enabled: next }) })
+    props.onOpenMenu(null)
+    setVideoModeOpen(false)
+    setVideoInputModeOpen(false)
+    setAtMenuOpen(false)
+    props.onVideoGenerateAudio(next)
+    if (next) return
+    setAudioInfoOpen(false)
+  }
+  // 说明气泡：悬停在 ⓘ 图标上显示，移开后收起；从图标移入气泡本体不收起
+  const showAudioInfo = () => {
+    clearTimeout(audioInfoHoverTimeout)
+    audioInfoHoverTimeout = undefined
+    setAudioInfoOpen(true)
+  }
+  const scheduleHideAudioInfo = () => {
+    if (!audioInfoOpen()) return
+    clearTimeout(audioInfoHoverTimeout)
+    audioInfoHoverTimeout = setTimeout(() => setAudioInfoOpen(false), 150)
+  }
+  const closeAudioInfo = () => {
+    clearTimeout(audioInfoHoverTimeout)
+    audioInfoHoverTimeout = undefined
+    setAudioInfoOpen(false)
+  }
+  onCleanup(() => clearTimeout(audioInfoHoverTimeout))
+  const audioInfoStyle = (): JSX.CSSProperties => {
+    audioInfoTick()
+    if (!audioInfoBtnRef) return {}
+    const rect = audioInfoBtnRef.getBoundingClientRect()
+    const bottom = `${window.innerHeight - rect.top + 6}px`
+    if (toolbarOverflow().includes("videoAudio")) {
+      return {
+        position: "fixed",
+        bottom,
+        left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 278))}px`,
+      }
+    }
+    return {
+      position: "fixed",
+      bottom,
+      right: `${Math.max(8, window.innerWidth - rect.right)}px`,
+    }
+  }
+  const insertAudioPreset = (text: string) => {
+    tracker.interaction({ module: "studio", name: "video-audio-preset-insert" })
+    const current = props.prompt.trim()
+    props.onPrompt(current ? `${current.replace(/[，。,.]$/, "")}，${text}。` : `${text}。`)
+  }
   const moreMenuStyle = (): JSX.CSSProperties => {
     // 窗口尺寸变化时重新计算位置，使菜单跟随更多按钮
     moreMenuTick()
     if (!moreButtonRef) return {}
     const rect = moreButtonRef.getBoundingClientRect()
-    const menuWidth = 175
+    const menuWidth = 190
     const left = Math.max(0, Math.min(rect.left, window.innerWidth - menuWidth - 8))
     return { position: "fixed", bottom: `${window.innerHeight - rect.top + 4}px`, left: `${left}px` }
   }
@@ -395,7 +462,7 @@ export function StudioComposer(props: {
     if (isImageGeneration()) return showMentionEntry()
       ? ["capability", "style", "settings", "at", "style-template", "reverse", "material"]
       : ["capability", "style", "settings", "style-template", "reverse", "material"]
-    if (isVideoGeneration()) return ["capability", "videoMode", "videoInputMode", "settings"]
+    if (isVideoGeneration()) return ["capability", "videoMode", "videoInputMode", "settings", "videoAudio"]
     return ["capability"]
   })
 
@@ -538,6 +605,8 @@ export function StudioComposer(props: {
     props.count
     props.capability
     props.recommendationEnabled
+    props.videoGenerateAudio
+    props.videoGenerateAudioNew
     toolbarOverflow()
     requestAnimationFrame(() => checkToolbarOverflow())
   })
@@ -597,6 +666,7 @@ export function StudioComposer(props: {
       if (moreMenuRef?.contains(e.target as Node)) return
       if ((e.target as HTMLElement)?.closest(".studio-composer-toolbar-more-menu")) return
       if ((e.target as HTMLElement)?.closest(".studio-composer-dropdown-anchor")) return
+      if ((e.target as HTMLElement)?.closest(".studio-composer-audio-popover")) return
       setMoreMenuOpen(false)
     }
     document.addEventListener("pointerdown", handler)
@@ -609,6 +679,19 @@ export function StudioComposer(props: {
     const onResize = () => requestAnimationFrame(() => setMoreMenuTick((v) => v + 1))
     window.addEventListener("resize", onResize)
     onCleanup(() => window.removeEventListener("resize", onResize))
+  })
+
+  // 说明气泡打开时窗口尺寸变化需重新定位
+  createEffect(() => {
+    if (!audioInfoOpen()) return
+    const onResize = () => requestAnimationFrame(() => setAudioInfoTick((v) => v + 1))
+    window.addEventListener("resize", onResize)
+    onCleanup(() => window.removeEventListener("resize", onResize))
+  })
+
+  // 离开视频生成或关闭开关时收起说明气泡
+  createEffect(() => {
+    if (!isVideoGeneration() || !props.videoGenerateAudio) setAudioInfoOpen(false)
   })
 
   // Close more menu when a popup opens from toolbar (not from more menu)
@@ -638,6 +721,29 @@ export function StudioComposer(props: {
 
   let moreMenuRef!: HTMLDivElement
 
+  // 弹框向上可用空间边界：最近的裁切祖先（overflow 非 visible），无则用视口顶部
+  function dropdownBoundaryTop() {
+    let el: HTMLElement | null = toolbarRef
+    while (el && el !== document.documentElement) {
+      const style = getComputedStyle(el)
+      if (style.overflowX !== "visible" || style.overflowY !== "visible") return el.getBoundingClientRect().top
+      el = el.parentElement
+    }
+    return 8
+  }
+
+  // 窗口高度不足时收窄弹框高度，避免顶部内容被裁切
+  function clampDropdownHeight(popup: HTMLElement, anchorBottom: number) {
+    const available = anchorBottom - dropdownBoundaryTop() - 16
+    if (available < popup.offsetHeight) {
+      popup.style.maxHeight = `${Math.max(120, available)}px`
+      popup.style.minHeight = "0"
+    } else {
+      popup.style.maxHeight = ""
+      popup.style.minHeight = ""
+    }
+  }
+
   function positionDropdown(menu: typeof props.openMenu) {
     if (!menu) return
     const overflow = toolbarOverflow()
@@ -645,13 +751,37 @@ export function StudioComposer(props: {
     if (!anchor || !toolbarRef) return
 
     if (overflow.includes(menu) && moreMenuRef) {
-      // Position to the right of the more menu, bottom-aligned
+      // 默认在更多菜单右侧、底部对齐；窗口放不下时翻到左侧，仍放不下则收窄宽度
       const menuRect = moreMenuRef.getBoundingClientRect()
       const toolbarRect = toolbarRef.getBoundingClientRect()
-      anchor.style.left = `${menuRect.right - toolbarRect.left + 1}px`
       anchor.style.top = "auto"
-      // .studio-menu has bottom:calc(100%+8px), so offset by -8 to align
-      anchor.style.bottom = `${toolbarRect.bottom - menuRect.bottom - 8}px`
+      // .studio-menu has bottom:calc(100%+16px), so offset by -16 to align
+      anchor.style.bottom = `${toolbarRect.bottom - menuRect.bottom - 16}px`
+      const popup = anchor.firstElementChild as HTMLElement
+      if (popup) {
+        popup.style.maxWidth = ""
+        popup.style.minWidth = ""
+        const naturalWidth = popup.offsetWidth
+        const rightSpace = window.innerWidth - menuRect.right - 8
+        const leftSpace = menuRect.left - toolbarRect.left - 8
+        if (naturalWidth > rightSpace && naturalWidth <= leftSpace) {
+          // 右侧放不下：翻到更多菜单左侧
+          anchor.style.left = `${menuRect.left - toolbarRect.left - naturalWidth - 1}px`
+        } else if (naturalWidth > rightSpace) {
+          // 两侧都放不下：收窄到较宽一侧并沿其对齐（宽度由 min/max 同值精确固定，锚点为 0 宽不能只靠 max-width）
+          const space = Math.max(200, Math.max(rightSpace, leftSpace))
+          popup.style.minWidth = `${space}px`
+          popup.style.maxWidth = `${space}px`
+          anchor.style.left = rightSpace >= leftSpace
+            ? `${menuRect.right - toolbarRect.left + 1}px`
+            : `${Math.max(0, menuRect.left - toolbarRect.left - space - 1)}px`
+        } else {
+          anchor.style.left = `${menuRect.right - toolbarRect.left + 1}px`
+        }
+        clampDropdownHeight(popup, menuRect.bottom)
+      } else {
+        anchor.style.left = `${menuRect.right - toolbarRect.left + 1}px`
+      }
       return
     }
 
@@ -659,15 +789,17 @@ export function StudioComposer(props: {
     if (!btn) return
     const btnRect = btn.getBoundingClientRect()
     const toolbarRect2 = toolbarRef.getBoundingClientRect()
+    const popup = anchor.firstElementChild as HTMLElement
     if (window.innerWidth < 1024) {
       // 窄视口：弹窗与按钮居中对齐，空间不足时自动收窄避免被 overflow:hidden 裁切
-      const popup = anchor.firstElementChild as HTMLElement
       if (popup) {
         popup.style.maxWidth = ""
+        popup.style.minWidth = ""
         const naturalWidth = popup.offsetWidth
         if (naturalWidth > 0) {
           const availableWidth = window.innerWidth - toolbarRect2.left - 16
           if (availableWidth < naturalWidth) {
+            popup.style.minWidth = `${availableWidth}px`
             popup.style.maxWidth = `${availableWidth}px`
             anchor.style.left = "0px"
           } else {
@@ -685,10 +817,13 @@ export function StudioComposer(props: {
       }
     } else {
       // 宽视口：保持原有左对齐行为，不约束弹窗宽度
-      const popup = anchor.firstElementChild as HTMLElement
-      if (popup) popup.style.maxWidth = ""
+      if (popup) {
+        popup.style.maxWidth = ""
+        popup.style.minWidth = ""
+      }
       anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
     }
+    if (popup) clampDropdownHeight(popup, btnRect.top)
     anchor.style.top = ""
     anchor.style.bottom = ""
   }
@@ -700,6 +835,19 @@ export function StudioComposer(props: {
     toolbarOverflow()
     // Defer measurement to next microtask so the DOM has updated
     queueMicrotask(() => positionDropdown(menu))
+    // 窗口尺寸变化时重新定位收窄，避免弹框内容被裁切
+    const onResize = () => queueMicrotask(() => positionDropdown(menu))
+    window.addEventListener("resize", onResize)
+    // 弹框内容异步加载（如词书数据）撑大尺寸时重新定位，避免超出可视区被遮挡
+    const observer = new ResizeObserver(() => queueMicrotask(() => positionDropdown(menu)))
+    queueMicrotask(() => {
+      const popup = anchorRefs.get(menu)?.firstElementChild
+      if (popup) observer.observe(popup)
+    })
+    onCleanup(() => {
+      window.removeEventListener("resize", onResize)
+      observer.disconnect()
+    })
   })
 
   // 视频模式弹框：打开时关闭其它弹框，并左对齐定位到按钮
@@ -909,12 +1057,13 @@ export function StudioComposer(props: {
   const handleDocumentPointerDown = (event: PointerEvent) => {
     if (
       event.target instanceof Element
-      && event.target.closest(".studio-menu, .studio-style-template-delete-overlay")
+      && event.target.closest(".studio-menu, .studio-style-template-delete-overlay, .studio-composer-audio-cluster, .studio-composer-audio-popover")
     ) return
     if (props.openMenu) props.onOpenMenu(null)
     if (videoModeOpen()) setVideoModeOpen(false)
     if (videoInputModeOpen()) setVideoInputModeOpen(false)
     if (atMenuOpen()) setAtMenuOpen(false)
+    if (audioInfoOpen()) closeAudioInfo()
   }
 
   document.addEventListener("pointerdown", handleDocumentPointerDown)
@@ -1283,6 +1432,39 @@ export function StudioComposer(props: {
                   />
                 </div>
               </Show>
+              <Show when={!toolbarOverflow().includes("videoAudio")}>
+                <div class="relative studio-composer-toolbar-item studio-composer-audio-cluster" data-toolbar-item="videoAudio">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={props.videoGenerateAudio ? "true" : "false"}
+                    class="studio-composer-audio-toggle"
+                    classList={{ active: props.videoGenerateAudio }}
+                    disabled={isBusy()}
+                    onClick={toggleVideoGenerateAudio}
+                  >
+                    <span class="studio-composer-audio-label">生成音频</span>
+                    <span class="studio-composer-audio-track"><span class="studio-composer-audio-knob" /></span>
+                    <Show when={props.videoGenerateAudioNew && !props.videoGenerateAudio}>
+                      <img class="studio-composer-audio-badge" src={audioNewPng} alt="NEW" />
+                    </Show>
+                    <Show when={props.videoGenerateAudio}>
+                      <span
+                        ref={(el) => { audioInfoBtnRef = el }}
+                        class="studio-composer-audio-info"
+                        classList={{ active: audioInfoOpen() }}
+                        aria-label="生成音频说明"
+                        title="生成音频说明"
+                        onMouseEnter={showAudioInfo}
+                        onMouseLeave={scheduleHideAudioInfo}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <img src={questionmarkCirclePng} alt="" width="14" height="14" />
+                      </span>
+                    </Show>
+                  </button>
+                </div>
+              </Show>
             </Show>
             <Show when={toolbarOverflow().length > 0}>
               <button
@@ -1414,9 +1596,41 @@ export function StudioComposer(props: {
                       classList={{ active: props.openMenu === "settings" }}
                       onClick={() => { tracker.interaction({ module: "studio", name: "toolbar-settings-open" }); props.onOpenMenu("settings") }}
                     >
-                      <img src="/studio/IconParameter.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
                       <span>视频设置</span>
                     </button>
+                  </Show>
+                  <Show when={toolbarOverflow().includes("videoAudio")}>
+                    <div class="studio-composer-toolbar-more-audio">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={props.videoGenerateAudio ? "true" : "false"}
+                        class="studio-composer-audio-toggle"
+                        classList={{ active: props.videoGenerateAudio }}
+                        disabled={isBusy()}
+                        onClick={toggleVideoGenerateAudio}
+                      >
+                        <span class="studio-composer-audio-label">生成音频</span>
+                        <Show when={props.videoGenerateAudio}>
+                          <span
+                            ref={(el) => { audioInfoBtnRef = el }}
+                            class="studio-composer-audio-info"
+                            classList={{ active: audioInfoOpen() }}
+                            aria-label="生成音频说明"
+                            title="生成音频说明"
+                            onMouseEnter={showAudioInfo}
+                            onMouseLeave={scheduleHideAudioInfo}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <img src={questionmarkCirclePng} alt="" width="14" height="14" />
+                          </span>
+                        </Show>
+                        <span class="studio-composer-audio-track"><span class="studio-composer-audio-knob" /></span>
+                        <Show when={props.videoGenerateAudioNew && !props.videoGenerateAudio}>
+                          <img class="studio-composer-audio-badge" src={audioNewPng} alt="NEW" />
+                        </Show>
+                      </button>
+                    </div>
                   </Show>
                 </Show>
               </div>
@@ -1513,6 +1727,24 @@ export function StudioComposer(props: {
                 modes={STUDIO_VIDEO_INPUT_MODES}
                 onSelect={(value) => { tracker.interaction({ module: "studio", name: "video-input-mode-select", extend: JSON.stringify({ mode: value }) }); props.onVideoInputMode(value); setVideoInputModeOpen(false) }}
               />
+            </div>
+          </Show>
+          <Show when={isVideoGeneration() && props.videoGenerateAudio && audioInfoOpen()}>
+            <div class="studio-composer-audio-popover" role="dialog" aria-label="生成音频说明" style={audioInfoStyle()} onMouseEnter={showAudioInfo} onMouseLeave={scheduleHideAudioInfo}>
+              <div class="studio-composer-audio-hint-row">
+                <img class="studio-composer-audio-popover-icon" src={audioSpeakerPng} alt="" />
+                <span class="studio-composer-audio-popover-text">音频已开启：把想要的声音直接写进描述里，会和画面同步生成</span>
+              </div>
+              <div class="studio-composer-audio-hint-chips">
+                <For each={STUDIO_AUDIO_PRESETS}>
+                  {(preset) => (
+                    <button type="button" class="studio-composer-audio-chip" onClick={() => insertAudioPreset(preset.text)}>
+                      <span class="studio-composer-audio-chip-tag">{preset.tag}</span>
+                      <span>{preset.label}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
             </div>
           </Show>
           <Show when={showMentionEntry() && canInsertMention() && atMenuOpen()}>

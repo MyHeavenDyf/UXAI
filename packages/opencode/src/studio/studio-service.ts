@@ -2572,6 +2572,10 @@ const activeGenerationTitleControllers = new Map<string, { controller: AbortCont
 const rebootingGenerations = new Set<string>()
 const refreshingGenerations = new Map<string, Promise<StudioGenerationResult & { sessionID: string }>>()
 
+export function hasActiveStudioGenerationCreations() {
+  return activeGenerationControllers.size > 0
+}
+
 function loadGenerationRecord(id: string) {
   return Database.use((db) =>
     db

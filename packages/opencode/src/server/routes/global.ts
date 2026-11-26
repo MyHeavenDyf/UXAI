@@ -17,6 +17,7 @@ import { Config } from "@/config/config"
 import { ConfigProvider } from "@/config/provider"
 import { errors } from "../error"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "../global-lifecycle"
+import { getUpdateReadiness } from "@/update/readiness"
 
 const log = Log.create({ service: "server" })
 
@@ -74,6 +75,7 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
 
 export const GlobalRoutes = lazy(() =>
   new Hono()
+    .get("/update-readiness", async (c) => c.json(await AppRuntime.runPromise(getUpdateReadiness)))
     .get(
       "/health",
       describeRoute({

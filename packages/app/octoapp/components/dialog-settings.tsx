@@ -1,9 +1,11 @@
 import { Component } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Root as TabsRoot, List as TabsList, Trigger as TabsTrigger, Content as TabsContent } from "@kobalte/core/tabs"
+import { Icon } from "@opencode-ai/ui/icon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { SettingsGeneral } from "./settings-general"
+import { SettingsCloudSync } from "./settings-cloud-sync"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsMcp } from "./settings-mcp"
@@ -286,6 +288,12 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
                 {language.t("settings.tab.general")}
               </TabsTrigger>
 
+              {/* 云同步&推送*/}
+              <TabsTrigger value="cloudSync" style={triggerStyle}>
+                <Icon name="cloud-upload" class="size-5 shrink-0" style="color: currentColor" />
+                云同步&推送
+              </TabsTrigger>
+
               <div style={sectionTitle}>{language.t("settings.section.server")}</div>
               <TabsTrigger value="providers" style={triggerStyle}>
                 <div
@@ -340,6 +348,9 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
           </TabsList>
           <TabsContent value="general" style={{ flex: 1, overflow: "auto", padding: "8px 20px" }}>
             <SettingsGeneral />
+          </TabsContent>
+          <TabsContent value="cloudSync" style={{ flex: 1, overflow: "auto", padding: "8px 20px" }}>
+            <SettingsCloudSync />
           </TabsContent>
           <TabsContent value="providers" style={{ flex: 1, overflow: "auto", padding: "8px 20px" }}>
             <SettingsProviders />
