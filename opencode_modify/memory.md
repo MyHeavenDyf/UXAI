@@ -9,7 +9,7 @@
 | 作用域 | `project_id`（ProjectID = git root commit，同仓库 worktree 共享） |
 | 检索模式 | **分层索引 + memory_read 按需加载**（不做 embedding）：核心记忆（user/feedback）完整注入；普通记忆只注入 topic + summary 单行；完整 content 经 `memory_read` 工具按需读取 |
 | 注入点 | `prepareRequest()`（`src/session/prompt.ts`），与 AGENTS.md 同列，自动计入 compaction 预算 |
-| 存储 | **MEMORY.md 文件模式**（Claude Code 同款思路）：`~/.local/share/opencode/memory/<projectID>/`，人可读可改可清；旧 SQLite 表保留不删（本机历史数据原地留存，代码不再引用） |
+| 存储 | **MEMORY.md 文件模式**（Claude Code 同款思路）：`~/.local/share/opencode/memory/<projectID>/`，人可读可改可清；**SQL 痕迹已完全清除**——schema 文件、迁移代码路径、`migration/` 目录里的全部 memory 相关 CREATE/DROP 迁移均已删除，主干历史上不存在记忆 SQL |
 | 提取时机 | 每回合 loop 退出后 fork，节流（默认 60s/session） |
 | 提取模型 | title 模型链路 + `memory.model` 配置覆盖 |
 | Lifecycle | 写入时预算强制：超预算按 rowid 升序淘汰最旧未置顶条目 |
@@ -23,7 +23,7 @@
 | 文件 | 职责 |
 |-|-|
 | `src/memory/store.ts` | 文件存储层：`list/system/write/remove/clear/entriesByTopics/searchRows`，分层索引、动态预算、写入后 trim、版本/tombstone 语义（frontmatter + json）、原子写 |
-| `src/memory/memory.sql.ts` / `tombstone.sql.ts` | **遗留 schema**：旧 SQLite 表定义保留（不删除历史数据），代码已不再引用；后续清理可连带生成 DROP 迁移 |
+| `packages/opencode/src/memory/` | `store.ts`（文件存储层）/ `extract.ts`（提取器）/ `debug.ts`（埋点落盘）——全部纯文件实现，零 SQL 依赖 |
 | `src/tool/memory.ts` | `memory_read`（按 topic 名批量读取，目录级 project 隔离、可见性版本登记、单次体积上限）+ `memory_search`（关键词检索/分页，覆盖未进常驻索引的记忆）；注册与执行双重遵守统一开关与主 agent 范围 |
 | `src/memory/extract.ts` | `extract`（服务实例由 prompt 层闭包传入，避免 requirements 泄漏）+ `parseActions` JSON 解析校验 |
 | `src/memory/debug.ts` | `.temp` 埋点落盘（仿 `session/compaction-debug.ts`）：extract/inject 两类事件，按 session 分目录 |
@@ -89,7 +89,7 @@
 - **MEMORY.md 是生成视图**（写入时从 topics/ 重新生成），手工编辑行文本立即生效；**人工编辑 topics/<topic>.md** 靠 frontmatter 里的**内容 hash**（summary+content 的 sha256，**读写两侧统一规范化**：summary 单行化+trim、content trim——首尾空白差异不误判）检测——无 mtime 时间盲区，hash 缺失的旧文件回退 mtime 启发式；人工编辑同步反映到注入行、memory_read 重读（版本兜底 +1）与写防护（旧批次不得覆盖）
 - **项目级写锁**（`.lock`，O_EXCL 创建 + 独占 fd 持有，内容为持有者 token）覆盖版本校验→topic 更新→trim→墓碑→索引重建全程。接管条件（仅二选一）：持有者 PID 已死（`kill(pid,0)` 校验，锁很新也立即接管）或锁超废弃期（10 分钟未动——崩溃后 PID 被复用的兜底）。**PID 存活时仅 mtime 陈旧绝不接管**：继续等待直到超时失败，由提取游标退避重试，任何时刻至多一个写者。接管经 rename 原子迁移并**迁移后校验内容与判定时一致**——窗口期被新持有者重建则原路归还重试（TOCTOU 防护）；释放前校验锁 token 归属。等待上限 10s（测试可用 `OCTO_MEMORY_LOCK_TIMEOUT` 调短）
 - **清除/删除防护**：`clear()` 写 `.cleared` 清除版本——更旧的异步提取批次整体拒绝；`remove()` 写墓碑（版本 = max(条目有效版本, 删除时刻)——晚于原记忆但早于删除的批次同样被挡）
-- **一次性幂等迁移**：首次访问把旧 SQL 行+墓碑迁入文件（**仅剩墓碑的历史也迁移**，删除保护不丢）；迁移成功才标记，失败（锁超时等）下次访问重试；已有文件记忆或 `.cleared` 存在则跳过
+- **SQL 存储零痕迹**：schema 文件、`ensureMigrated` 迁移路径、`migration/` 内两个建表迁移与清理迁移全部删除；`bun run db generate` 验证为 "No schema changes"。早前跑过测试分支的机器上若残留旧 `memory`/`memory_tombstone` 表，属无害孤儿数据，手动清一次即可（无用户数据，直接删也行）
 
 三个层级，同一份文件数据：
 

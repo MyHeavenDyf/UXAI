@@ -1,17 +1,13 @@
 import { createHash, randomUUID } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { eq } from "drizzle-orm"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import * as Log from "@opencode-ai/core/util/log"
 import { Global } from "@opencode-ai/core/global"
 import { Token } from "@/util/token"
-import { Database } from "@/storage/db"
 import type { ProjectID } from "@/project/schema"
 import type { SessionID } from "@/session/schema"
 import type { ConfigMemory } from "@/config/memory"
-import { MemoryTable } from "./memory.sql"
-import { MemoryTombstoneTable } from "./tombstone.sql"
 
 export type MemoryType = "user" | "feedback" | "project" | "reference"
 
@@ -364,56 +360,6 @@ export function withProjectLock<T>(projectID: ProjectID, fn: () => T): T {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 一次性幂等迁移:旧 SQLite 记忆 → 文件。已有文件记忆或已显式清除(.cleared)则跳过。
-// ---------------------------------------------------------------------------
-
-const migrated = new Set<string>()
-
-// 一次性幂等迁移:旧 SQLite 记忆 → 文件。已有文件记忆或已显式清除(.cleared)则跳过。
-// 只有迁移成功(或确无历史)才标记 migrated;失败(锁超时/磁盘故障等)保留重试机会。
-// 仅剩墓碑的历史数据同样迁移——删除保护不能在迁移中丢失。
-function ensureMigrated(projectID: ProjectID) {
-  if (migrated.has(projectID)) return
-  const done = safe("migrateLegacy", () => false, () => {
-    if (fs.existsSync(indexFile(projectID)) || fs.existsSync(clearedFile(projectID))) return true
-    const rows = Database.use((db) =>
-      db.select().from(MemoryTable).where(eq(MemoryTable.project_id, projectID)).all(),
-    )
-    const legacyTombstones = Database.use((db) =>
-      db.select().from(MemoryTombstoneTable).where(eq(MemoryTombstoneTable.project_id, projectID)).all(),
-    )
-    if (rows.length === 0 && legacyTombstones.length === 0) return true
-    return withProjectLock(projectID, () => {
-      // 拿到锁后再核一次(并发写者可能已建目录),并跳过已存在 topic 防覆盖
-      if (fs.existsSync(indexFile(projectID)) || fs.existsSync(clearedFile(projectID))) return true
-      for (const row of rows) {
-        if (!TOPIC_RE.test(row.topic)) continue
-        if (fs.existsSync(topicFile(projectID, row.topic))) continue
-        writeTopicFile(projectID, {
-          topic: row.topic,
-          type: row.type as MemoryType,
-          content: row.content,
-          summary: row.summary,
-          ...(row.source_session_id ? { source_session_id: row.source_session_id } : {}),
-          version: row.time_updated,
-          time_updated: row.time_updated,
-          manual: false,
-        })
-      }
-      if (legacyTombstones.length > 0) {
-        const tombstones = readTombstones(projectID)
-        for (const tombstone of legacyTombstones)
-          if (tombstones[tombstone.topic] === undefined) tombstones[tombstone.topic] = tombstone.time_deleted
-        writeTombstones(projectID, tombstones)
-      }
-      regenerateIndex(projectID)
-      return true
-    })
-  })
-  if (done) migrated.add(projectID)
-}
-
 // 动态预算:索引不得超过模型上下文窗口的 1/8,适配内网 64K 及更小上下文的模型;
 // 无上下文信息时用配置值(默认 2K)。
 export function effectiveBudget(base: number, contextLimit?: number) {
@@ -423,14 +369,12 @@ export function effectiveBudget(base: number, contextLimit?: number) {
 
 export function list(projectID: ProjectID) {
   return safe("list", () => [] as Row[], () => {
-    ensureMigrated(projectID)
     return injectionOrder(listTopicFiles(projectID))
   })
 }
 
 export function system(projectID: ProjectID, budget?: number) {
   return safe("system", () => [] as string[], () => {
-    ensureMigrated(projectID)
     const limit = budget ?? DEFAULT_BUDGET_TOKENS
     const lines = readIndex(projectID)
     if (lines.length === 0) return []
@@ -483,7 +427,6 @@ export function write(input: {
   return safe("write", () => false, () => {
     const budget = input.budget ?? DEFAULT_STORAGE_BUDGET_TOKENS
     const version = input.version ?? Date.now()
-    ensureMigrated(input.projectID)
     return withProjectLock(input.projectID, () => {
       // 项目级清除版本:更旧的批次(清除前启动的异步提取)整体拒绝
       const cleared = readClearedEpoch(input.projectID)
@@ -548,7 +491,6 @@ function indexLineFor(row: Row) {
 // 严格 project 隔离——目录即边界,跨项目 topic 天然查不到。批量上限由工具层显式报告。
 export function entriesByTopics(projectID: ProjectID, topics: string[]) {
   return safe("entriesByTopics", () => [] as Row[], () => {
-    ensureMigrated(projectID)
     const unique = [...new Set(topics.map((topic) => topic.trim()).filter(Boolean))]
     return unique.flatMap((topic) => {
       const row = readTopicFile(projectID, topic)
@@ -583,8 +525,7 @@ export function remove(topic: string, projectID: ProjectID) {
   })
 }
 
-// 清空项目:写清除版本(.cleared)——更旧的异步提取批次整体拒绝,不复活已清记忆;
-// 标记同时抑制旧 SQLite 数据的幂等迁移(显式清除后不再回灌)。
+// 清空项目:写清除版本(.cleared)——更旧的异步提取批次整体拒绝,不复活已清记忆。
 export function clear(projectID: ProjectID) {
   safe("clear", () => undefined, () => {
     withProjectLock(projectID, () => {
