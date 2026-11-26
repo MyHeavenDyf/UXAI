@@ -262,8 +262,8 @@ describe("memory e2e (feature ON)", () => {
         }
         expect(injectDump).toBeDefined()
         expect(injectDump).toContain("<memory>")
-        // feedback 属核心层级:索引行直接展开完整 content,并带短 ID 与 memory_read 指引
-        expect(injectDump).toMatch(/\[.*?\] \(feedback\) pnpm_preference: 本仓库所有安装/)
+        // feedback 属核心层级:索引行直接展开完整 content(文件模式无短 ID,topic 即标识)
+        expect(injectDump).toContain("(feedback) pnpm_preference: 本仓库所有安装")
         expect(injectDump).toContain("memory_read")
         expect(injectDump).toContain("memory tokens:")
 

@@ -9,13 +9,13 @@ import type { LLM } from "@/session/llm"
 import { MessageV2 } from "@/session/message-v2"
 import type * as Session from "@/session/session"
 import { MemoryDebug } from "./debug"
-import type { MemoryType } from "./memory.sql"
 import {
   MAX_CONTENT_CHARS,
   MAX_SUMMARY_CHARS,
   MAX_TOPIC_CHARS,
   MemoryStore,
   containsSecret,
+  type MemoryType,
   type Parsed,
 } from "./store"
 
