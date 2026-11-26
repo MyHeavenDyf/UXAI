@@ -104,6 +104,10 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
       void addUserProject({
         userName,
         userId,
+        domainId: domain?.id,
+        productLineId: productLine?.id,
+        productId: product?.id,
+        versionId: version?.id,
         domain: domain?.name,
         productLine: productLine?.name,
         product: product?.name,
