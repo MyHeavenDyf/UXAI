@@ -1551,10 +1551,10 @@ const sessionMessagesLoaded = createMemo(() => {
       () => {
         const msg = lastUserMessage()
         if (!msg) return
-        syncSessionModel(local, msg as UserMessage)
         // 子会话消息(task prompt/压缩注入)不拨动输入框模型选择,只跟随主会话消息
         const sid = params.id
         if (!sid || (msg.sessionID ?? sid) !== sid) return
+        syncSessionModel(local, msg as UserMessage)
         // Sync tab key so new conversations inherit this session's model.
         if ((msg as UserMessage).model?.providerID && (msg as UserMessage).model?.modelID) {
           local.model.set((msg as UserMessage).model, { recent: true })
@@ -2318,6 +2318,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (api?.readFileBuffer) {
       // 本次回退实际删除的文件(.history 全版本在回退点后 → restore 删除 + 无版本兜底删除),完成后统一 toast 反馈
       const deletedFiles: string[] = []
+      // 恢复失败的文件不能进 removeVersionsAfter——版本历史是唯一恢复来源,清了就永久丢失
+      const restoreFailed = new Set<string>()
       // 产物在 .octo/{sid}/outputs（项目 .gitignore 内），服务端 snapshot/patch 不追踪 →
       // revert 拿不到 patch，文件内容必须由前端用 .history 版本自己恢复/删除
       for (const filePath of involved) {
@@ -2356,6 +2358,7 @@ const sessionMessagesLoaded = createMemo(() => {
           }
         } catch (error) {
           console.warn("[octo:make] revert file restore failed", filePath, error)
+          restoreFailed.add(filePath)
           showOctoToast({
             title: "产物回退失败",
             description: `${filePath} — ${error instanceof Error ? error.message : String(error)}`,
@@ -2364,6 +2367,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
       for (const filePath of involved) {
+        if (restoreFailed.has(filePath)) continue
         try {
           await historyController.removeVersionsAfter({ filePath }, cutoff)
           for (const openTab of [...tabStore.tabs()]) {

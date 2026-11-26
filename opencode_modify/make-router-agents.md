@@ -272,3 +272,30 @@ E2E 实测定位手法(复用):CDP 9222 拿 sidecar 密码 → `GET /session`(�
 验证:packages/app typecheck 过;visible-message + turn-anchor-text 30 pass;桌面 dev HMR 热载无报错。子会话无 write 的会话不进新分支(当前测试会话 ses_e73e95c69ffe 四个子会话仅 read/glob/question),面板预告+删除 toast 的可视验证需子任务实际 write 文件的场景。
 
 **E2E 验证（2026-11-25，桌面 dev + CDP）**：11-23 会话 ses_e9812e706ffe（octo_code 子会话 write index.html/style.css/script.js，均 exists=false）实测全过——①面板预告：回退面板列出子任务写的 index.html「将被删除」（改前只扫主会话时此处为空）；②删除 toast：确定后弹出「已删除 3 个文件：index.html、style.css、script.js」（Toast DOM 为 .octo-toast-text，MutationObserver 捕获，title+description 合并显示）；③磁盘实删：三文件消失，其他会话产物（about/pricing/todo）不动；④首消息回退重启流程正常（会话删除 + 跳回 /make + 第二条 toast）。CDP 手法：_cdp_eval.cjs 装全局 toast 观察器再点确定（toast 4s 自动消失，先装观察器防漏采），面板定位用「含『确定要回退到此步骤』且含 ≥2 按钮的最小 div」。
+
+## 第四次合入 origin/dev（2026-11-26，16f20ebf5）
+
+dev 侧 4 个 PR：#1195/#1196 insight 输入框弹窗互斥修复 + 文件管理/对话交互埋点、#1198 Design 产物自动归档（auto-archive.ts 新增 + make/index.tsx +315 行）+ 评估状态重构（assessment-state.ts）、#1199 onboarding 看板上报 domainId/productLineId/productId/versionId。**dev 完全没动 packages/opencode**。
+
+唯一冲突：make/index.tsx import 区——本分支 `recordWriteEvidence + WriteEvidence`（第四批回退证据）vs dev `collectWriteEditFiles + extractFileContent`（自动归档用），两边合并保留。
+
+合并要点：
+- dev 已自带 childSessionIDs 基础设施（signal + 4 处使用，无 writeEvidence 回退机制）——自动归档 createEffect 也按 `[sid, ...childSessionIDs()]` 扫主+子会话 write 路径（isCodeHtmlArtifactWrite 过滤后 handleCodeHtmlArtifactArchive），与本分支回退扫描同一口径复用
+- insight-turn.tsx 自动合并无冲突：本分支 childSessionIDs prop 与 dev 新增 onHtmlArtifactSaved prop（html 产物 autoSave 成功后触发自动归档）在两处 InsightTurn 调用点并存
+- dev 新增 recordToolVersionsAfter：write/edit 落盘且无真实 tab 时补伪 tab 记 .history 基线+agent 版本——**与本分支第五批回删除有正向协同**（子任务 write 文件此后会有 .history 版本,回退走 restoreFilesBefore 而非证据兜底）
+
+验证：make utils 190 测试全过（含 dev 改动的 assessment-state）、packages/app typecheck 过（opencode 未动免检）。
+
+## 第六批修复：外部评审驱动三修复（2026-11-26）
+
+同事用另一个 agent（ChatGPT）对 PR #1201 做了静态评审（结论 Request Changes，4 P1 + 7 P2）。逐条对照代码核实后采纳其中三点（其余判定不成立或已有设计缓解，分析结论在会话记录）。三处修复：
+
+**P1-1b 回退失败仍清 .history 版本（真数据丢失路径）**：`make/index.tsx` executeRevert 第一循环单文件恢复失败仅 catch + toast「产物回退失败」，第二循环对 involved 全部文件无条件 `removeVersionsAfter` → 文件没恢复 + 版本历史被清 = 恢复来源永久丢失。修复：第一循环 catch 里 `restoreFailed.add(filePath)`，第二循环 `if (restoreFailed.has(filePath)) continue`——恢复失败的文件保留 .history 版本作为恢复来源。
+
+**P1-4 重连强制同步被去重吞掉**：`sync.tsx` runInflight pending 存在时直接返回旧 promise——重连补偿 `syncSession(id, {force:true})` 撞上在途普通同步时 force 语义被吞（普通同步命中缓存提前返回，断连窗口丢的事件补不回来）。修复：runInflight 加 opts 参数，force 调用不直接复用 pending，改为 `pending.catch(()=>{}).then(task)` 排队串行执行（保住强制重取又不并发写同一会话 store；pending 失败不阻断 force——恢复动作不应因上次报错跳过）；finally 清 key 加 `map.get(key) === promise` 守卫防先到的普通同步误删后续 force 的登记。reconnect 处注释同步改「由 runInflight 去重」→「排队在其后串行执行」。
+
+**P2-1 syncSessionModel 在子会话守卫前执行（顺序脆弱）**：`make/index.tsx` createEffect 里 `syncSessionModel(local, msg)` 在 `(msg.sessionID ?? sid) !== sid` 守卫之前——现实无实害（local.session.restore 自带 `msg.sessionID !== session` 早退守卫，local.tsx:382），但依赖下游守卫属隐患。修复：挪到守卫之后，与 `local.model.set` 同一防线内。
+
+**PR #1201 规范修正（同日）**：pr-standards bot 于 02:20Z 报 4 项不合规（2 小时自动关闭窗口）。核实 workflow 源码（pr-standards.yml）发现 feat/docs/refactor 标题跳过 issue 检查 → 无需建 issue（仓库 Issues 本就禁用）。标题改 `feat(make): octo_make 路由化改造,设计/开发需求派发 octo_design/octo_code 子代理`，正文按模板补齐（Type 勾 New feature、What/Verify 实内容、Checklist 双勾），03:25Z bot 回复「now meets our contributing guidelines」+ needs:compliance 标签清除。
+
+验证：packages/app 328 单测全过、typecheck 过。P1-1b 的失败注入场景（restoreFilesBefore throw）无现成单测，走代码路径审查（catch→restoreFailed→第二循环 continue）。

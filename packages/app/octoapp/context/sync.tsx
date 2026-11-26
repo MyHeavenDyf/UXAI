@@ -22,12 +22,19 @@ function sortParts(parts: Part[]) {
   return parts.filter((part) => !!part?.id).sort((a, b) => cmp(a.id, b.id))
 }
 
-function runInflight(map: Map<string, Promise<void>>, key: string, task: () => Promise<void>) {
+function runInflight(map: Map<string, Promise<void>>, key: string, task: () => Promise<void>, opts?: { force?: boolean }) {
   const pending = map.get(key)
-  if (pending) return pending
-  const promise = task().finally(() => {
-    map.delete(key)
-  })
+  if (pending && !opts?.force) return pending
+  // force 不能直接复用 pending:普通同步命中缓存会提前返回,force 语义被吞掉
+  // (重连补拉正撞上普通同步时,断连窗口内丢的事件就补不回来了)。改为排在
+  // pending 之后串行执行,保住强制重取又不并发写同一会话的 store;pending
+  // 失败不阻断 force——恢复动作不应因上一次尝试报错而跳过。
+  const chained = pending ? pending.catch(() => {}) : Promise.resolve()
+  const promise = chained
+    .then(() => task())
+    .finally(() => {
+      if (map.get(key) === promise) map.delete(key)
+    })
   map.set(key, promise)
   return promise
 }
@@ -500,14 +507,14 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               })
 
         await Promise.all([sessionReq, messagesReq])
-      })
+      }, opts)
     }
 
     // SSE 重连(server.connected)后补拉已加载会话:断连窗口内的事件不会重放,
     // 消息与生成状态可能落后于服务端(路由转述缺失、「生成中」卡死)。此处对
     // 当前目录已跟踪的会话强制重同步——与手动刷新页面的恢复路径等价
     // (busy 会话有 merge 保护,streaming 内容不会被服务端快照覆盖)。
-    // 首次连接时 seen 为空,天然空跑;与初始 sync 并发时由 runInflight 去重。
+    // 首次连接时 seen 为空,天然空跑;与初始 sync 并发时由 runInflight 排队在其后串行执行。
     const unsubReconnect = globalSDK.event.listen((evt) => {
       if (evt.details.type !== "server.connected") return
       const directory = sdk.directory
