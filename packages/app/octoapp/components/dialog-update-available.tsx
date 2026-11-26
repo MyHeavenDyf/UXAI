@@ -1,7 +1,7 @@
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { usePlatform } from "@/context/platform"
-import { createSignal } from "solid-js"
+import { createStore } from "solid-js/store"
 import { UpdateDescription } from "./update-description"
 
 const MAC_DOWNLOAD_PAGE_URL = "https://octo.hdesign.huawei.com/design/agentdesktop/mac-download.html"
@@ -10,13 +10,14 @@ export function useUpdateAvailableDialog() {
   const dialog = useDialog()
   const platform = usePlatform()
 
-  return (version: string, releaseNotes?: string, onClose?: () => void) =>
+  return (version: string, releaseNotes?: string, onClose?: () => void, forceUpdate = false) =>
     dialog.show(
       () => (
         <DialogUpdateAvailable
           os={platform.os === "macos" ? "macos" : "windows"}
           version={version}
           releaseNotes={releaseNotes}
+          forceUpdate={forceUpdate}
           onUpgrade={(onProgress) => {
             if (platform.os === "macos") {
               platform.openLink(MAC_DOWNLOAD_PAGE_URL)
@@ -27,6 +28,7 @@ export function useUpdateAvailableDialog() {
         />
       ),
       onClose,
+      { dismissible: !forceUpdate },
     )
 }
 
@@ -34,24 +36,22 @@ export function DialogUpdateAvailable(props: {
   os: "windows" | "macos"
   version: string
   releaseNotes?: string
+  forceUpdate?: boolean
   onUpgrade: (onProgress: (percent: number) => void) => void | Promise<void>
 }) {
   const dialog = useDialog()
-  const [downloading, setDownloading] = createSignal(false)
-  const [progress, setProgress] = createSignal(0)
-  const [failed, setFailed] = createSignal(false)
+  const [state, setState] = createStore({ downloading: false, progress: 0, error: "" })
+  const setProgress = (percent: number) => setState("progress", percent)
   const upgrade = () => {
     if (props.os === "macos") {
-      dialog.close()
+      if (!props.forceUpdate) dialog.close()
       void props.onUpgrade(setProgress)
       return
     }
-    if (downloading()) return
-    setDownloading(true)
-    setFailed(false)
-    void Promise.resolve(props.onUpgrade(setProgress)).catch(() => {
-      setDownloading(false)
-      setFailed(true)
+    if (state.downloading) return
+    setState({ downloading: true, error: "" })
+    void Promise.resolve().then(() => props.onUpgrade(setProgress)).catch((error: unknown) => {
+      setState({ downloading: false, error: error instanceof Error ? error.message : "更新失败，请重试。" })
     })
   }
 
@@ -59,33 +59,36 @@ export function DialogUpdateAvailable(props: {
     <Dialog fit class="octo-update-dialog">
       <section class="octo-update-dialog-hero">
         <img src="/update-dialog-hero.png" alt="Octo Agent" />
-        <button type="button" class="octo-update-dialog-close" aria-label="关闭" onClick={() => dialog.close()}>
-          ×
-        </button>
+        {!props.forceUpdate && (
+          <button type="button" class="octo-update-dialog-close" aria-label="关闭" onClick={() => dialog.close()}>
+            ×
+          </button>
+        )}
       </section>
 
       <section class="octo-update-dialog-content">
         <h2>检测到更新（v{props.version.replace(/^v/i, "")}）</h2>
         <UpdateDescription releaseNotes={props.releaseNotes} />
-        {downloading() && (
+        {state.error && <p role="alert" class="octo-update-dialog-error">{state.error}</p>}
+        {state.downloading && (
           <div class="octo-update-dialog-progress">
             <div>
               <span>正在下载更新</span>
-              <span>{Math.round(progress())}%</span>
+              <span>{Math.round(state.progress)}%</span>
             </div>
             <div class="octo-update-dialog-progress-track">
-              <div style={{ width: `${Math.max(0, Math.min(100, progress()))}%` }} />
+              <div style={{ width: `${Math.max(0, Math.min(100, state.progress))}%` }} />
             </div>
           </div>
         )}
-        <div class="octo-update-dialog-actions" data-os={props.os} data-progress={downloading() ? true : undefined}>
-          {props.os === "windows" && (
-            <button type="button" class="octo-update-dialog-later" disabled={downloading()} onClick={() => dialog.close()}>
+        <div class="octo-update-dialog-actions" data-os={props.os} data-forced={props.forceUpdate ? true : undefined} data-progress={state.downloading ? true : undefined}>
+          {props.os === "windows" && !props.forceUpdate && (
+            <button type="button" class="octo-update-dialog-later" disabled={state.downloading} onClick={() => dialog.close()}>
               以后再说
             </button>
           )}
-          <button type="button" class="octo-update-dialog-upgrade" disabled={downloading()} onClick={upgrade}>
-            {downloading() ? `下载中 ${Math.round(progress())}%` : failed() ? "重试下载" : "立即升级"}
+          <button type="button" class="octo-update-dialog-upgrade" disabled={state.downloading} onClick={upgrade}>
+            {state.downloading ? `下载中 ${Math.round(state.progress)}%` : state.error ? "重试下载" : "立即升级"}
           </button>
         </div>
       </section>
@@ -155,6 +158,12 @@ export function DialogUpdateAvailable(props: {
         .octo-update-dialog-progress {
           margin-top: 28px;
         }
+        .octo-update-dialog-error {
+          margin: 16px 0 0;
+          font-size: 13px;
+          line-height: 20px;
+          color: #b42318;
+        }
         .octo-update-dialog-progress > div:first-child {
           display: flex;
           justify-content: space-between;
@@ -178,7 +187,8 @@ export function DialogUpdateAvailable(props: {
         .octo-update-dialog-actions[data-progress] {
           margin-top: 24px;
         }
-        .octo-update-dialog-actions[data-os="macos"] {
+        .octo-update-dialog-actions[data-os="macos"],
+        .octo-update-dialog-actions[data-forced] {
           justify-content: center;
         }
         .octo-update-dialog-actions button {

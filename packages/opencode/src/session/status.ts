@@ -4,7 +4,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { SessionID } from "./schema"
 import { zod } from "@/util/effect-zod"
 import { NonNegativeInt, withStatics } from "@/util/schema"
-import { Effect, Layer, Context, Schema } from "effect"
+import { Effect, Layer, Context, Schema, ScopedCache } from "effect"
 import z from "zod"
 
 export const Info = Schema.Union([
@@ -53,6 +53,7 @@ export const Event = {
 export interface Interface {
   readonly get: (sessionID: SessionID) => Effect.Effect<Info>
   readonly list: () => Effect.Effect<Map<SessionID, Info>>
+  readonly listAll: () => Effect.Effect<Map<SessionID, Info>>
   readonly set: (sessionID: SessionID, status: Info) => Effect.Effect<void>
 }
 
@@ -76,6 +77,10 @@ export const layer = Layer.effect(
       return new Map(yield* InstanceState.get(state))
     })
 
+    const listAll = Effect.fn("SessionStatus.listAll")(function* () {
+      return new Map((yield* ScopedCache.values(state.cache)).flatMap((statuses) => [...statuses]))
+    })
+
     const set = Effect.fn("SessionStatus.set")(function* (sessionID: SessionID, status: Info) {
       const data = yield* InstanceState.get(state)
       yield* bus.publish(Event.Status, { sessionID, status })
@@ -87,7 +92,7 @@ export const layer = Layer.effect(
       data.set(sessionID, status)
     })
 
-    return Service.of({ get, list, set })
+    return Service.of({ get, list, listAll, set })
   }),
 )
 

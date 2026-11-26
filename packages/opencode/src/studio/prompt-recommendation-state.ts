@@ -4,13 +4,13 @@ import { PartTable } from "@/session/session.sql"
 import { SessionID } from "@/session/schema"
 import { StudioGenerationTable } from "./studio-generation.sql"
 import { resultSchema, RecommendationError } from "./prompt-recommendation-schema"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, ScopedCache } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 
 class Submissions extends Context.Service<
   Submissions,
-  { get: () => Effect.Effect<{ sessions: Set<string>; closing: boolean }> }
+  { get: () => Effect.Effect<{ sessions: Set<string>; closing: boolean }>; active: () => Effect.Effect<boolean> }
 >()("StudioSubmissions") {}
 const layer = Layer.effect(
   Submissions,
@@ -26,11 +26,15 @@ const layer = Layer.effect(
         return current
       }),
     )
-    return Submissions.of({ get: () => InstanceState.get(state) })
+    return Submissions.of({
+      get: () => InstanceState.get(state),
+      active: () => Effect.map(ScopedCache.values(state.cache), (items) => items.some((item) => item.sessions.size > 0)),
+    })
   }),
 )
 const runtime = makeRuntime(Submissions, layer)
 export const studioSubmissionState = () => runtime.runPromise((service) => service.get())
+export const hasActiveStudioSubmissions = () => runtime.runPromise((service) => service.active())
 
 export async function isStudioSessionGenerating(sessionID: string) {
   if ((await studioSubmissionState()).sessions.has(sessionID)) return true
