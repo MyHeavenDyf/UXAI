@@ -307,6 +307,10 @@ function createSidecarEnv(): Record<string, string> {
   if (!env.OCTO_ARTIFACT_SUCCESS && import.meta.env.OCTO_ARTIFACT_SUCCESS) {
     env.OCTO_ARTIFACT_SUCCESS = import.meta.env.OCTO_ARTIFACT_SUCCESS
   }
+  // 工具渐进式披露默认开启(产品化,2026-11-28):桌面端 sidecar(打包/自动更新/崩溃
+  // 重启都会重新走到这里)一律生效,不依赖用户或系统设置环境变量。显式值保留为现场
+  // 逃生阀——系统 env 设 OCTO_TOOL_SEARCH=0/false 时关闭,排查两步链路问题无需发版。
+  if (!env.OCTO_TOOL_SEARCH) env.OCTO_TOOL_SEARCH = "1"
   // jk-j60099994-replace-with-dyf-bridge-server-env-start
   // jk-j60099994-replace-with-dyf-bridge-server-env-end
   // 捆绑 rg 二进制的绝对路径。~/.cache/opencode/bin 不可写时(如曾用 sudo 跑 CLI 留下

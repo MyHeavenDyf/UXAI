@@ -132,15 +132,20 @@
 
 > 坑：`packages/opencode` 的 `bun run build`（script/build.ts）是 CLI 多平台二进制构建，**开头 `rm -rf dist`** 且本机在 linux-arm64 目标上下载 bun 运行时失败——会误删 `dist/node`。重建 node bundle 一律用 `bun run script/build-node.ts`。
 
-**开启（三层，按放量阶段选择）**：
+**开启（已产品化，2026-11-27 落地，打包态默认生效）**：
 
-| 层级 | 做法 | 适用 |
-|---|---|---|
-| 用户系统环境变量 | `setx OCTO_TOOL_SEARCH 1` 后重启 app；链路：系统 env → 主进程 env → `createSidecarEnv()`（server.ts:256，全量拷贝 process.env）→ sidecar | 个人试用 / 灰度观察 |
-| app 级默认注入 | `preferAppEnv()`（`packages/desktop/src/main/server.ts:66`）加 `OCTO_TOOL_SEARCH: "1"`，与 OCTO_EXPERIMENTAL_FILEWATCHER 并列 | 产品放量 / 回滚=删一行 |
-| 编译期渠道差异化 | `createSidecarEnv` 已有 `import.meta.env.OCTO_*` 模式（OCTO_KB_BASE_URL 等，来自 .env + electron-vite mode），可加 beta 渠道先行 | 按渠道灰度 |
+桌面端默认开启——`createSidecarEnv()`（`packages/desktop/src/main/server.ts`）注入 `if (!env.OCTO_TOOL_SEARCH) env.OCTO_TOOL_SEARCH = "1"`。选 createSidecarEnv 而非 preferAppEnv 的原因：它是 sidecar env 的**唯一入口**，打包安装、自动更新、sidecar 崩溃重启都会重新经过；且 `!env.X` 语义保留显式值。
 
-**打包态验证**：sidecar 日志看 elog `tool search enabled`（含 agent/deferredTools/directTools 字段）；flag 未设置时所有路径与现状一致（零风险默认关）。
+| 场景 | 行为 |
+|---|---|
+| 桌面 app（打包/安装/自动更新后） | **默认开启，无需任何配置**（用户/测试均不用碰环境变量） |
+| 系统环境变量显式设 `OCTO_TOOL_SEARCH=0/false` | 关闭——现场逃生阀，排查两步链路问题无需发版；`1/true` 显式开启（值只认这两组，见 flag.ts `truthy()`） |
+| CLI / `opencode serve` 等非桌面入口 | 仍默认关闭（桌面专属放量，其他入口不动，env 可开） |
+
+**打包态验证手段（真机实测，2026-11-27，glm-5.3）**：
+- 行为黑盒（最可靠）：make 页让模型跑 bash——先出现 `search_tools` 调用再 `execute_tool` 执行、渲染为正常 bash 卡片即开启；直接出现 bash 调用即关闭。显式 `OCTO_TOOL_SEARCH=0` 重启 app 后实测直呼 bash，逃生阀有效。
+- 精确定位：sidecar HTTP `GET /session/:id/message` 看 tool part 的 `tool` 字段（`execute_tool` vs `bash`）。
+- **elog `tool search enabled` 在桌面 main.log 观察不到**（sidecar stdout 有 248 行进 main.log，无一含该串——INFO 级 elog 未透传，已知现状）；该 elog 只在 serve 模式终端直接可见，不作为打包态验证手段。
 
 ## 十、隐患修复（2026-11-27）
 
@@ -249,3 +254,7 @@ metaBlocked = toolSearch && MCP keys 与保留名有交集 → elog.warn 一次
 - 全部 MCP + 内置工作工具进桶后，**每个会话首次使用每个新工具多一次 search 往返**（schema 留历史，后续轮次直呼 execute_tool，prompt cache 命中——2026-11-24 真机已验证该模式）；
 - 自定义 agent（用户 agent md）自动获得同等 defer 行为，无需任何配置——即「应用到所有场景」的本意；
 - flag off 回归不变：回滚仍是关 env，代码路径零变化。
+
+### 收尾：产品化默认开启（同日）
+
+应用户明确要求（「打包后一定生效，不会去改这些 flag」），`createSidecarEnv()` 默认注入 `OCTO_TOOL_SEARCH=1`（见 §九），桌面端打包态免配置生效，env 显式 0/false 保留为逃生阀。真机双验证：默认起动走两步链路、显式 0 直呼 bash——dev 与打包同入口，结论同享。
