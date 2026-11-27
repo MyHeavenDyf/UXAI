@@ -6,6 +6,17 @@ export const modelProviderGrouping = {
     group.items[0]?.provider.name ?? group.category,
 }
 
+// Keep model pickers in the same order as Settings > Models.
+export function modelListSorting() {
+  return {
+    groupBy: modelProviderGrouping.groupBy,
+    sortGroupsBy: (
+      a: { items: { provider: Provider & { name: string } }[] },
+      b: { items: { provider: Provider & { name: string } }[] },
+    ) => compareProviderSortOrder(a.items[0].provider, b.items[0].provider),
+  }
+}
+
 export function providerSortOrder(provider: Provider) {
   const value = provider.options?.sortOrder
   return typeof value === "number" && Number.isFinite(value) ? value : undefined

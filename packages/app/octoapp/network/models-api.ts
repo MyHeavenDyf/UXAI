@@ -309,9 +309,9 @@ export function modelsApiListForProviders<TProvider extends ProviderLike>(
     }),
   )
 
-  const result = providers.flatMap((provider) => {
-    const apiProvider = apiProviders.get(provider.id)
-    if (!apiProvider) return []
+  const result = Array.from(apiProviders).flatMap(([providerID, apiProvider]) => {
+    const provider = providers.find((item) => item.id === providerID)
+    if (!provider) return []
 
     return Object.entries(isApiModels(apiProvider.models) ? apiProvider.models : {}).flatMap(([modelKey, model]) => {
       if (!isRecord(model)) {
