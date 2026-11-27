@@ -140,7 +140,7 @@ import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubC
 import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
 import { isHiddenCompactionTurn, isHiddenTaskPromptMessage, isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
-import { uploadZipPackage, codeArchiveDedupKey, startArchivePoll, pauseArchivePolls, resumeArchivePolls, type AutoArchiveResult, type PendingArchivePoll } from "./utils/auto-archive"
+import { SEMICONDUCTOR_DESIGN_SKILL_NAME, uploadZipPackage, codeArchiveDedupKey, startArchivePoll, pauseArchivePolls, resumeArchivePolls, type AutoArchiveResult, type PendingArchivePoll } from "./utils/auto-archive"
 import { isAssetLibraryLoggedIn } from "./utils/asset-upload"
 import { createIndexHtmlZip } from "./utils/html-assets-zip"
 import { getSubtypeConfig } from "./utils/subtype-config"
@@ -2651,8 +2651,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (semiconductorPushReported.has(key) || semiconductorPushInFlight.has(key)) return
     semiconductorPushInFlight.add(key)
     const sessionTitle = sessionDisplayTitle(archiveRootSid(sessionID))
-    const content = "半导体领域设计规范：推送测试"
-    const title = "半导体领域设计规范"
+    const title = SEMICONDUCTOR_DESIGN_SKILL_NAME
+    const content = `${title}：推送测试`
     const mode = workspaceKind() === "code" ? "code" : "normal"
     void (async () => {
       try {

@@ -14,6 +14,7 @@ import { collectRevertedFiles, collectWriteEditFiles, buildRevertDraft, revertSk
 import { ARTIFACT_TYPE_MAP, parseAllArtifactsFromText } from "../utils/artifact-cards"
 import { isHiddenCompactionTurn } from "../utils/visible-message"
 import { autoSaveArtifact, getExtension, SAVEABLE_ARTIFACT_TYPES } from "../utils/artifact-auto-save"
+import { SEMICONDUCTOR_DESIGN_SKILL_NAME } from "../utils/auto-archive"
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
 import './insight-turn-meta.css'
@@ -1380,7 +1381,10 @@ const stateStatus = state.status as string | undefined
     const usedSkill = skillParts.some((part) => {
       const name = part.state?.input?.name
       if (part.type !== "tool" || part.tool !== "skill" || part.state?.status !== "completed" || typeof name !== "string") return false
-      return name === "半导体领域设计规范" || lookupDisplayName(props.skillConfig?.skill, name) === "半导体领域设计规范"
+      const displayName = lookupDisplayName(props.skillConfig?.skill, name)
+      return [name, displayName].some((value) =>
+        value?.trim().replace(/^"(.*)"$/, "$1").trim() === SEMICONDUCTOR_DESIGN_SKILL_NAME,
+      )
     })
     if (!usedSkill) return
 

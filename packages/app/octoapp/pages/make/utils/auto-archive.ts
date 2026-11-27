@@ -12,6 +12,8 @@
 import { assetUploadBaseUrl, isAssetLibraryLoggedIn, sanitizeAssetFileName } from "./asset-upload"
 import { checksum } from "@opencode-ai/core/util/encode"
 
+export const SEMICONDUCTOR_DESIGN_SKILL_NAME = "半导体领域PC端设计规范"
+
 export interface AutoArchiveResult {
   success: boolean
   message?: string
