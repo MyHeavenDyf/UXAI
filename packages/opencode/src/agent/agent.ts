@@ -15,6 +15,8 @@ import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_INSIGHT_READER from "./prompt/insight_reader.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
+import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
+import PROMPT_OCTO_CODE from "./prompt/octo_code.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
 import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
@@ -135,7 +137,9 @@ export const layer = Layer.effect(
           // task 候选清单里(registry.describeTask 按 evaluate("task", <agent 名>) 过滤)。
           // 注意这里**必须**用 pattern 形态而不是整体 deny —— Permission.disabled 只在
           // 「最后匹配规则 pattern === "*" 且 deny」时隐藏工具,故本条不会关掉其他 agent 的 task 本身。
-          task: { insight_reader: "deny" },
+          // plan 同理:上游 plan agent 是 CLI 主会话模式,mode 改 "all" 接入 octo_make 路由后,
+          // 只允许路由显式 allow,不进其他 agent 的候选清单。
+          task: { insight_reader: "deny", plan: "deny" },
           external_directory: {
             "*": "ask",
             ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
@@ -189,6 +193,12 @@ export const layer = Layer.effect(
               Permission.fromConfig({
                 question: "allow",
                 plan_exit: "allow",
+                // 只读规划者只许派只读 explore 调研;防模型选 general 间接拿到写能力
+                // (findLast 语义,allow 必须排在 "*": "deny" 之后)
+                task: {
+                  "*": "deny",
+                  explore: "allow",
+                },
                 external_directory: {
                   [path.join(Global.Path.data, "plans", "*")]: "allow",
                 },
@@ -204,7 +214,9 @@ export const layer = Layer.effect(
               }),
               user,
             ),
-            mode: "primary",
+            // "all":保留 CLI 主会话身份,同时能被 octo_make 路由经 task 派发(describeTask 按
+            // mode !== "primary" 过滤候选清单)。hidden 不变:不进 switch_agent/autocomplete 列表
+            mode: "all",
             native: true,
             hidden: true,
           },
@@ -361,8 +373,45 @@ export const layer = Layer.effect(
           octo_make: {
             name: "octo_make",
             description:
-              "Web design prototyping specialist. Creates high-fidelity interactive HTML prototypes using Tailwind CSS.",
+              "需求路由代理。纯聊天/问答直接回答；设计原型与单文件 HTML 需求派发给 octo_design；完整项目开发派发给 octo_code。",
             prompt: PROMPT_OCTO_MAKE,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                // 路由不产文件；子会话只继承 session 级 permission，agent 层收权不影响子代理
+                edit: "deny",
+                // 候选收敛（findLast 语义，allow 必须排在 "*": "deny" 之后，勿调换顺序）
+                task: {
+                  "*": "deny",
+                  octo_design: "allow",
+                  octo_code: "allow",
+                  plan: "allow",
+                },
+                todowrite: "deny",
+                websearch: "deny",
+                jimeng_image_generate: "deny",
+                internel_image_generate: "deny",
+                lsp: "deny",
+                plan_exit: "deny",
+                // skill 在子会话内加载执行(路由提示词「skill 由子代理加载」),需要用户
+                // 确认的 skill(fastui 等让用户在已有工程/新建间选择)必须能在子会话里问;
+                // 应答通道走前端 sessionTreeRequest 树感知 dock(与 plan 子会话同链路),
+                // 断连重播见 question/pending-registry。使用范围由子代理提示词收窄为
+                // 「仅 skill 明确要求时」,其余反问一律禁止
+                question: "allow",
+                // skill 不能 deny：deny 会让 session.command 的 @skill 模板注入整链路报错
+              }),
+              user,
+            ),
+            options: {},
+            mode: "primary",
+            native: false,
+          },
+          octo_design: {
+            name: "octo_design",
+            description:
+              "设计原型生成代理。生成单个 HTML 页面、幻灯片、SVG 图标、代码片段等设计产物，遵循 artifact 标签规范。适用于：落地页、海报、活动页、原型页、单文件演示、SVG 插画、幻灯片、已有设计产物的迭代修改。任务 prompt 需包含产物目录路径（[Artifact Folder] 或 [Workspace]）与完整需求。",
+            prompt: PROMPT_OCTO_DESIGN,
             permission: Permission.merge(
               defaults,
               Permission.fromConfig({
@@ -371,27 +420,61 @@ export const layer = Layer.effect(
                   "*": "ask",
                   "**/.config/octo/skill/**": "allow",
                 },
+                task: "deny",
                 todowrite: "deny",
                 websearch: "deny",
                 jimeng_image_generate: "deny",
                 internel_image_generate: "deny",
                 lsp: "deny",
                 plan_exit: "deny",
-                // 放开给 skill 用(fastui 等需要让用户在已有工程/新建之间选择);
-                // 使用范围由 octo_make.txt 收窄为「仅 skill 明确要求时」,设计规划流程不用它
+                // 子代理默认不与用户交互(task prompt 五段式带全部输入);唯一例外是
+                // skill 明确要求向用户确认(见 octo_design.txt 收窄条款)——应答通道
+                // 走前端树感知 dock(sessionTreeRequest 连子会话一起扫),断连有重播
                 question: "allow",
               }),
               user,
             ),
             options: {},
-            mode: "primary",
+            mode: "subagent",
             native: false,
+            hidden: true,
             skills: ["html-prototype"],
             mcp: ["pixso"],
             // 渐进式披露(OCTO_TOOL_SEARCH 灰度):bash/git 教程与 webfetch 长描述改为
             // 按需加载,描述不再按 agent 裁剪,成本从每轮固定变为用则支付。
             // 注意 defer 匹配的是工具注册 ID:shell=bash、webfetch=webfetch。
             defer: ["bash", "webfetch"],
+          },
+          octo_code: {
+            name: "octo_code",
+            description:
+              "完整项目开发代理。在代码工作区（[Workspace] 项目根）或产物目录（[Artifact Folder]）内做多文件项目开发：创建目录结构、编写/修改多个源文件、组织入口页面。适用于：完整可运行项目、多页面/多文件工程、代码工作区内的功能开发。任务 prompt 需包含工作目录路径与完整需求。",
+            prompt: PROMPT_OCTO_CODE,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                write: "allow",
+                edit: {
+                  "*": "ask",
+                  "**/.config/octo/skill/**": "allow",
+                },
+                task: "deny",
+                todowrite: "deny",
+                websearch: "deny",
+                jimeng_image_generate: "deny",
+                internel_image_generate: "deny",
+                lsp: "deny",
+                plan_exit: "deny",
+                // 与 octo_design 同款:仅 skill 明确要求向用户确认时可用(见
+                // octo_code.txt 收窄条款),应答通道走前端树感知 dock
+                question: "allow",
+              }),
+              user,
+            ),
+            options: {},
+            mode: "subagent",
+            native: false,
+            hidden: true,
           },
           octo_make_plan: {
             name: "octo_make_plan",

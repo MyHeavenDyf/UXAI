@@ -32,6 +32,8 @@ export interface Settings {
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
     showSessionProgressBar: boolean
+    /** 云同步&推送 */
+    cloudSyncPush: boolean
   }
   updates: {
     startup: boolean
@@ -117,6 +119,7 @@ const defaultSettings: Settings = {
     shellToolPartsExpanded: false,
     editToolPartsExpanded: false,
     showSessionProgressBar: true,
+    cloudSyncPush: false,
   },
   updates: {
     startup: true,
@@ -230,6 +233,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         ),
         setShowSessionProgressBar(value: boolean) {
           setStore("general", "showSessionProgressBar", value)
+        },
+        cloudSyncPush: withFallback(() => store.general?.cloudSyncPush, defaultSettings.general.cloudSyncPush),
+        setCloudSyncPush(value: boolean) {
+          setStore("general", "cloudSyncPush", value)
         },
       },
       updates: {

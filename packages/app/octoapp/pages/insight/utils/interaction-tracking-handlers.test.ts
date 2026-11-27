@@ -66,14 +66,66 @@ test("Markdown real disk save reports success; missing path/IPC and rejection re
 
 test("file upload emits one successful result even if UI refresh subsequently fails, and records validation rejection", async () => {
   const captured = telemetry()
-  const upload = handler<(file: File) => Promise<void>>("../components/file-manager/index.tsx", "uploadSingleFile", {
+  const file = "../components/file-manager/index.tsx"
+  const uploadPath = handler<() => string>(file, "uploadPath", {
+    store: () => ({ currentCategory: "outputs", currentPath: "report/charts" }),
+  })
+  const destinations: string[] = []
+  const upload = handler<(file: File) => Promise<void>>(file, "uploadSingleFile", {
     ...captured, props: { sessionId: "original" }, checkExternalFile: (file: File) => file.name !== "rejected",
-    fileStore: { isTopLevel: () => true }, store: () => ({ currentPath: "" }), tryStreamUpload: async () => true,
+    uploadPath, tryStreamUpload: async (_file: File, destination: string) => { destinations.push(destination); return true },
     showToast: () => {}, refresh: async () => { throw new Error("refresh only") },
   })
   await upload(new File(["hello"], "allowed.txt"))
   await upload(new File(["hello"], "rejected"))
+  expect(destinations).toEqual([""])
   expect(captured.events.filter((event) => event.name.endsWith("-result")).map((event) => event.fields.status)).toEqual(["success", "failure"])
+})
+
+test("multi-file picker and drop send one Design toast per successful file for the expandable list", async () => {
+  const file = "../components/file-manager/index.tsx"
+  const notices: Array<{ title: string; description: string; deduplicate?: boolean }> = []
+  const showOctoToast = (notice: (typeof notices)[number]) => { notices.push(notice) }
+  const showToast = (notice: (typeof notices)[number]) => { notices.push(notice) }
+  const captured = telemetry()
+  const uploadSingleFile = handler(file, "uploadSingleFile", {
+    ...captured, props: { sessionId: "original" }, checkExternalFile: (file: File) => file.name !== "rejected",
+    uploadPath: () => "", tryStreamUpload: async () => true, showToast, refresh: async () => {},
+  })
+  const showUploadedFiles = handler(file, "showUploadedFiles", { showOctoToast })
+  const upload = handler<(files: File[]) => Promise<void>>(file, "handleUpload", { uploadSingleFile, showUploadedFiles })
+  const processFileEntry = handler(file, "processFileEntry", {
+    ...captured, props: { sessionId: "original" }, getFileFromEntry: handler(file, "getFileFromEntry", {}),
+    uploadSingleFile, showToast,
+  })
+  const drop = handler<(entries: FileSystemFileEntry[]) => Promise<void>>(file, "processEntries", {
+    processFileEntry, showUploadedFiles,
+  })
+  const files = [new File(["first"], "same.txt"), new File(["second"], "same.txt")]
+  const rejected = new File([], "rejected")
+  const unreadable = new File([], "unreadable.txt")
+
+  await upload(files)
+  await drop([files[0], unreadable, files[1], rejected].map((file) => ({
+    isFile: true,
+    name: file.name,
+    file: (resolve: FileCallback, reject?: ErrorCallback) => {
+      if (file === unreadable) reject?.(new DOMException("File unavailable", "NotReadableError"))
+      else resolve(file)
+    },
+  }) as FileSystemFileEntry))
+  await upload([rejected, rejected])
+  await upload(files.slice(0, 1))
+
+  expect(notices).toMatchObject([
+    { title: "Uploaded", description: "same.txt", deduplicate: false },
+    { title: "Uploaded", description: "same.txt", deduplicate: false },
+    { title: "上传失败", description: "无法读取文件：unreadable.txt" },
+    { title: "Uploaded", description: "same.txt", deduplicate: false },
+    { title: "Uploaded", description: "same.txt", deduplicate: false },
+    { title: "上传完成", description: "same.txt" },
+  ])
+  expect(captured.events.filter((event) => event.fields.reason === "read-entry")).toHaveLength(1)
 })
 
 test("delete records API success before UI callbacks and classifies partial and failed batch results", async () => {
@@ -127,11 +179,18 @@ test("archive records missing file, zero bytes and missing activity as failures"
 test("folder upload reports filtered files as partial in streaming and fallback paths", async () => {
   for (const streaming of [true, false]) {
     const captured = telemetry()
-    const upload = handler<(files: File[]) => Promise<void>>("../components/file-manager/index.tsx", "handleFolderUpload", {
+    const file = "../components/file-manager/index.tsx"
+    const uploadPath = handler<() => string>(file, "uploadPath", {
+      store: () => ({ currentCategory: "uploads", currentPath: "existing/folder" }),
+    })
+    const upload = handler<(files: File[]) => Promise<void>>(file, "handleFolderUpload", {
       ...captured, uploadStatus, props: { sessionId: "original" },
-      fileStore: { isTopLevel: () => true }, store: () => ({ currentPath: "" }),
+      uploadPath,
       checkExternalFile: (file: File) => file.name !== "rejected",
-      tryStreamFolderUpload: async () => streaming ? { okCount: 1, finalFolderName: "folder", errors: [] } : null,
+      tryStreamFolderUpload: async (_entries: unknown, _name: string, destination: string) => {
+        expect(destination).toBe("existing/folder")
+        return streaming ? { okCount: 1, finalFolderName: "folder", errors: [] } : null
+      },
       sdk: { url: "", directory: "" }, readFileAsBase64: async () => "eA==",
       uploadInsightFolder: async () => ({ name: "folder", fileCount: 1 }),
       showFolderUploadResult: () => {}, showToast: () => {}, refresh: async () => {},

@@ -43,4 +43,27 @@ describe("createRefreshQueue", () => {
     expect(calls).toEqual(["C:\\tmp\\demo"])
     queue.dispose()
   })
+
+  test("forwards opts to bootstrapInstance (SSE 重连补拉标记)", async () => {
+    const calls: Array<{ directory: string; opts?: { trustStatusSnapshot?: boolean } }> = []
+    const queue = createRefreshQueue({
+      paused: () => false,
+      key: directoryKey,
+      bootstrap: async () => {},
+      bootstrapInstance: (directory, opts) => {
+        calls.push({ directory, opts })
+      },
+    })
+
+    queue.push("C:\\tmp\\demo", { trustStatusSnapshot: true })
+    queue.push("C:\\tmp\\other")
+
+    await tick()
+
+    expect(calls).toEqual([
+      { directory: "C:\\tmp\\demo", opts: { trustStatusSnapshot: true } },
+      { directory: "C:\\tmp\\other", opts: undefined },
+    ])
+    queue.dispose()
+  })
 })

@@ -119,6 +119,7 @@ const api: ElectronAPI = {
   loadingWindowComplete: () => ipcRenderer.send("loading-window-complete"),
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
+  checkUpdateReadiness: () => ipcRenderer.invoke("check-update-readiness"),
   installUpdate: () => ipcRenderer.invoke("install-update"),
   onUpdateDownloadProgress: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, percent: number) => callback(percent)

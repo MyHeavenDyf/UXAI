@@ -1,5 +1,5 @@
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { createEffect, on, onCleanup, untrack, For, Show } from "solid-js"
+import { createEffect, createMemo, on, onCleanup, untrack, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createEventListener } from "@solid-primitives/event-listener"
 import { useData } from "@opencode-ai/ui/context"
@@ -29,6 +29,10 @@ export function TurnAnchorNav(props: {
   let stickyClick: string | undefined
 
   const partStore = data.store.part as Record<string, AnchorPart[]>
+
+  // 消息列表是「有锚点」的 turn 子集(真实用户输入);子会话内部消息/压缩注入
+  // 渲染 turn 但无锚点,滚动侦测时归属最近的前一个锚点
+  const anchoredIds = createMemo(() => new Set(props.messages.map((m) => m.id)))
 
   const tipText = (msg: Message) => turnAnchorText(partStore[msg.id])
 
@@ -80,13 +84,17 @@ export function TurnAnchorNav(props: {
     }
     const els = turnEls(content)
     if (els.length === 0) return
+    const ids = anchoredIds()
     const vpTop = vp.getBoundingClientRect().top
+    // 无锚点的 turn(子任务卡片/压缩注入)不产生高亮:滚到它们时保持最近一个
+    // 有锚点的 turn 高亮,子任务内容归属发起它的那条用户输入
     let current = ""
     for (const el of els) {
-      if (el.getBoundingClientRect().top - vpTop <= SPY_TOP_THRESHOLD) current = el.dataset.turnId ?? ""
-      else break
+      if (el.getBoundingClientRect().top - vpTop > SPY_TOP_THRESHOLD) break
+      const id = el.dataset.turnId ?? ""
+      if (id && ids.has(id)) current = id
     }
-    if (!current) current = els[0].dataset.turnId ?? ""
+    if (!current) current = els.find((el) => ids.has(el.dataset.turnId ?? ""))?.dataset.turnId ?? ""
     if (current && current !== state.activeId) {
       setState("activeId", current)
       scrollRailToActive()

@@ -2,12 +2,33 @@ import { beforeEach, describe, expect, test } from "bun:test"
 import {
   hasModelsApiToken,
   modelsApiHeaders,
+  modelsApiListForProviders,
   modelsApiProviders,
   modelsApiThirdToken,
   modelsApiToken,
 } from "./models-api"
 
 describe("modelsApiProviders", () => {
+  test("preserves catalog provider and model order regardless of connected provider order", () => {
+    const catalog = {
+      z: { name: "Zulu", models: { z: { name: "Zulu" }, a: { name: "Alpha" } } },
+      a: { name: "Alpha", models: { b: { name: "Beta" } } },
+    }
+    expect(modelsApiListForProviders(catalog, modelsApiProviders(catalog).toReversed())
+      .map((model) => `${model.provider.id}/${model.id}`)).toEqual(["z/z", "z/a", "a/b"])
+  })
+
+  test("preserves provider sorting metadata without changing other options", () => {
+    const result = modelsApiProviders({
+      ranked: { name: "Ranked", sortOrder: 0, requires_api_key: true, models: {} },
+      missing: { name: "Missing", models: {} },
+      invalid: { name: "Invalid", sortOrder: Number.NaN, models: {} },
+    })
+    expect(result[0].options).toEqual({ sortOrder: 0, requires_api_key: true, api_key_configured: false })
+    expect(result[1].options.sortOrder).toBeUndefined()
+    expect(result[2].options.sortOrder).toBeUndefined()
+  })
+
   test("requires an explicitly configured API key only when requested by the catalog", () => {
     const result = modelsApiProviders({
       paid: { id: "paid", name: "Paid", requires_api_key: true, models: {} },

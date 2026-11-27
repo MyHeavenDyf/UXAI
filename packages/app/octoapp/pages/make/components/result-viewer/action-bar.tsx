@@ -531,7 +531,7 @@ function AssessmentDropdown(props: { tab: ResultTab; skillConfig?: SkillConfig; 
         showOctoToast({ title: "评估仍在进行中", description: "已等待超过 20 分钟，评审数据将在回复完成后自动读取" })
       } else {
         clearAssessmentTurn()
-        showOctoToast({ title: "评估发送失败", description: result.message })
+        showOctoToast({ title: "评估发送失败", description: result.message, variant: "error", persistent: true })
       }
     }
   }

@@ -7,8 +7,8 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { useModels } from "@/context/models"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { popularProviders } from "@/hooks/use-providers"
 import { ModelTooltip } from "./model-tooltip"
+import { modelListSorting, modelProviderGrouping } from "@/utils/provider-sort"
 
 export const DialogSelectDefaultModel: Component<{
   onSelect?: (model: { providerID: string; modelID: string }) => void
@@ -56,15 +56,8 @@ export const DialogSelectDefaultModel: Component<{
         items={visibleModels}
         current={currentModel()}
         filterKeys={["provider.name", "name", "id"]}
-        sortBy={(a, b) => a.name.localeCompare(b.name)}
-        groupBy={(x) => x.provider.name}
-        sortGroupsBy={(a, b) => {
-          const aProvider = a.items[0].provider.id
-          const bProvider = b.items[0].provider.id
-          if (popularProviders.includes(aProvider) && !popularProviders.includes(bProvider)) return -1
-          if (!popularProviders.includes(aProvider) && popularProviders.includes(bProvider)) return 1
-          return popularProviders.indexOf(aProvider) - popularProviders.indexOf(bProvider)
-        }}
+        {...modelListSorting()}
+        groupHeader={modelProviderGrouping.groupHeader}
         itemWrapper={(item, node) => (
           <Tooltip
             class="w-full"

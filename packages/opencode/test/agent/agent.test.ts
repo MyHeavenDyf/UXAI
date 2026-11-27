@@ -904,8 +904,9 @@ test("SPEC-INS-032: insight_reader is only a task candidate for octo_insight", a
 
       expect(evalPermPattern(insight, "task", "insight_reader")).toBe("allow")
       expect(evalPermPattern(make, "task", "insight_reader")).toBe("deny")
-      // 别的 agent 的 subagent 候选不受影响
-      expect(evalPermPattern(make, "task", "general")).toBe("allow")
+      // octo_make 路由化后 task 候选已收敛到 octo_design/octo_code(见下方路由用例),
+      // general 不再是它的候选 —— 与 insight 同款收敛模式
+      expect(evalPermPattern(make, "task", "general")).toBe("deny")
 
       // v2(2026-08-21 评审补):insight 的候选**真收敛** —— describeTask 列的是「所有未被 deny 的
       // subagent」,此前 insight 只 allow 了 insight_reader、没有 deny 其余,于是 general(bash /
@@ -924,8 +925,110 @@ test("SPEC-INS-032: insight_reader is only a task candidate for octo_insight", a
   })
 })
 
-// octo_make 放开 question 给 skill 用(fastui 等在已有工程/新建之间让用户选);全局 defaults 仍是 deny,
-// 只放开 octo_make 自己,别的 agent 别跟着变。
+// ── octo_make 路由化(feat/make-router)──────────────────────────────────────
+
+// 路由的 task 候选收敛:只允许 octo_design / octo_code / plan 三个派发目标,general/explore/
+// make_component 挡在候选外;但 task 工具本身保持可用(Permission.disabled 只认最后一条
+// 匹配规则,allow 必须排在 "*": "deny" 之后 —— 与 SPEC-INS-032 §5.2 同款语义)。
+test("octo_make router: task candidates converge to octo_design/octo_code/plan", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const make = await load(tmp.path, (svc) => svc.get("octo_make"))
+      expect(make).toBeDefined()
+      expect(make?.mode).toBe("primary")
+      expect(evalPermPattern(make, "task", "octo_design")).toBe("allow")
+      expect(evalPermPattern(make, "task", "octo_code")).toBe("allow")
+      expect(evalPermPattern(make, "task", "plan")).toBe("allow")
+      expect(evalPermPattern(make, "task", "general")).toBe("deny")
+      expect(evalPermPattern(make, "task", "explore")).toBe("deny")
+      expect(evalPermPattern(make, "task", "make_component")).toBe("deny")
+      // 路由不产文件:EDIT_TOOLS 共键,edit deny 连坐隐藏 write/apply_patch
+      expect(evalPerm(make, "edit")).toBe("deny")
+      expect(Permission.disabled(["write", "edit", "apply_patch"], make!.permission).has("write")).toBe(true)
+      // task 工具本身仍可用
+      expect(Permission.disabled(["task"], make!.permission).has("task")).toBe(false)
+      // skill 不能 deny:@skill 的 session.command 模板注入链路依赖(prompt.ts command() 守卫)
+      expect(evalPerm(make, "skill")).toBe("allow")
+      // pixso MCP 与 skills 声明随设计职责移交 octo_design
+      expect(make?.mcp).toBeUndefined()
+    },
+  })
+})
+
+test("octo_design/octo_code subagents carry design/code toolset", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const design = await load(tmp.path, (svc) => svc.get("octo_design"))
+      const code = await load(tmp.path, (svc) => svc.get("octo_code"))
+      expect(design).toBeDefined()
+      expect(code).toBeDefined()
+      expect(design?.mode).toBe("subagent")
+      expect(code?.mode).toBe("subagent")
+      // hidden 只挡用户 agent 列表,不影响 task 候选(describeTask 只按 mode 过滤)
+      expect(design?.hidden).toBe(true)
+      expect(code?.hidden).toBe(true)
+      // 产物落盘可用(write allow / edit ask)
+      expect(evalPerm(design, "write")).toBe("allow")
+      expect(evalPerm(design, "edit")).toBe("ask")
+      expect(evalPerm(code, "write")).toBe("allow")
+      expect(evalPerm(code, "edit")).toBe("ask")
+      // 防套娃 + 子代理默认不与用户交互
+      expect(evalPerm(design, "task")).toBe("deny")
+      expect(evalPerm(code, "task")).toBe("deny")
+      // question 唯一例外:skill 在子会话内加载执行,需要用户确认的 skill(fastui 等)
+      // 必须能在子会话里问——应答走前端树感知 dock,使用范围由提示词收窄
+      expect(evalPerm(design, "question")).toBe("allow")
+      expect(evalPerm(code, "question")).toBe("allow")
+      // 路由转发 skill 名后由子代理自行加载,skill 必须可用
+      expect(evalPerm(design, "skill")).toBe("allow")
+      // pixso MCP 绑定随设计职责移交 design
+      expect(design?.mcp).toEqual(["pixso"])
+      expect(code?.mcp).toBeUndefined()
+    },
+  })
+})
+
+// 原生 plan agent 接入 octo_make 路由:mode 改 "all" 让 describeTask 候选清单可见(hidden 不变,
+// 不进用户 agent 列表);只读规划者只许派只读 explore,question 保持 allow(树感知应答由前端处理)。
+// defaults 的 task: { plan: "deny" } 防 plan 泄漏进其他 agent(general)的候选清单。
+test("plan agent is task-dispatchable by octo_make and explores read-only", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const plan = await load(tmp.path, (svc) => svc.get("plan"))
+      const general = await load(tmp.path, (svc) => svc.get("general"))
+      expect(plan).toBeDefined()
+      // "all":既是 CLI 主会话身份,又进 describeTask 候选(describeTask 按 mode !== "primary" 过滤)
+      expect(plan?.mode).toBe("all")
+      // hidden 不变:不进 switch_agent/autocomplete 用户列表,也不能当 defaultAgent(另有用例)
+      expect(plan?.hidden).toBe(true)
+      // 只读规划:只许派 explore,general(有写能力)挡在外面
+      expect(evalPermPattern(plan, "task", "explore")).toBe("allow")
+      expect(evalPermPattern(plan, "task", "general")).toBe("deny")
+      // task 工具本身可用(pattern 级 deny 不等于整体 deny)
+      expect(Permission.disabled(["task"], plan!.permission).has("task")).toBe(false)
+      // question allow:子会话提问走前端树感知 dock,路由不代答
+      expect(evalPerm(plan, "question")).toBe("allow")
+      // edit 仍只读(例外 plans 路径不变)
+      expect(evalPerm(plan, "edit")).toBe("deny")
+      // defaults 守卫:plan 不出现在 general 的 task 候选清单里(SPEC-INS-032 §5.2 同款 pattern 形态)
+      expect(evalPermPattern(general, "task", "plan")).toBe("deny")
+      expect(Permission.disabled(["task"], general!.permission).has("task")).toBe(false)
+    },
+  })
+})
+
+// octo_make 与两个子代理放开 question 给 skill 用(fastui 等在已有工程/新建之间让用户选)。
+// skill 由子代理在子会话内加载执行(路由提示词「skill 由子代理加载」),子代理不放开的话
+// skill 的确认流程直接断——question 被 deny 时工具从模型工具列表整个摘掉,模型面对
+// 不存在的工具行为不可控。应答走前端树感知 dock(sessionTreeRequest 连子会话一起扫),
+// 断连重播见 question/pending-registry;使用范围由三份提示词收窄为「仅 skill 明确要求时」。
+// 全局 defaults 仍是 deny,general 等别的 agent 不跟着变。
 test("octo_make allows question for skill-driven confirmation; defaults stay deny", async () => {
   await using tmp = await tmpdir()
   await WithInstance.provide({

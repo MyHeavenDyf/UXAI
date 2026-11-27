@@ -10,6 +10,7 @@ import { useLanguage } from "@/context/language"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { isProviderApiKeyMissing } from "@/utils/provider-api-key"
+import { compareProviderSortOrder } from "@/utils/provider-sort"
 
 export const DialogManageModels: Component = () => {
   const local = useLocal()
@@ -70,6 +71,8 @@ export const DialogManageModels: Component = () => {
           )
         }}
         sortGroupsBy={(a, b) => {
+          const order = compareProviderSortOrder(a.items[0].provider, b.items[0].provider)
+          if (order) return order
           const aRank = providerRank(a.items[0].provider.id)
           const bRank = providerRank(b.items[0].provider.id)
           const aPopular = aRank >= 0

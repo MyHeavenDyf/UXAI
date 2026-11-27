@@ -272,6 +272,7 @@ export type SessionAction = (input: { sessionID: string; messageID: string }) =>
 export type UserActions = {
   fork?: SessionAction
   revert?: SessionAction
+  onCopy?: () => void
 }
 
 export interface MessagePartProps {
@@ -1197,6 +1198,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
     await navigator.clipboard.writeText(content)
     setState("copied", true)
     setTimeout(() => setState("copied", false), 2000)
+    props.actions?.onCopy?.()
   }
 
   const revert = () => {

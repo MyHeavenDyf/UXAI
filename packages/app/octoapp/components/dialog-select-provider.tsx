@@ -8,6 +8,7 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { useLanguage } from "@/context/language"
 import { DialogCustomProvider } from "./dialog-custom-provider"
+import { compareProviderSortOrder, providerSortOrder } from "@/utils/provider-sort"
 
 const CUSTOM_ID = "_custom"
 
@@ -38,15 +39,25 @@ export const DialogSelectProvider: Component = () => {
           return [{ id: CUSTOM_ID, name: customLabel() }, ...providers.all()]
         }}
         filterKeys={["id", "name"]}
-        groupBy={(x) => (popularProviders.includes(x.id) ? popularGroup() : otherGroup())}
+        groupBy={(x) =>
+          providerSortOrder(x) !== undefined
+            ? language.t("common.default")
+            : popularProviders.includes(x.id)
+              ? popularGroup()
+              : otherGroup()
+        }
         sortBy={(a, b) => {
           if (a.id === CUSTOM_ID) return -1
           if (b.id === CUSTOM_ID) return 1
+          const order = compareProviderSortOrder(a, b)
+          if (order) return order
           if (popularProviders.includes(a.id) && popularProviders.includes(b.id))
             return popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id)
           return a.name.localeCompare(b.name)
         }}
         sortGroupsBy={(a, b) => {
+          const order = compareProviderSortOrder(a.items[0], b.items[0])
+          if (order) return order
           const popular = popularGroup()
           if (a.category === popular && b.category !== popular) return -1
           if (b.category === popular && a.category !== popular) return 1

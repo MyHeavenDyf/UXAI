@@ -1,5 +1,7 @@
 import { Config } from "@/config/config"
 import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
+import { emitPendingAsks } from "@/permission/pending-registry"
+import { emitPendingAsks as emitPendingQuestionAsks } from "@/question/pending-registry"
 import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { Installation } from "@/installation"
@@ -13,6 +15,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { RootHttpApi } from "../api"
 import { GlobalUpgradeInput } from "../groups/global"
+import { getUpdateReadiness } from "@/update/readiness"
 
 const log = Log.create({ service: "server" })
 
@@ -38,7 +41,14 @@ function eventResponse() {
   const events = Stream.callback<GlobalBusEvent>((queue) => {
     const handler = (event: GlobalBusEvent) => Queue.offerUnsafe(queue, event)
     return Effect.acquireRelease(
-      Effect.sync(() => GlobalBus.on("event", handler)),
+      Effect.sync(() => {
+        GlobalBus.on("event", handler)
+        // 重播 pending 权限询问(与 Hono 后端 global.ts 同语义):断连期间
+        // 丢失 permission.asked 的客户端靠重连时的重播恢复,否则服务端无限等待
+        emitPendingAsks()
+        // question 同款重播(子代理 question 挂起的 task 子会话同样会永久卡死)
+        emitPendingQuestionAsks()
+      }),
       () => Effect.sync(() => GlobalBus.off("event", handler)),
     )
   })
@@ -153,6 +163,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     })
 
     return handlers
+      .handle("updateReadiness", () => getUpdateReadiness)
       .handle("health", health)
       .handleRaw("event", event)
       .handle("configGet", configGet)
