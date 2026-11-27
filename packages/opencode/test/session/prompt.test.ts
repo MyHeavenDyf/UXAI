@@ -173,6 +173,34 @@ const mcpWithTools = Layer.succeed(
   }),
 )
 
+// 保留名冲突降级测试用 stub:MCP 工具 key 撞上元工具名 search_tools(prompt.ts 应整体
+// 降级为直传,不建元工具也不注入公告)。tools / toolsForAgent 两个方法都携带撞名 key。
+const mcpColliding = Layer.succeed(
+  MCP.Service,
+  MCP.Service.of({
+    status: () => Effect.succeed({}),
+    clients: () => Effect.succeed({}),
+    tools: () =>
+      Effect.succeed({ search_tools: fixtureMcpTool(), testfixture_probe: fixtureMcpTool() }),
+    toolsForAgent: () =>
+      Effect.succeed({ search_tools: fixtureMcpTool(), testfixture_probe: fixtureMcpTool() }),
+    prompts: () => Effect.succeed({}),
+    resources: () => Effect.succeed({}),
+    add: () => Effect.succeed({ status: { status: "disabled" as const } }),
+    connect: () => Effect.void,
+    disconnect: () => Effect.void,
+    getPrompt: () => Effect.succeed(undefined),
+    readResource: () => Effect.succeed(undefined),
+    startAuth: () => Effect.die("unexpected MCP auth in prompt-effect tests"),
+    authenticate: () => Effect.die("unexpected MCP auth in prompt-effect tests"),
+    finishAuth: () => Effect.die("unexpected MCP auth in prompt-effect tests"),
+    removeAuth: () => Effect.void,
+    supportsOAuth: () => Effect.succeed(false),
+    hasStoredTokens: () => Effect.succeed(false),
+    getAuthStatus: () => Effect.succeed("not_authenticated" as const),
+  }),
+)
+
 const lsp = Layer.succeed(
   LSP.Service,
   LSP.Service.of({
@@ -247,6 +275,7 @@ function makeHttp(mcpLayer: Layer.Layer<MCP.Service> = mcp) {
 
 const it = testEffect(makeHttp())
 const itMcp = testEffect(makeHttp(mcpWithTools))
+const itMcpCollide = testEffect(makeHttp(mcpColliding))
 const unix = process.platform !== "win32" ? it.live : it.live.skip
 
 // Config that registers a custom "test" provider with a "test-model" model
@@ -2819,6 +2848,63 @@ itMcp.live(
             )
             expect(execute?.state.output).toContain("fixture result: success")
             expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
+          }),
+        )
+      }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+// 保留名冲突降级:MCP key 撞上元工具名 search_tools → 本次请求整体回到 flag-off 形态:
+// defer 列表失效(bash 直传)、元工具不创建、公告不注入,撞名 MCP 工具本身走既有直传分支
+// (其 wire description 与元工具的可区分:元工具 description 引用 <available-deferred-tools>)。
+itMcpCollide.live(
+  "tool search degrades when an MCP tool collides with a reserved meta-tool name",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        yield* withToolSearch(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const chat = yield* sessions.create({
+              title: "Tool search collide",
+              permission: [{ permission: "*", pattern: "*", action: "allow" }],
+            })
+            yield* prompt.prompt({
+              sessionID: chat.id,
+              agent: "octo_make",
+              model: ref,
+              noReply: true,
+              parts: [{ type: "text", text: "run a shell command" }],
+            })
+            yield* llm.text("ok")
+
+            const result = yield* prompt.loop({ sessionID: chat.id })
+            expect(result.info.role).toBe("assistant")
+
+            const inputs = yield* llm.inputs
+            const request: Record<string, unknown> = inputs[0] ?? {}
+            const tools = (request["tools"] ?? []) as any[]
+            const nameOf = (entry: any) => String(entry?.function?.name ?? entry?.name ?? "")
+            const names = tools.map(nameOf)
+            // defer 关闭:octo_make defer 列表里的 bash 直接出现在 tools 数组
+            expect(names).toContain("bash")
+            // 元工具未创建(execute_tool 无 MCP 撞名,出现即元工具泄漏)
+            expect(names).not.toContain("execute_tool")
+            // 撞名 MCP 工具走直传;出现的 search_tools 是 MCP 那把,不是元工具
+            const collide = tools.find((entry) => nameOf(entry) === "search_tools")
+            expect(String(collide?.function?.description ?? collide?.description ?? "")).not.toContain(
+              "<available-deferred-tools>",
+            )
+            // 普通 MCP 工具同样直传
+            expect(names).toContain("testfixture_probe")
+
+            const system = JSON.stringify(
+              ((request["messages"] ?? []) as any[]).find((message) => message?.role === "system"),
+            )
+            expect(system).not.toContain("<available-deferred-tools>")
           }),
         )
       }),

@@ -539,8 +539,42 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         providerID: input.model.providerID,
         agent: input.agent,
       })
-      const deferBuiltin = toolSearch
-        ? new Set((input.agent.defer ?? []).filter((id) => id !== "invalid"))
+      // MCP 工具名单需在 builtin defer 决策前就位:元工具保留名(search_tools/execute_tool)
+      // 若被 MCP key(provider 前缀拼接)撞上,本次请求整体降级为直传——不 defer 任何
+      // 工具、不建元工具、不注公告,回到 flag-off 形态,避免直传工具与元工具同名歧义。
+      // Filter MCP tools by agent.mcp binding
+      const cfg = yield* config.get()
+      const userMcpKeys = Object.keys(cfg.mcp ?? {}).filter((k) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(k))
+      const mcpTools = yield* mcp.toolsForAgent(input.agent.mcp, userMcpKeys)
+      const metaBlocked =
+        toolSearch && Object.keys(mcpTools).some((key) => ToolSearch.RESERVED_METATOOL_NAMES.has(key))
+      if (metaBlocked) {
+        yield* elog.warn("tool search degraded: MCP tool collides with meta-tool name", {
+          agent: input.agent.name,
+          colliding: Object.keys(mcpTools)
+            .filter((key) => ToolSearch.RESERVED_METATOOL_NAMES.has(key))
+            .join(","),
+        })
+      }
+      const mcpDisabled = toolSearch && !metaBlocked
+        ? Permission.disabled(
+            Object.keys(mcpTools),
+            Permission.merge(input.agent.permission, input.session.permission ?? []),
+          )
+        : undefined
+      yield* elog.info("mcp tools assembled", {
+        agent: input.agent.name,
+        agentMcp: input.agent.mcp,
+        userMcpKeys,
+        toolCount: Object.keys(mcpTools).length,
+        tools: Object.keys(mcpTools).join(","),
+      })
+      const deferBuiltin = toolSearch && !metaBlocked
+        ? new Set(
+            (input.agent.defer ?? []).filter(
+              (id) => id !== "invalid" && !ToolSearch.RESERVED_METATOOL_NAMES.has(id),
+            ),
+          )
         : undefined
       const builtinDisabled = deferBuiltin
         ? Permission.disabled(
@@ -609,24 +643,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           execute,
         })
       }
-
-      // Filter MCP tools by agent.mcp binding
-      const cfg = yield* config.get()
-      const userMcpKeys = Object.keys(cfg.mcp ?? {}).filter((k) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(k))
-      const mcpTools = yield* mcp.toolsForAgent(input.agent.mcp, userMcpKeys)
-      const mcpDisabled = toolSearch
-        ? Permission.disabled(
-            Object.keys(mcpTools),
-            Permission.merge(input.agent.permission, input.session.permission ?? []),
-          )
-        : undefined
-      yield* elog.info("mcp tools assembled", {
-        agent: input.agent.name,
-        agentMcp: input.agent.mcp,
-        userMcpKeys,
-        toolCount: Object.keys(mcpTools).length,
-        tools: Object.keys(mcpTools).join(","),
-      })
 
       for (const [key, item] of Object.entries(mcpTools)) {
         const provider = Object.keys(cfg.mcp ?? {}).sort((a, b) => b.length - a.length)
@@ -736,7 +752,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }), opts.abortSignal),
           )
         }
-        if (toolSearch && !mcpDisabled?.has(key) && input.tools?.[key] !== false) {
+        if (toolSearch && !metaBlocked && !mcpDisabled?.has(key) && input.tools?.[key] !== false) {
           deferred[key] = { name: key, description: item.description ?? key, schema: transformed, execute: wrapped }
           continue
         }
@@ -745,8 +761,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         tools[key] = item
       }
 
-      if (toolSearch && Object.keys(deferred).length > 0) {
-        const deferredNames = () => Object.keys(deferred).toSorted().join(", ")
+      if (toolSearch && !metaBlocked && Object.keys(deferred).length > 0) {
+        const deferredNames = () => ToolSearch.formatNameList(Object.keys(deferred))
         tools["search_tools"] = tool({
           description: ToolSearch.SEARCH_TOOLS_DESCRIPTION,
           inputSchema: jsonSchema({
@@ -760,11 +776,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           execute: async (args: any) => ({
             title: "search_tools",
             metadata: {},
-            output: ToolSearch.searchDeferredTools(
-              deferred,
-              String(args?.query ?? ""),
-              Number(args?.max_results) || 5,
-            ),
+            output: ToolSearch.searchDeferredTools(deferred, String(args?.query ?? ""), args?.max_results),
           }),
         })
         tools["execute_tool"] = tool({
@@ -796,6 +808,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             return entry.execute(args?.params, { ...options, [ENVELOPE]: args } as ToolExecutionOptions)
           },
         })
+        // 元工具的 settled 兜底建行(processor 路径)按 input.tool 查 catalog,补上
+        // 两个 builtin 条目,否则 search_tools/execute_tool 的 insight 行 toolKind 为空。
+        descriptors["search_tools"] = { kind: "builtin" }
+        descriptors["execute_tool"] = { kind: "builtin" }
         yield* elog.info("tool search enabled", {
           agent: input.agent.name,
           deferredTools: Object.keys(deferred).join(","),

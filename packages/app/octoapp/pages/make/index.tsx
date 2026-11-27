@@ -22,6 +22,7 @@ import type { Message, Session, SessionStatus, UserMessage } from "@opencode-ai/
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { DataProvider } from "@opencode-ai/ui/context/data"
+import { unwrapMetaTool } from "@opencode-ai/ui/message-part"
 import { createAutoScroll, useFilteredList } from "@opencode-ai/ui/hooks"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -1047,8 +1048,12 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       } else if (e.type === "session.next.tool.called") {
         const callID = props?.callID as string | undefined
-        const toolName = props?.tool as string | undefined
-        const input = (props?.input ?? {}) as Record<string, unknown>
+        const rawToolName = props?.tool as string | undefined
+        const rawInput = (props?.input ?? {}) as Record<string, unknown>
+        // execute_tool(渐进式披露)按内层工具名/入参解包
+        const unwrapped = rawToolName ? unwrapMetaTool(rawToolName, rawInput) : undefined
+        const toolName = unwrapped?.tool ?? rawToolName
+        const input = (unwrapped?.input ?? rawInput) as Record<string, unknown>
         const toolPath = ((input.path ?? input.filepath ?? input.filePath ?? "") as string) || undefined
         if (callID && toolName) {
           toolCallMap.set(callID, { tool: toolName, path: toolPath })
@@ -1112,8 +1117,12 @@ const sessionMessagesLoaded = createMemo(() => {
 
       if (e.type === "session.next.tool.called") {
         const callID = props?.callID as string | undefined
-        const toolName = props?.tool as string | undefined
-        const input = (props?.input ?? {}) as Record<string, unknown>
+        const rawToolName = props?.tool as string | undefined
+        const rawInput = (props?.input ?? {}) as Record<string, unknown>
+        // execute_tool(渐进式披露)按内层工具名/入参解包
+        const unwrapped = rawToolName ? unwrapMetaTool(rawToolName, rawInput) : undefined
+        const toolName = unwrapped?.tool ?? rawToolName
+        const input = (unwrapped?.input ?? rawInput) as Record<string, unknown>
         const toolPath = ((input.path ?? input.filepath ?? input.filePath ?? "") as string) || undefined
         if (callID && toolName) {
           globalToolCallMap.set(callID, { tool: toolName, path: toolPath })

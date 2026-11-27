@@ -5,6 +5,7 @@ import { isElectronDesktop, pathToLocalUrl } from "./artifact-file-api"
 import { parseAllArtifactsFromText } from "./artifact-cards"
 import { computeArtifactFilePath, SAVEABLE_ARTIFACT_TYPES } from "./artifact-auto-save"
 import { lookupDisplayName, type SkillConfig } from "../components/skill-config-types"
+import { unwrapMetaTool } from "@opencode-ai/ui/message-part"
 import type { WorkspaceKind } from "@/context/server"
 
 export type RevertDraftPart = {
@@ -59,9 +60,13 @@ export function collectWriteEditFiles(parts: RevertDraftPart[]): string[] {
   for (const part of parts) {
     if (part.type !== "tool") continue
     if (part.state?.status !== "completed") continue
-    const toolName = (part.tool ?? part.name ?? part.state?.name ?? "").toLowerCase()
+    // execute_tool(渐进式披露)包裹的 write/edit 按内层工具名与入参识别
+    const unwrapped = part.tool ? unwrapMetaTool(part.tool, part.state?.input) : undefined
+    const toolName = (
+      unwrapped?.tool ?? part.tool ?? part.name ?? part.state?.name ?? ""
+    ).toLowerCase()
     if (!toolName.includes("write") && !toolName.includes("edit")) continue
-    const filePath = toolFilePath(part)
+    const filePath = toolFilePath({ ...part, state: { ...part.state, input: unwrapped?.input ?? part.state?.input } })
     if (filePath && !result.includes(filePath)) result.push(filePath)
   }
   return result

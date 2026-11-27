@@ -2,7 +2,7 @@ import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData, useI18n } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
-import { MessageDivider } from "@opencode-ai/ui/message-part"
+import { MessageDivider, unwrapMetaTool } from "@opencode-ai/ui/message-part"
 import { Button } from "@opencode-ai/ui/button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { createEffect, createMemo, createResource, createSignal, on, onCleanup, Show, For, type JSX } from "solid-js"
@@ -798,7 +798,11 @@ export function InsightTurn(props: {
         const raw = p as Record<string, unknown>
         const state = raw.state as Record<string, unknown> | undefined
         if (!state) return { name: "unknown", status: "running" as const }
-        const input = state.input as Record<string, unknown> | undefined
+        // execute_tool(渐进式披露)按内层工具名/入参统计
+        const unwrapped = unwrapMetaTool(raw.tool as string, state.input)
+        const stateInput =
+          typeof state.input === "object" && state.input !== null ? (state.input as Record<string, unknown>) : undefined
+        const input = unwrapped?.input ?? stateInput
         const filePath = input
           ? ((input.path ?? input.filepath ?? input.filePath ?? "") as string)
           : ""
@@ -811,8 +815,9 @@ export function InsightTurn(props: {
         const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
         const isError = isErrorFromStatus || isErrorFromMetadata
         const isCompleted = stateStatus === "completed"
-        
-        const toolName = (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown"
+
+        const toolName =
+          unwrapped?.tool ?? ((raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown")
         
         // 查找 displayName（仅对 skill 工具）
         let displayName: string | undefined

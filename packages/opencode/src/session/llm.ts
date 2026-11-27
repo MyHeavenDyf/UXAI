@@ -241,12 +241,20 @@ const live: Layer.Layer<
         workflowModel.sessionID = input.sessionID
         workflowModel.systemPrompt = system.join("\n")
         workflowModel.toolExecutor = async (toolName, argsJson, _requestID) => {
-          const t = tools[toolName]
+          const direct = tools[toolName]
+          // 工具被渐进式披露 defer 时不在 tools map 里,经 execute_tool 元工具委托:
+          // 权限询问/追踪/截断链路与模型直呼一致。此路径以 _requestID 为 callID 触发
+          // 内层 ToolCalls.observe,无对应 part,会产生孤儿 tracking 行,可接受。
+          const delegated = direct ? undefined : tools["execute_tool"]
+          const t = direct ?? delegated
           if (!t || !t.execute) {
             return { result: "", error: `Unknown tool: ${toolName}` }
           }
           try {
-            const result = await t.execute!(JSON.parse(argsJson), {
+            const args = direct
+              ? JSON.parse(argsJson)
+              : { tool_name: toolName, params: JSON.parse(argsJson) }
+            const result = await t.execute!(args, {
               toolCallId: _requestID,
               messages: input.messages,
               abortSignal: input.abort,

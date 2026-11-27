@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import {
   EXECUTE_TOOL_DESCRIPTION,
+  OUTPUT_BUDGET_CHARS,
   SEARCH_TOOLS_DESCRIPTION,
+  clampMaxResults,
   formatAnnouncement,
   parseQuery,
   rankTools,
@@ -128,6 +130,88 @@ describe("tool-search.searchDeferredTools", () => {
 
   test("empty query lists available tools", () => {
     expect(searchDeferredTools(bucket, "", 5)).toContain("Empty query")
+  })
+
+  test("empty select query returns guidance with available list", () => {
+    const out = searchDeferredTools(bucket, "select:", 5)
+    expect(out).toContain("Empty select: query")
+    expect(out).toContain("Available deferred tools: bash, fetch, pixso_get_file")
+  })
+
+  test("non-numeric max_results falls back to 5 instead of clearing results", () => {
+    // 历史缺陷:Number("notanumber") || 5 兜底前,NaN 直接流入 slice(0, NaN) 会清空结果
+    const out = searchDeferredTools(bucket, "file", "notanumber")
+    expect(out).toContain("Found 3 deferred tool(s)")
+  })
+
+  test("max_results below 1 is clamped up to 1", () => {
+    const out = searchDeferredTools(bucket, "file", 0)
+    expect(out).toContain("Found 1 deferred tool(s)")
+    expect(out).toContain("### pixso_get_file")
+  })
+
+  test("max_results above 20 is clamped down", () => {
+    const local: Record<string, DeferredTool> = {}
+    for (let i = 0; i < 25; i++) local[`kw_${i}`] = entry(`kw_${i}`, "shared description keyword")
+    const out = searchDeferredTools(local, "keyword", 500)
+    expect(out).toContain("Found 20 deferred tool(s)")
+  })
+
+  test("select caps requested names at 16 with footer", () => {
+    const local: Record<string, DeferredTool> = {}
+    for (let i = 0; i < 20; i++) local[`sel_${i}`] = entry(`sel_${i}`, "selected tool")
+    const names = Array.from({ length: 20 }, (_, i) => `sel_${i}`).join(",")
+    const out = searchDeferredTools(local, `select:${names}`, 5)
+    expect(out).toContain("Only the first 16 of 20 requested names")
+    expect(out).toContain("### sel_0")
+    expect(out).not.toContain("### sel_16")
+  })
+
+  test("budget truncates whole entries and keeps the first entry complete", () => {
+    // 15k×2 ≈ 30k > 24k 预算 → 第二条起进省略名单;首条(即使单独超预算)完整保留
+    const big = "x".repeat(15_000)
+    const local: Record<string, DeferredTool> = {
+      big_a: entry("big_a", big),
+      big_b: entry("big_b", big),
+      big_c: entry("big_c", big),
+    }
+    const out = searchDeferredTools(local, "select:big_a,big_b,big_c", 5)
+    expect(out).toContain("### big_a")
+    expect(out).not.toContain("### big_b")
+    expect(out).toContain("+2 more tools not shown (big_b, big_c)")
+    expect(out).toContain("Call select:Name to fetch them individually.")
+  })
+
+  test("first entry is kept whole even when it alone exceeds the budget", () => {
+    const huge = "y".repeat(OUTPUT_BUDGET_CHARS + 1_000)
+    const local: Record<string, DeferredTool> = {
+      huge_a: entry("huge_a", huge),
+      small_b: entry("small_b", "tiny"),
+    }
+    const out = searchDeferredTools(local, "select:huge_a,small_b", 5)
+    expect(out).toContain("### huge_a")
+    expect(out.length).toBeGreaterThan(OUTPUT_BUDGET_CHARS)
+    expect(out).toContain("+1 more tools not shown (small_b)")
+  })
+
+  test("available name list caps at 50 with pointer to announcement", () => {
+    const local: Record<string, DeferredTool> = {}
+    for (let i = 0; i < 60; i++) local[`mcp_tool_${i}`] = entry(`mcp_tool_${i}`, "desc")
+    const out = searchDeferredTools(local, "nomatchkeyword", 5)
+    expect(out).toContain("(+10 more, see <available-deferred-tools> in system)")
+    expect(out).not.toContain("mcp_tool_59")
+  })
+})
+
+describe("tool-search.clampMaxResults", () => {
+  test("clamps into [1, 20] and falls back to 5 on non-finite input", () => {
+    expect(clampMaxResults(0)).toBe(1)
+    expect(clampMaxResults(-3)).toBe(1)
+    expect(clampMaxResults(2.7)).toBe(2)
+    expect(clampMaxResults(500)).toBe(20)
+    expect(clampMaxResults(NaN)).toBe(5)
+    expect(clampMaxResults(undefined)).toBe(5)
+    expect(clampMaxResults("notanumber")).toBe(5)
   })
 })
 

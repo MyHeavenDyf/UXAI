@@ -141,3 +141,82 @@
 | 编译期渠道差异化 | `createSidecarEnv` 已有 `import.meta.env.OCTO_*` 模式（OCTO_KB_BASE_URL 等，来自 .env + electron-vite mode），可加 beta 渠道先行 | 按渠道灰度 |
 
 **打包态验证**：sidecar 日志看 elog `tool search enabled`（含 agent/deferredTools/directTools 字段）；flag 未设置时所有路径与现状一致（零风险默认关）。
+
+## 十、隐患修复（2026-11-27）
+
+对 v1 的复查发现四项隐患（完整分析记录在会话内，结论如下），全部只动 flag-on 路径，flag off 零行为变化。涉及 2 个包（opencode + ui）+ octoapp 页面层。
+
+### Fix 1 — search_tools 输出预算（上下文洪泛防护）
+
+**问题**：`select:` 数量无上限、`max_results` 无钳制、输出无总预算——大 MCP 工具集下单条 tool result 可达几十 KB 且每轮重放，恰好制造该功能要消除的固定成本。另有两个小 bug：`Number(args?.max_results) || 5` 在 NaN 流入 `slice(0, NaN)` 时会清空结果；`select:`（无名字）返回空字符串。
+
+**改法**（`tool/tool-search.ts`，prompt.ts 侧只把 `args?.max_results` 原样传入、钳制内收）：
+
+| 常量 | 值 | 作用 |
+|---|---|---|
+| `OUTPUT_BUDGET_CHARS` | 24 000 | 单次 search 结果总预算（约 6K tok） |
+| `MAX_SELECT_NAMES` | 16 | select: 最多处理条数，超出 footer 注明 |
+| `MAX_KEYWORD_RESULTS` | 20 | max_results 钳制上限（`clampMaxResults`：`Number.isFinite` 兜底回 5，钳 [1,20]） |
+| `MAX_OMITTED_NAMES` | 30 | footer 省略名单上限（防御性：select≤16 / keyword≤20 → omitted≤19，当前不可达，为常量放宽后兜底） |
+
+- **按整条目累加预算**（`assembleWithBudget`），不用 `Truncate.Service`——它是行/字节中段截断（MAX_LINES=2000 / MAX_BYTES=50KB），会把 JSON schema 砍坏；整条目粒度下**首条目即使单独超预算也完整保留**（模型必须拿到完整 schema 才能调用）。
+- 超预算条目进 footer：`+N more tools not shown (names). Call select:Name to fetch them individually.`
+- `availableNames()`（空查询/未命中/missing 名单共用）改走 `formatNameList`：上限 50，超出 `(+N more, see <available-deferred-tools> in system)`，与公告口径互指。
+- 空 `select:` 返回引导文案（非空串）。`SEARCH_TOOLS_DESCRIPTION` 补 Limits 段说明上限。
+
+### Fix 3 — DWS workflow toolExecutor 兜底委托
+
+**问题**：`session/llm.ts` 的 GitLabWorkflowLanguageModel `toolExecutor` 按名直查 `tools[toolName]`；MCP defer 后按名调用得到 "Unknown tool"。
+
+**改法**：直查失败时委托元工具——`tools["execute_tool"]`，入参包成外层信封 `{tool_name, params: JSON.parse(argsJson)}`；`JSON.parse` 保持在 try 内。委托路径以 `_requestID` 为 callID 触发内层 ToolCalls.observe，无对应 part，产生孤儿 tracking 行（可接受，DWS 工作流本就无 part 概念）。`sessionPreapprovedTools` 不动——approvalHandler 会累积放行，降级为"多问一次"而非死循环。
+
+### Fix 5 — 元工具保留名冲突整体降级
+
+**问题**：MCP key（provider 前缀拼接）可拼出 `search_tools`/`execute_tool`，与元工具同名产生歧义（execute 委托按名查桶 vs 直传同名工具，模型侧两者不可区分）。
+
+**改法**：`RESERVED_METATOOL_NAMES = {"search_tools", "execute_tool"}`（tool-search.ts 导出）。prompt.ts 把 **MCP 工具获取整体上移到内置工具循环之前**（defer 决策需要先知道 MCP 名单），计算：
+
+```
+metaBlocked = toolSearch && MCP keys 与保留名有交集 → elog.warn 一次
+```
+
+`metaBlocked` 时整体降级回 flag-off 形态：`deferBuiltin = undefined`、MCP defer 条件加 `!metaBlocked`（撞名工具走既有直传分支）→ 桶为空 → 元工具不创建、announcement 不注入。`deferBuiltin` 过滤同时加了 `!RESERVED.has(id)` 防御（agent defer 列表写进保留名时忽略）。降级测试见 prompt.test.ts（mcpColliding stub，断言 bash 直传、无 execute_tool、无公告）。
+
+### Fix 6 — 元工具 descriptors + 前端 execute_tool 解包
+
+**问题 A（服务端）**：ToolCalls `descriptors` map 无元工具条目，settled 兜底建行时 `toolKind` 为 undefined。prompt.ts 元工具创建块补 `descriptors["search_tools"] = { kind: "builtin" }`、`descriptors["execute_tool"] = { kind: "builtin" }`。
+
+**问题 B（前端）**：execute_tool part 前端不认识——渲染成原始 JSON 信封、产物卡/任务卡/统计/回退收集全部落空。
+
+**改法**：`packages/ui/src/components/message-part-meta.ts`（纯模块）实现 `unwrapMetaTool(tool, input)`（tool === "execute_tool" 且 input 是 object 且 input.tool_name 为 string → `{tool: input.tool_name, input: input.params ?? {}}`；pending 流式态 input 是字符串，判型失败返回 undefined），message-part.tsx re-export 保持 `@opencode-ai/ui/message-part` 公共 API 不变——独立纯模块的原因：message-part.tsx 的组件依赖链（kobalte 等）在 bun test 环境触发 solid client-only API，无法被单测导入。**不派生新 part 对象**——ContextToolGroup 的 parts() memo 用 `equals: same` 浅比较，新引用恒不等会引发重渲染风暴；改为在每个纯函数消费点解包：
+
+| 层 | 文件 | 点位 |
+|---|---|---|
+| ui 渲染 | message-part.tsx / message-part-meta.ts | message-part-meta.ts：unwrapMetaTool 纯函数（附 4 例单测）；message-part.tsx：renderable（HIDDEN_TOOLS 过滤）、partDefaultOpen、isContextGroupTool、contextToolDetail/Trigger/Summary、ToolPartDisplay（input()/render/ToolErrorCard/Dynamic 的 input+tool props）；todowrite/question/task 特判查 part().tool 本身，不受影响 |
+| make 统计 | pages/make/components/insight-turn.tsx | ToolCallInfo 构造（FileOpsSummary + ToolCallGroupCard） |
+| pattern 统计 | pages/pattern/modules/chat/insight-turn.tsx | 同上 |
+| insight 任务卡 | pages/insight/utils/task-detect.ts | MCP 业务工具白名单匹配（**flag on 时 MCP 全 defer，不解包任务卡必失效**） |
+| insight 产物卡 | pages/insight/utils/write-output.ts | write/edit 产物卡与 artifact-file-write/edit 打点 |
+| make 回退 | pages/make/utils/restore-draft.ts | collectWriteEditFiles 回退文件收集 |
+| make SSE | pages/make/index.tsx | 两处 `session.next.tool.called` 监听（会话级 + 全局 globalToolCallMap/recordArtifactInit，后者不套会丢版本基线） |
+
+### 残留项（记录不修）
+
+- **invalid.ts 引导残留**：参数校验失败文案只看 flag，降级态仍会提 search_tools——文案自带条件 "listed in <available-deferred-tools>"，降级时公告不存在，条件对模型可见为假，自限；
+- **MCP key 撞内置工具名**（如 mcp 前缀拼出带下划线的内置 id）：现状内置 id 均为单词（bash/read/…），MCP key 必含 `_`，实际拼不出来，TODO 留档；
+- **announcement 名单不设上限**：defer 全量 MCP 时公告本身就是几十行名字，属设计取舍（名字公告是引导的最低成本形态），未加预算；
+- **权限弹窗 / share 页**：permission-dialog 读 ask 请求的内层权限名天然正确；share 页独立实现，均为跟进项。
+
+### 测试
+
+- `test/tool/tool-search.test.ts` 新增 9 例：空 select: 引导、非数字 max_results 不清空结果、max_results 0/500 钳制、select 超 16 截断、预算截断 + 省略 footer、首条目超预算仍完整、可用名单 50 上限、`clampMaxResults` 直测。全绿（28 pass）。
+- `test/session/prompt.test.ts` 新增降级用例（mcpColliding stub + withToolSearch + octo_make）：bash 直传、无 execute_tool 元工具、撞名 MCP 工具直传（wire description 区分元工具）、system 无 `<available-deferred-tools>`。`-t "tool search"` 过滤单跑 5 个具名用例全过。
+- `packages/ui` 新增 `src/components/message-part-meta.test.ts`（unwrapMetaTool 4 例）；整包 `bun test src` 32 pass。
+- 验证命令：`bun test packages/opencode/test/tool/tool-search.test.ts`、`bun test packages/opencode/test/session/prompt.test.ts -t "tool search"`（整文件并行跑有本机固有的 (unnamed) hook 超时，见 §六）、`cd packages/ui && bun test src`、`bun run typecheck`。
+
+### 真机 E2E（2026-11-27，桌面 dev + glm-5.3）
+
+- **flag on · make 页**：`请用 bash 工具执行命令 echo …` → search_tools(select:bash) → execute_tool 两步链路。DB 侧 part 形态确认（`tool="execute_tool"`、input 为 `{tool_name, params}` 信封、内层 bash 的 title/metadata 落在 part state）；UI 渲染为 bash 卡片「执行命令 / echo octo-frontend-verify / 完成」+「文件操作:」分组——均只能来自解包（修复前会显示「工具调用」+空摘要或原始 JSON 信封）。
+- **flag on · insight 页（MCP defer）**：自起最小 MCP 测试服务器（zz-mcp-test/echo_tool）→ `execute_tool{tool_name:"zz-mcp-test_echo_tool"}` part 经 packages/ui GenericTool 渲染为「调用了 zz-mcp-test_echo_tool」（修复前显示「调用了 execute_tool」）。**ui 层解包在真实 app 验证通过**。
+- **flag off 回归**：同型 bash prompt → part 直接 `bash:completed`（无元工具），渲染与 flag on 完全一致——`unwrapMetaTool` 对非 execute_tool 返回 undefined 的回落路径零行为变化。
+- 两轮运行 console 无 error/exception。未覆盖 E2E 的点（静态复核 + unwrapMetaTool 单测覆盖）：write-output 产物卡 / task-detect 任务卡 / restore-draft 回退收集（write/edit 未进 defer 列表，无法在不改配置的前提下触发 execute_tool 形态；解包逻辑与已验证路径同构）；SSE `session.next.tool.called` 载荷（processor.ts 中 `value.input` 同一变量流向 part state 与事件，part state 已实证为信封对象，且事件 schema 强制 Record）。

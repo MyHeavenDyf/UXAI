@@ -1,4 +1,5 @@
 import { extOf, resolveOutputType, type OutputCardType } from "./output-type"
+import { unwrapMetaTool } from "@opencode-ai/ui/message-part"
 
 /**
  * 路径 C:Agent 写文件工具(write / edit)产物 → OutputCard。
@@ -164,8 +165,11 @@ function findWriteCardsByFilter(parts: unknown[], toolFilter: (tool: unknown) =>
     if (p.type !== "tool") continue
 
     const state = p.state as Record<string, unknown> | undefined
-    const isMatch = toolFilter(p.tool)
-    const rec: DiagRec = { tool: p.tool, status: state?.status, isMatch }
+    // execute_tool(渐进式披露)包裹的 write/edit:按内层工具名匹配,入参取 params
+    const unwrapped = typeof p.tool === "string" ? unwrapMetaTool(p.tool, state?.input) : undefined
+    const tool = unwrapped?.tool ?? p.tool
+    const isMatch = toolFilter(tool)
+    const rec: DiagRec = { tool, status: state?.status, isMatch }
 
     if (!isMatch) {
       rec.skip = "not-match-tool"
@@ -177,7 +181,7 @@ function findWriteCardsByFilter(parts: unknown[], toolFilter: (tool: unknown) =>
       if (logDiagnostic) seen!.push(rec)
       continue
     }
-    const resolved = resolveCardPath(state)
+    const resolved = resolveCardPath(unwrapped ? { ...state!, input: unwrapped.input } : state)
     if (!resolved) {
       rec.skip = "no-filePath"
       rec.type = `metaKeys:${state.metadata && typeof state.metadata === "object" ? Object.keys(state.metadata as object).join(",") : typeof state.metadata}` +

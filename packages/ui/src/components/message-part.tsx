@@ -545,6 +545,18 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
   }
 }
 
+export { unwrapMetaTool } from "./message-part-meta"
+import { unwrapMetaTool } from "./message-part-meta"
+
+function toolPartDisplay(part: ToolPart): { tool: string; input: any } {
+  const raw: unknown = (part.state as { input?: unknown }).input
+  return unwrapMetaTool(part.tool, raw) ?? { tool: part.tool, input: raw ?? {} }
+}
+
+function toolPartName(part: ToolPart): string {
+  return toolPartDisplay(part).tool
+}
+
 function urls(text: string | undefined) {
   if (!text) return []
   const seen = new Set<string>()
@@ -695,8 +707,9 @@ function index<T extends { id: string }>(items: readonly T[]) {
 
 function renderable(part: PartType, showReasoningSummaries = true) {
   if (part.type === "tool") {
-    if (HIDDEN_TOOLS.has(part.tool)) return false
-    if (part.tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
+    const tool = toolPartName(part)
+    if (HIDDEN_TOOLS.has(tool)) return false
+    if (tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
     return true
   }
   if (part.type === "text") return !!part.text?.trim()
@@ -711,7 +724,7 @@ function toolDefaultOpen(tool: string, shell = false, edit = false) {
 
 function partDefaultOpen(part: PartType, shell = false, edit = false) {
   if (part.type !== "tool") return
-  return toolDefaultOpen(part.tool, shell, edit)
+  return toolDefaultOpen(toolPartName(part), shell, edit)
 }
 
 export function AssistantParts(props: {
@@ -817,22 +830,24 @@ export function AssistantParts(props: {
 }
 
 function isContextGroupTool(part: PartType): part is ToolPart {
-  return part.type === "tool" && CONTEXT_GROUP_TOOLS.has(part.tool)
+  return part.type === "tool" && CONTEXT_GROUP_TOOLS.has(toolPartName(part))
 }
 
 function contextToolDetail(part: ToolPart): string | undefined {
-  const info = getToolInfo(part.tool, part.state.input ?? {})
+  const display = toolPartDisplay(part)
+  const info = getToolInfo(display.tool, display.input ?? {})
   if (info.subtitle) return info.subtitle
   if (part.state.status === "error") return part.state.error
   if ((part.state.status === "running" || part.state.status === "completed") && part.state.title)
     return part.state.title
-  const description = part.state.input?.description
+  const description = display.input?.description
   if (typeof description === "string") return description
   return undefined
 }
 
 function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
-  const input = (part.state.input ?? {}) as Record<string, unknown>
+  const display = toolPartDisplay(part)
+  const input = (display.input ?? {}) as Record<string, unknown>
   const path = typeof input.path === "string" ? input.path : "/"
   const filePath = typeof input.filePath === "string" ? input.filePath : undefined
   const pattern = typeof input.pattern === "string" ? input.pattern : undefined
@@ -840,7 +855,7 @@ function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
   const offset = typeof input.offset === "number" ? input.offset : undefined
   const limit = typeof input.limit === "number" ? input.limit : undefined
 
-  switch (part.tool) {
+  switch (display.tool) {
     case "read": {
       const args: string[] = []
       if (offset !== undefined) args.push("offset=" + offset)
@@ -873,7 +888,7 @@ function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
       }
     }
     default: {
-      const info = getToolInfo(part.tool, input)
+      const info = getToolInfo(display.tool, input)
       return {
         title: info.title,
         subtitle: info.subtitle || contextToolDetail(part),
@@ -884,9 +899,10 @@ function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
 }
 
 function contextToolSummary(parts: ToolPart[]) {
-  const read = parts.filter((part) => part.tool === "read").length
-  const search = parts.filter((part) => part.tool === "glob" || part.tool === "grep").length
-  const list = parts.filter((part) => part.tool === "list").length
+  const names = parts.map((part) => toolPartName(part))
+  const read = names.filter((name) => name === "read").length
+  const search = names.filter((name) => name === "glob" || name === "grep").length
+  const list = names.filter((name) => name === "list").length
   return { read, search, list }
 }
 
@@ -1444,6 +1460,8 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const emptyMetadata: Record<string, any> = {}
 
   const input = () => part().state?.input ?? emptyInput
+  // execute_tool part 按内层工具名/入参渲染(渐进式披露解包)
+  const display = createMemo(() => toolPartDisplay(part()))
   // @ts-expect-error
   const partMetadata = () => part().state?.metadata ?? emptyMetadata
   const taskId = createMemo(() => {
@@ -1462,7 +1480,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
     return taskId()
   })
 
-  const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
+  const render = createMemo(() => ToolRegistry.render(display().tool) ?? GenericTool)
 
   return (
     <Show when={!hideQuestion()}>
@@ -1482,7 +1500,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
               }
               return (
                 <ToolErrorCard
-                  tool={part().tool}
+                  tool={display().tool}
                   error={error()}
                   defaultOpen={props.defaultOpen}
                   subtitle={taskSubtitle()}
@@ -1494,8 +1512,8 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
           <Match when={true}>
             <Dynamic
               component={render()}
-              input={input()}
-              tool={part().tool}
+              input={display().input}
+              tool={display().tool}
               metadata={partMetadata()}
               // @ts-expect-error
               output={part().state.output}

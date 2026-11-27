@@ -1,4 +1,5 @@
 import { findResourceLinks, type ResourceLink } from "./resource-link"
+import { unwrapMetaTool } from "@opencode-ai/ui/message-part"
 
 /**
  * 长任务卡片状态。来源:mcp-contract.md §任务管理 status 枚举。
@@ -28,9 +29,11 @@ export function readTaskInfo(part: unknown): TaskInfo | null {
   const p = part as Record<string, unknown>
   if (p.type !== "tool") return null
 
-  const toolName = typeof p.tool === "string" ? p.tool : "unknown"
   const state = p.state as Record<string, unknown> | undefined
   if (!state) return null
+  // execute_tool(渐进式披露)包裹的 MCP 工具按内层工具名识别
+  const unwrapped = typeof p.tool === "string" ? unwrapMetaTool(p.tool, state.input) : undefined
+  const toolName = unwrapped?.tool ?? (typeof p.tool === "string" ? p.tool : "unknown")
 
   // 仅 completed 态的 tool 调用才会带 structuredContent(running/pending 没有 output)
   if (state.status !== "completed") return null
