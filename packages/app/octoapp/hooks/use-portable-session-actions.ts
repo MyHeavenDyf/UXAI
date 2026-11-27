@@ -39,10 +39,10 @@ export function usePortableSessionActions(input: {
     const session = input.session()
     if (!session || action() || !platform.saveFilePickerDialog) return
     input.close()
-    const name = (sessionTitle(session.title) ?? "session")
+    const name = Array.from((sessionTitle(session.title) ?? "session")
       .replace(/[<>:"/\\|?*]/g, "-")
       .replace(/\s+/g, " ")
-      .trim()
+      .trim()).slice(0, 10).join("").trim()
     const output = await platform
       .saveFilePickerDialog({
         title: language.t("session.portable.export.picker"),
