@@ -95,12 +95,14 @@ describe("effectiveBudget", () => {
 })
 
 describe("index nudge (post-write size feedback, Claude-style)", () => {
-  test("MEMORY.md over budget triggers a self-organize reminder", () => {
+  test("MEMORY.md over budget triggers an ERROR-level self-organize message", () => {
     agentWriteIndex(projectID, "- (project) big: " + "x".repeat(4000))
     const nudge = MemoryStore.indexNudge(indexFile(projectID), 100)
     expect(nudge).toBeDefined()
+    expect(nudge).toContain("ERROR")
     expect(nudge).toContain("超出索引预算")
     expect(nudge).toContain("topics/")
+    expect(nudge).toContain("截断丢弃")
   })
 
   test("MEMORY.md within budget produces no output", () => {

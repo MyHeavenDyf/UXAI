@@ -72,8 +72,9 @@ export function system(projectID: ProjectID, budget?: number) {
   ].join("\n")
 }
 
-// 写后提醒(与 Claude Code 的索引超限反馈一致):Agent 写完索引文件后,若体积超出
-// 注入预算,在工具输出尾部追加精简提示,驱动模型自我整理。文件未超限不产生任何输出。
+// 写后超限反馈(与 Claude Code 一致):Agent 写完索引文件后,若体积超出注入预算,
+// 返回 ERROR 级消息——写入本身已成功,但模型必须在下一轮精简索引(细节下沉/合并/删除)。
+// 文件未超限不产生任何输出。
 export function indexNudge(filepath: string, budget?: number): string | undefined {
   const normalized = path.resolve(filepath)
   if (path.basename(normalized) !== "MEMORY.md") return
@@ -82,7 +83,7 @@ export function indexNudge(filepath: string, budget?: number): string | undefine
   const limit = budget ?? DEFAULT_BUDGET_TOKENS
   const tokens = Token.estimate(fs.readFileSync(normalized, "utf8"))
   if (tokens <= limit) return
-  return `注意:MEMORY.md 当前约 ${tokens} tokens,超出索引预算 ${limit}。请精简索引:细节下沉到 topics/<topic>.md,合并或删除过时行。`
+  return `ERROR: MEMORY.md 当前约 ${tokens} tokens,超出索引预算 ${limit}。超出部分在下次请求注入时会被截断丢弃。请立即精简索引:细节下沉到 topics/<topic>.md,合并或删除过时行。`
 }
 
 // 路径包含判断(memory 目录是普通绝对路径,不走 AppFileSystem 依赖)
