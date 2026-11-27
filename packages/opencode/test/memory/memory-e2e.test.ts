@@ -1,6 +1,6 @@
-// 端到端:跨会话记忆在"开启"状态下走完 提取 → 落库 → 注入 → 埋点落盘 全链路。
-// preload 对全测试进程设了 OCTO_DISABLE_MEMORY=1(保护旧测试的 mock 队列),本文件
-// 在 beforeAll 显式开启、afterAll 严格恢复,保证后续测试文件不受影响。
+// 端到端:Agent 自主维护记忆全链路(与 Claude Code 一致)。
+// preload 对全测试进程设了 OCTO_DISABLE_MEMORY=1,本文件在 beforeAll 显式开启、
+// afterAll 严格恢复,保证后续测试文件不受影响。
 import { afterAll, beforeAll, describe, expect } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
@@ -13,6 +13,7 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
+import { Config } from "@/config/config"
 import { LSP } from "../../src/lsp/lsp"
 import { MCP } from "../../src/mcp"
 import { Permission } from "../../src/permission"
@@ -28,6 +29,7 @@ import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionPrompt } from "../../src/session/prompt"
+import { MessageID } from "../../src/session/schema"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
 import { SessionStatus } from "../../src/session/status"
@@ -39,25 +41,44 @@ import { Truncate } from "../../src/tool/truncate"
 import { Ripgrep } from "../../src/file/ripgrep"
 import { Format } from "../../src/format"
 import { MemoryStore } from "@/memory/store"
-import { Config } from "@/config/config"
 import { TestLLMServer } from "../lib/llm-server"
 import { provideTmpdirServer } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-
-const debugDir = fs.mkdtempSync(path.join(os.tmpdir(), "memory-e2e-"))
+import { Global } from "@opencode-ai/core/global"
 
 beforeAll(() => {
   delete process.env.OCTO_DISABLE_MEMORY
-  process.env.OCTO_MEMORY_DEBUG = "1"
-  process.env.OCTO_MEMORY_DEBUG_DIR = debugDir
 })
 
 afterAll(() => {
   process.env.OCTO_DISABLE_MEMORY = "1"
-  // 恢复为 preload 的默认值 "0"(而非 delete,否则会退回 flag 的默认常开)
-  process.env.OCTO_MEMORY_DEBUG = "0"
-  delete process.env.OCTO_MEMORY_DEBUG_DIR
-  fs.rmSync(debugDir, { recursive: true, force: true })
+})
+
+// 注册自定义 "test" provider,使 provider 模型解析命中测试 LLM server
+const providerCfg = (url: string) => ({
+  provider: {
+    test: {
+      name: "Test",
+      id: "test",
+      env: [],
+      npm: "@ai-sdk/openai-compatible",
+      models: {
+        "test-model": {
+          id: "test-model",
+          name: "Test Model",
+          attachment: false,
+          reasoning: false,
+          temperature: false,
+          tool_call: true,
+          release_date: "2025-01-01",
+          limit: { context: 100000, output: 10000 },
+          cost: { input: 0, output: 0 },
+          options: {},
+        },
+      },
+      options: { apiKey: "test-key", baseURL: url },
+    },
+  },
 })
 
 const mcp = Layer.succeed(
@@ -168,58 +189,8 @@ function makeStack() {
 
 const it = testEffect(makeStack())
 
-// 注册自定义 "test" provider,使 provider 模型解析命中测试 LLM server
-const providerCfg = (url: string) => ({
-  provider: {
-    test: {
-      name: "Test",
-      id: "test",
-      env: [],
-      npm: "@ai-sdk/openai-compatible",
-      models: {
-        "test-model": {
-          id: "test-model",
-          name: "Test Model",
-          attachment: false,
-          reasoning: false,
-          temperature: false,
-          tool_call: true,
-          release_date: "2025-01-01",
-          limit: { context: 100000, output: 10000 },
-          cost: { input: 0, output: 0 },
-          options: {},
-        },
-      },
-      options: { apiKey: "test-key", baseURL: url },
-    },
-  },
-})
-
-const extractReply = JSON.stringify([
-  {
-    action: "create",
-    type: "feedback",
-    topic: "pnpm_preference",
-    content: "本仓库所有安装/执行命令必须使用 pnpm，不要使用 npm。",
-    summary: "本仓库只用 pnpm，禁止 npm",
-  },
-])
-
-const findDump = (kind: "extract" | "inject", needle: string) => {
-  for (const session of fs.readdirSync(debugDir)) {
-    const sessionPath = path.join(debugDir, session)
-    if (!fs.statSync(sessionPath).isDirectory()) continue
-    for (const file of fs.readdirSync(sessionPath)) {
-      if (!file.endsWith(`_${kind}.txt`)) continue
-      const content = fs.readFileSync(path.join(sessionPath, file), "utf8")
-      if (content.includes(needle)) return content
-    }
-  }
-  return undefined
-}
-
-describe("memory e2e (feature ON)", () => {
-  it.live("extraction persists a memory and the next turn injects it", () =>
+describe("memory e2e (agent-maintained, Claude-style)", () => {
+  it.live("bootstrap injected, agent writes memory via write tool, next turn injects it", () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {
         const prompt = yield* SessionPrompt.Service
@@ -229,48 +200,53 @@ describe("memory e2e (feature ON)", () => {
           permission: [{ permission: "*", pattern: "*", action: "allow" }],
         })
 
-        // 队列按消耗顺序:主回合回复 → 提取器 JSON 回复
-        yield* llm.text("好的，已记住")
-        yield* llm.text(extractReply)
-        yield* prompt.prompt({
+        // 第一轮:空记忆 → 注入引导块,模型应"知道"自己可以建记忆
+        yield* llm.text("好的")
+        const first = yield* prompt.prompt({
           sessionID: chat.id,
           agent: "build",
-          parts: [{ type: "text", text: "请记住：这个仓库只用 pnpm，不要用 npm" }],
+          parts: [{ type: "text", text: "记住这个仓库只用 pnpm" }],
         })
+        expect(first.info.role).toBe("assistant")
 
-        // 提取是 loop 退出后的后台 fiber,轮询 DB 等它落库
-        let rows: MemoryStore.Row[] = []
-        for (let i = 0; i < 100 && rows.length === 0; i++) {
-          yield* Effect.sleep("50 millis")
-          rows = MemoryStore.list(chat.projectID)
-        }
-        expect(rows.some((row) => row.topic === "pnpm_preference" && row.source_session_id === chat.id)).toBe(true)
+        const memoryDir = path.join(Global.Path.data, "memory", chat.projectID)
+        const indexFile = path.join(memoryDir, "MEMORY.md")
 
-        // 第二轮:prepareRequest 注入记忆;本轮提取被 60s 节流跳过,不消耗队列
+        // 模型自主维护:用 write 工具直接写记忆文件(工作目录外 → external_directory 授权,
+        // 会话已 allow 全部权限,直接通过)
+        const registry = yield* ToolRegistry.Service
+        const all = yield* registry.all()
+        const writeTool = all.find((tool) => tool.id === "write")!
+        const writeResult = yield* writeTool.execute(
+          {
+            filePath: indexFile,
+            content: "# Memory\n\n- (feedback) pnpm_preference: 本仓库只用 pnpm,禁止 npm。\n",
+          },
+          {
+            sessionID: chat.id,
+            messageID: MessageID.make("msg_e2e_memory"),
+            agent: "build",
+            abort: new AbortController().signal,
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+        expect(writeResult.output).toContain("Wrote file successfully")
+
+        // 下一轮:注入块包含模型自己写的记忆行(记忆闭环成立)
+        const block = MemoryStore.system(chat.projectID)
+        expect(block).toContain("pnpm_preference: 本仓库只用 pnpm")
         yield* llm.text("done")
-        yield* prompt.prompt({
+        const second = yield* prompt.prompt({
           sessionID: chat.id,
           agent: "build",
-          parts: [{ type: "text", text: "安装依赖该用什么命令" }],
+          parts: [{ type: "text", text: "安装依赖该用什么" }],
         })
+        expect(second.info.role).toBe("assistant")
 
-        // 注入埋点在请求准备阶段同步完成,短暂轮询兜底异步 fs 写
-        let injectDump: string | undefined
-        for (let i = 0; i < 20 && !injectDump; i++) {
-          yield* Effect.sleep("50 millis")
-          injectDump = findDump("inject", "pnpm_preference")
-        }
-        expect(injectDump).toBeDefined()
-        expect(injectDump).toContain("<memory>")
-        // feedback 属核心层级:索引行直接展开完整 content(文件模式无短 ID,topic 即标识)
-        expect(injectDump).toContain("(feedback) pnpm_preference: 本仓库所有安装")
-        expect(injectDump).toContain("memory_read")
-        expect(injectDump).toContain("memory tokens:")
-
-        const extractDump = findDump("extract", "pnpm_preference")
-        expect(extractDump).toBeDefined()
-        expect(extractDump).toContain("RAW MODEL OUTPUT")
-        expect(extractDump).toContain("pnpm_preference")
+        // 清理本测试项目的记忆目录,不影响其他项目
+        MemoryStore.clear(chat.projectID)
       }),
       { git: true, config: providerCfg },
     ),

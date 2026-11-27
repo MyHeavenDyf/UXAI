@@ -11,6 +11,8 @@ import { FileWatcher } from "../file/watcher"
 import { Format } from "../format"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { InstanceState } from "@/effect/instance-state"
+import { Config } from "@/config/config"
+import { MemoryStore } from "@/memory/store"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { assertNotProtectedPath } from "./protected-path"
@@ -32,6 +34,7 @@ export const WriteTool = Tool.define(
     const fs = yield* AppFileSystem.Service
     const bus = yield* Bus.Service
     const format = yield* Format.Service
+    const config = yield* Config.Service
 
     return {
       description: DESCRIPTION,
@@ -74,6 +77,9 @@ export const WriteTool = Tool.define(
           })
 
           let output = "Wrote file successfully."
+          // 记忆索引写后提醒:MEMORY.md 超预算时驱动模型自我精简(与 Claude Code 一致)
+          const memoryNudge = MemoryStore.indexNudge(filepath, (yield* config.get()).memory?.budget_tokens)
+          if (memoryNudge) output += `\n\n${memoryNudge}`
           yield* lsp.touchFile(filepath, "document")
           const diagnostics = yield* lsp.diagnostics()
           const normalizedFilepath = AppFileSystem.normalizePath(filepath)

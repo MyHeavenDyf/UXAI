@@ -73,7 +73,6 @@ import { SessionTable } from "./session.sql"
 import { AUTOMATIC_COMPACTION_ENABLED, usable as usableContext } from "./overflow"
 import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
 import { Token } from "@/util/token"
-import { MemoryExtract } from "@/memory/extract"
 import { MemoryDebug } from "@/memory/debug"
 import { MemoryStore } from "@/memory/store"
 
@@ -752,10 +751,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: input.messages })
       const memCfg = (yield* config.get()).memory
-      // 跨会话记忆注入:主 agent 顶层会话才注入;统一开关(env 硬关/config 关闭)与
-      // hidden 工具型 agent、subagent、task 子会话一律跳过。索引预算按模型上下文
-      // 动态收缩(不超过窗口 1/8,适配 ≤64K 的小上下文模型),下限 300 tokens。
-      // MemoryStore 内部自带异常降级,不影响主流程。
+      // 跨会话记忆注入:主 agent 顶层会话才注入(统一开关 + hidden/subagent/子会话跳过)。
+      // 与 Claude Code 一致——记忆由 Agent 在对话中自主维护,注入块携带维护指示,
+      // 开启状态下始终注入(空记忆注入引导块,否则模型永远不会开始建记忆);
+      // 索引预算按模型上下文动态收缩(不超过窗口 1/8,下限 300 tokens)。
       const memory =
         !MemoryStore.disabled(memCfg) &&
         input.agent.hidden !== true &&
@@ -768,14 +767,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 input.model.limit?.context,
               ),
             )
-          : []
+          : ""
       const [skills, env, instructions, modelMsgs] = yield* Effect.all([
         sys.skills(input.agent).pipe(Effect.catch(() => Effect.succeed(undefined))),
         sys.environment(input.model),
         instruction.system().pipe(Effect.orDie),
         MessageV2.toModelMessagesEffect(input.messages, input.model),
       ])
-      const system = [...env, ...instructions, ...memory, ...(skills ? [skills] : [])]
+      const system = [...env, ...instructions, ...(memory ? [memory] : []), ...(skills ? [skills] : [])]
       const userMcpSummary = Object.keys((yield* config.get()).mcp ?? {})
         .filter((name) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(name))
         .flatMap((name) => {
@@ -798,11 +797,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         )
       }
       if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-      if (memory.length > 0 && !input.dryRun)
+      if (memory !== "" && !input.dryRun)
         yield* MemoryDebug.dumpInject({
           sessionID: input.session.id,
           model: `${input.model.providerID}/${input.model.id}`,
-          memoryTokens: Token.estimate(memory.join("\n")),
+          memoryTokens: Token.estimate(memory),
           system,
           modelMsgs,
           activeTools,
@@ -1878,16 +1877,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               })
             }
             yield* slog.info("exiting loop")
-            // 回合结束后 fork 记忆提取,节流/跳过规则在 extract 内部
-            yield* MemoryExtract.extract({
-              config,
-              agents,
-              provider,
-              llm,
-              session,
-              history: msgs,
-              lastUser,
-            }).pipe(Effect.ignore, Effect.forkIn(scope))
             break
           }
 

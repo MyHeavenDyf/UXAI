@@ -14,6 +14,8 @@ import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
 import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
+import { Config } from "@/config/config"
+import { MemoryStore } from "@/memory/store"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { assertNotProtectedPath } from "./protected-path"
@@ -63,6 +65,7 @@ export const EditTool = Tool.define(
     const afs = yield* AppFileSystem.Service
     const format = yield* Format.Service
     const bus = yield* Bus.Service
+    const config = yield* Config.Service
 
     return {
       description: DESCRIPTION,
@@ -192,6 +195,9 @@ export const EditTool = Tool.define(
           })
 
           let output = "Edit applied successfully."
+          // 记忆索引写后提醒:MEMORY.md 超预算时驱动模型自我精简(与 Claude Code 一致)
+          const memoryNudge = MemoryStore.indexNudge(filePath, (yield* config.get()).memory?.budget_tokens)
+          if (memoryNudge) output += `\n\n${memoryNudge}`
           yield* lsp.touchFile(filePath, "document")
           const diagnostics = yield* lsp.diagnostics()
           const normalizedFilePath = AppFileSystem.normalizePath(filePath)

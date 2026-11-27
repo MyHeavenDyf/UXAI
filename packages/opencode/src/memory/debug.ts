@@ -5,11 +5,10 @@ import { Cause, Effect, Exit } from "effect"
 import { Token } from "@/util/token"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import * as Log from "@opencode-ai/core/util/log"
-import { SECRET_PATTERNS, type Parsed } from "./store"
 
 const log = Log.create({ service: "memory.debug" })
 
-// 独立 debug 开关,测试阶段默认常开(OCTO_MEMORY_DEBUG=0/false 关闭);
+// 埋点开关,测试阶段默认常开(OCTO_MEMORY_DEBUG=0/false 关闭);
 // 目录可用 OCTO_MEMORY_DEBUG_DIR 覆盖(测试指向临时目录)
 const dumpDir = () => Flag.OCTO_MEMORY_DEBUG_DIR ?? path.join(os.homedir(), ".temp", "auto-memory")
 
@@ -41,17 +40,22 @@ const sessionDir = Effect.fnUntraced(function* (sessionID: string) {
   return dir
 })
 
-// extract/inject/read 各自按 session 计数,文件名互不干扰
-const counters = new Map<string, { extract: number; inject: number; read: number }>()
+const counters = new Map<string, number>()
 
-const next = (sessionID: string, kind: "extract" | "inject" | "read") => {
-  const counter = counters.get(sessionID) ?? { extract: 0, inject: 0, read: 0 }
-  counter[kind]++
+const next = (sessionID: string) => {
+  const counter = (counters.get(sessionID) ?? 0) + 1
   counters.set(sessionID, counter)
-  return counter[kind]
+  return counter
 }
 
 // 脱敏:密钥/凭证模式统一替换,宁可误杀不可漏放(超长 base64/hex 串一并处理)
+const SECRET_PATTERNS = [
+  /sk-[A-Za-z0-9_-]{8,}/,
+  /(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/i,
+  /(?:api[_-]?key|access[_-]?key|secret|token|password|passwd|authorization)["'\s:=]+[^\s"',;\\]{6,}/i,
+  /\b(?:[A-Za-z0-9+/]{40,}={0,2}|[0-9a-fA-F]{32,})\b/,
+]
+
 const redact = (value: string) =>
   SECRET_PATTERNS.reduce(
     (text, pattern) => text.replace(new RegExp(pattern.source, pattern.flags + "g"), "[REDACTED]"),
@@ -77,12 +81,11 @@ const stringify = (value: unknown) => {
 
 const isPosix = process.platform !== "win32"
 
-const write = Effect.fnUntraced(function* (sessionID: string, kind: "extract" | "inject" | "read", content: string) {
+const write = Effect.fnUntraced(function* (sessionID: string, content: string) {
   const dir = path.join(dumpDir(), yield* sessionDir(sessionID))
   yield* Effect.tryPromise(() => mkdir(dir, { recursive: true }))
   if (isPosix) yield* Effect.tryPromise(() => chmod(dir, 0o700)).pipe(Effect.ignore)
-  const index = next(sessionID, kind)
-  const file = path.join(dir, `memory_${stamp()}_no${index}_${kind}.txt`)
+  const file = path.join(dir, `memory_${stamp()}_no${next(sessionID)}_inject.txt`)
   let body = redact(content)
   if (body.length > MAX_FILE_BYTES) body = body.slice(0, MAX_FILE_BYTES) + "\n... [truncated]\n"
   yield* Effect.tryPromise(() => writeFile(file, body))
@@ -130,70 +133,26 @@ const separator = "=".repeat(80)
 
 // 开关判断在序列化之前(build 是惰性闭包,关闭时零序列化开销);内容构建与写入
 // 全部在 exit 隔离区内,任何序列化/IO 异常只 warn,绝不影响 Agent 主流程。
-const dump = Effect.fn("MemoryDebug.dump")(function* (
-  kind: "extract" | "inject" | "read",
-  sessionID: string,
-  build: () => string,
-) {
+const dump = Effect.fn("MemoryDebug.dump")(function* (sessionID: string, build: () => string) {
   if (!Flag.OCTO_MEMORY_DEBUG) return
   const exit = yield* Effect.gen(function* () {
     const content = yield* Effect.try({ try: build, catch: (error) => new Error(String(error)) })
     yield* cleanup()
-    yield* write(sessionID, kind, content)
+    yield* write(sessionID, content)
   }).pipe(Effect.exit)
-  if (Exit.isFailure(exit)) log.warn("memory debug dump failed", { kind, cause: Cause.squash(exit.cause) })
+  if (Exit.isFailure(exit)) log.warn("memory debug dump failed", { cause: Cause.squash(exit.cause) })
 })
 
-// 提取埋点:收集完成(或模型返回但解析为空)后,记录提取输入、原始输出与解析结果
-export const dumpExtract = Effect.fn("MemoryDebug.dumpExtract")(function* (input: {
-  sessionID: string
-  projectID: string
-  model: string
-  prompt: unknown[]
-  indexBefore: string
-  rawOutput: string
-  actions: Parsed[]
-}) {
-  yield* dump("extract", input.sessionID, () =>
-    [
-      separator,
-      `memory extract dump`,
-      separator,
-      `session:         ${input.sessionID}`,
-      `project:         ${input.projectID}`,
-      `time:            ${new Date().toISOString()}`,
-      `model:           ${input.model}`,
-      `actions parsed:  ${input.actions.length}`,
-      `actions tokens:  ${Token.estimateValue(input.actions)}`,
-      separator,
-      "",
-      "===== MEMORY INDEX BEFORE EXTRACTION =====",
-      input.indexBefore,
-      "",
-      "===== PROMPT SENT TO EXTRACTOR =====",
-      stringify(input.prompt),
-      "",
-      "===== RAW MODEL OUTPUT =====",
-      input.rawOutput,
-      "",
-      "===== PARSED ACTIONS =====",
-      stringify(input.actions),
-      "",
-    ].join("\n"),
-  )
-})
-
-// 注入埋点:记忆带进 prompt 时,记录全部上下文(system + tools + messages)与索引 Token 数
+// 注入埋点:记忆块带进 prompt 时,记录全部上下文(system + tools + messages)与记忆 Token 数
 export const dumpInject = Effect.fn("MemoryDebug.dumpInject")(function* (input: {
   sessionID: string
   model: string
+  memoryTokens: number
   system: string[]
   modelMsgs: unknown[]
   activeTools: Record<string, unknown>
-  // 索引注入的 Token 数(仅 <memory> 块),小上下文调优的核心观测指标
-  memoryTokens: number
 }) {
-  yield* dump("inject", input.sessionID, () =>
+  yield* dump(input.sessionID, () =>
     [
       separator,
       `memory inject dump`,
@@ -218,37 +177,6 @@ export const dumpInject = Effect.fn("MemoryDebug.dumpInject")(function* (input: 
       "",
       "===== MESSAGES PREPARED FOR THE AI =====",
       stringify(input.modelMsgs),
-      "",
-    ].join("\n"),
-  )
-})
-
-// 读取埋点:memory_read / memory_search 调用时记录请求、返回条数与返回 Token 数
-export const dumpRead = Effect.fn("MemoryDebug.dumpRead")(function* (input: {
-  sessionID: string
-  projectID: string
-  requested: string[]
-  returned: number
-  tokens: number
-  output: string
-  note?: string
-}) {
-  yield* dump("read", input.sessionID, () =>
-    [
-      separator,
-      `memory read dump`,
-      separator,
-      `session:         ${input.sessionID}`,
-      `project:         ${input.projectID}`,
-      `time:            ${new Date().toISOString()}`,
-      `requested ids:   ${input.requested.length}`,
-      `returned:        ${input.returned}`,
-      `read tokens:     ${input.tokens}`,
-      ...(input.note ? [`note:            ${input.note}`] : []),
-      separator,
-      "",
-      "===== READ RESULT =====",
-      input.output,
       "",
     ].join("\n"),
   )

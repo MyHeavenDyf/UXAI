@@ -6,7 +6,6 @@ import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
-import { MemoryReadTool, MemorySearchTool, available as memoryToolsAvailable } from "./memory"
 import { TaskTool } from "./task"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
@@ -109,8 +108,6 @@ export const layer: Layer.Layer<
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
     const read = yield* ReadTool
-    const memoryread = yield* MemoryReadTool
-    const memorysearch = yield* MemorySearchTool
     const question = yield* QuestionTool
     const todo = yield* TodoWriteTool
     const lsptool = yield* LspTool
@@ -239,8 +236,6 @@ export const layer: Layer.Layer<
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
-          memory_read: Tool.init(memoryread),
-          memory_search: Tool.init(memorysearch),
         })
 
         return {
@@ -250,8 +245,6 @@ export const layer: Layer.Layer<
             ...(questionEnabled ? [tool.question] : []),
             tool.shell,
             tool.read,
-            tool.memory_read,
-            tool.memory_search,
             tool.glob,
             tool.grep,
             tool.edit,
@@ -323,14 +316,7 @@ export const layer: Layer.Layer<
 
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
       const registered = yield* InstanceState.get(state)
-      // 记忆工具的可见性:统一开关 + 主 agent 顶层(与注入侧跳过规则对齐);
-      // execute 内还有同开关防御,配置热切换后旧实例也不会漏数据
-      const memCfg = (yield* config.get()).memory
       const filtered = (yield* all()).filter((tool) => {
-        if (tool.id === "memory_read" || tool.id === "memory_search") {
-          return memoryToolsAvailable(input.agent, memCfg)
-        }
-
         if (tool.id === WebSearchTool.id) {
           return input.providerID === ProviderID.opencode || Flag.OPENCODE_ENABLE_EXA
         }
