@@ -18,5 +18,13 @@ The runtime Dock icon also follows the macOS appearance: `setDockIcon` (in `src/
 in sync per channel folder (`dev` / `beta` / `prod`).
 
 As a last-resort fallback the variants are also embedded in `src/main/dock-icons.ts` (512px, base64 data URLs, used when
-the channel folder files are missing at runtime, e.g. packaged builds without the `icons` extraResource). When you update
-`dock-*.png`, regenerate that module too (512px LANCZOS resize + base64) so the packaged fallback stays in sync.
+the channel folder files are missing at runtime, e.g. packaged builds without the `icons` extraResource).
+
+`dock-light.png` / `dock-dark.png` must match the packaged `icon.icns` exactly: content occupies 80.47% of the canvas
+(824px of 1024px, centered) with the same Big Sur squircle silhouette, otherwise the runtime `app.dock.setIcon()` icon
+renders larger (full-bleed) or with a different shape (plain inset) than neighboring Dock icons. When updating the
+artwork, run `bun scripts/pad-dock-icons.ts` from `packages/desktop`: it renders each channel's `icon.icns` with AppKit,
+takes the resulting alpha channel as the squircle mask, scales the visible content (alpha >= 128) to 824px centered on a
+1024px canvas, and applies the mask so the silhouette is pixel-identical to the packaged icon. It rewrites all channel
+`dock-*.png` and regenerates the 512px base64 fallback in `src/main/dock-icons.ts`. The script is idempotent
+(already-inset files are left untouched) and requires macOS with Xcode command line tools.
