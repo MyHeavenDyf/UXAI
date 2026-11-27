@@ -82,7 +82,7 @@ test("file upload emits one successful result even if UI refresh subsequently fa
   expect(captured.events.filter((event) => event.name.endsWith("-result")).map((event) => event.fields.status)).toEqual(["success", "failure"])
 })
 
-test("multi-file picker and drop use one Design toast with the successful file count", async () => {
+test("multi-file picker and drop send one Design toast per successful file for the expandable list", async () => {
   const file = "../components/file-manager/index.tsx"
   const notices: Array<{ title: string; description: string }> = []
   const showOctoToast = (notice: (typeof notices)[number]) => { notices.push(notice) }
@@ -92,13 +92,14 @@ test("multi-file picker and drop use one Design toast with the successful file c
     ...captured, props: { sessionId: "original" }, checkExternalFile: (file: File) => file.name !== "rejected",
     uploadPath: () => "", tryStreamUpload: async () => true, showToast, refresh: async () => {},
   })
-  const upload = handler<(files: File[]) => Promise<void>>(file, "handleUpload", { uploadSingleFile, showOctoToast })
+  const showUploadedFiles = handler(file, "showUploadedFiles", { showOctoToast })
+  const upload = handler<(files: File[]) => Promise<void>>(file, "handleUpload", { uploadSingleFile, showUploadedFiles })
   const processFileEntry = handler(file, "processFileEntry", {
     ...captured, props: { sessionId: "original" }, getFileFromEntry: async (entry: { file: File }) => entry.file,
     uploadSingleFile,
   })
   const drop = handler<(entries: Array<{ isFile: true; file: File }>) => Promise<void>>(file, "processEntries", {
-    processFileEntry, showOctoToast,
+    processFileEntry, showUploadedFiles,
   })
   const files = [new File([], "first.txt"), new File([], "second.txt")]
   const rejected = new File([], "rejected")
@@ -109,8 +110,10 @@ test("multi-file picker and drop use one Design toast with the successful file c
   await upload(files.slice(0, 1))
 
   expect(notices).toMatchObject([
-    { title: "Uploaded", description: "2 个文件" },
-    { title: "Uploaded", description: "2 个文件" },
+    { title: "Uploaded", description: "first.txt" },
+    { title: "Uploaded", description: "second.txt" },
+    { title: "Uploaded", description: "first.txt" },
+    { title: "Uploaded", description: "second.txt" },
     { title: "上传完成", description: "first.txt" },
   ])
 })
