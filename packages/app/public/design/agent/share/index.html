@@ -9,7 +9,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: #ffffff;
       color: #191919;
       display: flex;
@@ -317,7 +317,8 @@
     }
     .text-assistant[data-component="markdown"] p { margin: 0 0 8px 0; }
     .text-assistant[data-component="markdown"] a {
-      color: #0a59f7;
+      /* design 页 oc-2 主题 var(--text-interactive-base) = #0445e6(insight 页才覆盖为品牌蓝 #0A59F7) */
+      color: #0445e6;
       text-decoration: none;
     }
     .text-assistant[data-component="markdown"] a:hover { text-decoration: underline; text-underline-offset: 2px; }
@@ -334,9 +335,11 @@
     .text-assistant[data-component="markdown"] li > p:first-child { display: inline; margin: 0; }
     .text-assistant[data-component="markdown"] li > ul,
     .text-assistant[data-component="markdown"] li > ol { margin: 0.25rem 0; padding-left: 1rem; }
+    /* 嵌套有序列表缩进更深(上游 markdown.css li > ol 单列 1.75rem) */
+    .text-assistant[data-component="markdown"] li > ol { padding-left: 1.75rem; }
     /* 引用块(上游 markdown.css:左边线 var(--border-weak-base),文字 var(--text-weak) = #8f8f8f) */
     .text-assistant[data-component="markdown"] blockquote {
-      border-left: 2px solid #e5e5e5;
+      border-left: 2px solid #DBDBDB;
       margin: 1.5rem 0;
       padding-left: 0.5rem;
       color: #8f8f8f;
@@ -481,10 +484,10 @@
       display: block;
       overflow-x: auto;
     }
-    /* 单元格描边:上游 td 用 var(--border-weaker-base)(#f0f0f0)、th 用 var(--border-weak-base)(#e5e5e5) */
+    /* 单元格描边:上游 td 用 var(--border-weaker-base)(#E8E8E8)、th 用 var(--border-weak-base)(#DBDBDB) */
     .text-assistant[data-component="markdown"] th,
     .text-assistant[data-component="markdown"] td {
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid #E8E8E8;
       padding: 12px;
       text-align: left;
       vertical-align: top;
@@ -492,7 +495,7 @@
     .text-assistant[data-component="markdown"] th {
       color: #171717;
       font-weight: 500;
-      border-bottom: 1px solid #e5e5e5;
+      border-bottom: 1px solid #DBDBDB;
     }
     /* ── artifact 输出卡片(对齐 design InsightTurn outputCards) ── */
     .artifact-card {
@@ -588,6 +591,8 @@
       align-items: center;
       gap: 8px;
       font-size: 12px;
+      /* 上游 text-xs 同时给 16px 行高(Tailwind text-xs 默认 1rem) */
+      line-height: 16px;
       border-radius: 6px;
       background: #ffffff;
       border: 1px solid #E5E7EB;
@@ -706,10 +711,11 @@
     .subtask-output .so-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .subtask-output .so-title { font-size: 12px; line-height: 22px; font-weight: 500; color: rgb(25, 25, 25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .subtask-output .so-preview { font-size: 12px; line-height: 22px; color: rgb(25, 25, 25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    /* ── 压缩/中断分隔线(对齐 design MessageDivider) ── */
+    /* ── 压缩/中断分隔线(对齐 design MessageDivider:上游 compaction-part,line var(--border-weak-base) = #DBDBDB;
+       label class text-12-regular text-text-weak = 13px/150%) ── */
     .msg-divider { display: flex; align-items: center; gap: 12px; width: 100%; }
-    .msg-divider .line { flex: 1 1 auto; height: 1px; background: #e5e5e5; }
-    .msg-divider .label { flex: 0 0 auto; white-space: nowrap; text-align: center; font-size: 12px; color: #8f8f8f; }
+    .msg-divider .line { flex: 1 1 auto; height: 1px; background: #DBDBDB; }
+    .msg-divider .label { flex: 0 0 auto; white-space: nowrap; text-align: center; font-size: 13px; line-height: 150%; color: #8f8f8f; }
     /* ── 错误/停滞提示(对齐 design MakeErrorNotice / 压缩提示) ── */
     .error-notice {
       margin: 0 12px;
@@ -728,8 +734,9 @@
     .stalled-notice {
       margin: 0 12px;
       padding: 8px 16px;
-      font-size: 14px;
-      line-height: 22px;
+      /* 上游 text-sm:字号 13px(var(--font-size-small))、行高 20px(Tailwind text-sm 默认 1.25rem) */
+      font-size: 13px;
+      line-height: 20px;
       border-radius: 6px;
       border: 1px solid rgba(234, 179, 8, 0.3);
       background: rgba(255, 247, 224, 1);
@@ -860,12 +867,14 @@
      @media (max-width: 1227px) {
        body[data-module="studio"] .chat-scroll-view { padding: 24px; }
      }
-     /* ── insight 会话区(对齐 insight 页 ScrollView: padding 0 12px + 内容列 800px 居中 + py-3) ── */
-     /* 824 = 800(内容列宽)+ 2×12(滚动区内边距);turn 间距 16px 由 .chat-content gap 承担
-        (上游 gap-0 + 每个 InsightTurn mb-4,视觉等价);底部统一加分享页 60px 留白 */
-     body[data-module="insight"] .chat-scroll-view { max-width: 824px; padding: 0 12px; }
-     body[data-module="insight"] .chat-content { padding-top: 0; }
-     body[data-module="insight"] #conversation-list { padding: 12px 0 60px 0; }
+      /* ── insight 会话区(对齐 insight 页 ScrollView: padding 0 12px + 内容列 800px 居中 + py-3) ── */
+      /* 824 = 800(内容列宽)+ 2×12(滚动区内边距);turn 间距 16px 由 .chat-content gap 承担
+         (上游 gap-0 + 每个 InsightTurn mb-4,视觉等价);底部统一加分享页 60px 留白 */
+      body[data-module="insight"] .chat-scroll-view { max-width: 824px; padding: 0 12px; }
+      body[data-module="insight"] .chat-content { padding-top: 0; }
+      body[data-module="insight"] #conversation-list { padding: 12px 0 60px 0; }
+      /* 头部标题容器随 insight 内容列(824px)对齐,否则沿用 design 的 1024px,标题左边界与会话区错位 */
+      body[data-module="insight"] .header-title { max-width: 824px; }
 
     .studio-conversation {
       display: flex;
@@ -1534,8 +1543,10 @@
       white-space: nowrap;
     }
     /* 用户气泡:上游 user-message-body 宽度 min(82%, 64ch);
-       insight 页上游 user-message-text 内边距 8px 12px(octo-tokens 仅覆盖圆角/底色/字号) */
-    .insight-scope .bubble-user { max-width: min(82%, 64ch); padding: 8px 12px; }
+        insight 页上游 user-message-text 内边距 8px 12px(octo-tokens 仅覆盖圆角/底色/字号);
+        根节点 [data-component="user-message] 文字 var(--text-strong) = #171717、行高 var(--line-height-large) = 150%
+        (压缩轮回显气泡为行内样式 #191919/22px,不受此规则影响) */
+    .insight-scope .bubble-user { max-width: min(82%, 64ch); padding: 8px 12px; color: #171717; line-height: 150%; }
     /* insight 页正文 Markdown:上游 [data-component="text-part"] 内 Markdown 覆盖
        (22px 行高、h1 16px/h2+ 14px 加粗分级、12px 段距、li 零底距、hr 24px)——
        与 design 页 markdown.css 基础样式(160%/8px)不同 */
@@ -1578,12 +1589,14 @@
     .insight-scope .text-assistant[data-component="markdown"] li { margin-bottom: 0; }
     .insight-scope .text-assistant[data-component="markdown"] table { margin: 12px 0; }
     .insight-scope .text-assistant[data-component="markdown"] hr { margin: 24px 0; }
-    /* insight 页 token 差异:引用块/表格/分割线描边用 insight 的 border-weak-base(#DBDBDB) 与 weaker(#E8E8E8) */
+    /* insight 页 token 差异:引用块/表格描边用 insight 的 border-weak-base(#DBDBDB) 与 weaker(#E8E8E8);
+       分割线 line 两页同为 #DBDBDB(基础 .msg-divider 已对齐,无需覆盖) */
     .insight-scope .text-assistant[data-component="markdown"] blockquote { border-left-color: #DBDBDB; }
     .insight-scope .text-assistant[data-component="markdown"] td { border-bottom-color: #E8E8E8; }
     .insight-scope .text-assistant[data-component="markdown"] th { border-bottom-color: #DBDBDB; }
-    .insight-scope .msg-divider .line { background: #DBDBDB; }
     .insight-user-row { display: flex; flex-direction: column; align-items: flex-end; }
+    /* 上游 user-message-copy-wrapper:min-height 20px、右对齐、gap 10px、hover 显示;
+       内部 meta 文字均为 text-12-regular(13px/150%) text-text-weak(#8F8F8F) */
     .insight-user-meta {
       min-height: 20px;
       width: 100%;
@@ -1594,13 +1607,16 @@
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.15s ease;
-      font-size: 12px;
-      line-height: 18px;
+      font-size: 13px;
+      line-height: 150%;
       color: #8f8f8f;
-      padding-top: 2px;
     }
     .insight-user-row:hover .insight-user-meta,
-    .insight-user-row:focus-within .insight-user-meta { opacity: 1; }
+    .insight-user-row:focus-within .insight-user-meta { opacity: 1; pointer-events: auto; }
+    /* 上游 meta-wrap:flex-1 右对齐、overflow 裁切;meta 头(可收缩省略)与时间(不收缩)用 \u00A0·\u00A0 相接 */
+    .insight-user-meta-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
+    .insight-user-meta-head { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; user-select: none; }
+    .insight-user-meta-tail { flex: 0 0 auto; white-space: nowrap; text-align: right; user-select: none; }
     /* assistant 内容:上游 assistant-content(flex 列 + 12px 间距) */
     .insight-msgs { display: flex; flex-direction: column; gap: 12px; }
     /* 思考过程:上游 reasoning-part(正文 Markdown、20px 顶距 + 左边线);
@@ -1621,15 +1637,15 @@
     .insight-scope .insight-reasoning-body .text-assistant p:has(strong):first-child { margin-top: 0; }
     .insight-scope .insight-reasoning-body .text-assistant strong { color: #777; }
     .insight-scope .insight-reasoning-body .text-assistant li { margin-bottom: 2px; }
-    /* Tool row: upstream BasicTool trigger (content-driven row height, 14px/150% text + 16px indicator) and ContextToolGroup */
+    /* Tool row: upstream BasicTool trigger (32px 行高、14px/150% 文字 baseline 对齐) and ContextToolGroup */
     .insight-tool-row {
       width: 100%;
       display: flex;
-      align-items: center;
+      align-items: baseline;
       gap: 8px;
       min-width: 0;
       font-size: 14px;
-      line-height: 22px;
+      line-height: 150%;
       text-align: left;
     }
     .insight-tool-title { flex-shrink: 0; color: #171717; font-weight: 500; }
@@ -1641,9 +1657,16 @@
       white-space: nowrap;
       color: #6f6f6f;
     }
+    /* 单工具行:上游 Collapsible.Trigger 固定 32px 高、垂直居中;ctx 组明细行无箭头,高度随内容 */
+    .insight-msgs > .insight-tool-row { min-height: 32px; align-items: center; }
+    .insight-msgs > .insight-question { min-height: 32px; }
+    .insight-question { display: flex; flex-direction: column; align-items: stretch; }
+    /* 上游 tool-collapsible:trigger ↔ content 4px 间距 */
+    .insight-question .insight-question-answers { margin-top: 4px; }
     .insight-ctx-trigger {
       width: 100%;
-      min-height: 24px;
+      /* 上游 collapsible-trigger 32px 高;ctx 内层 context-tool-group-trigger min-height 24px */
+      min-height: 32px;
       display: flex;
       align-items: center;
       gap: 0;
@@ -1660,7 +1683,7 @@
       align-items: center;
       gap: 8px;
       font-size: 14px;
-      line-height: 22px;
+      line-height: 150%;
     }
     .insight-ctx-label { color: #171717; font-weight: 500; }
     .insight-ctx-summary {
@@ -1671,8 +1694,24 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .insight-ctx-chevron { color: #8f8f8f; display: inline-flex; margin-left: 4px; transition: transform 0.2s ease; }
-    .insight-ctx-trigger[data-open="true"] .insight-ctx-chevron { transform: rotate(180deg); }
+    /* 上游 Collapsible.Arrow:24px 容器、16px 图标、--icon-weaker(#e0e0e0)、hover/展开才显现、
+       收起 -90° → 展开 0°(设计上箭头常驻占位,不随内容挤压) */
+    .insight-ctx-chevron {
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #e0e0e0;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      cursor: pointer;
+    }
+    .insight-ctx-chevron svg { width: 16px; height: 16px; display: inline-flex; transform: rotate(-90deg); transition: transform 0.15s ease; }
+    .insight-ctx-trigger:hover .insight-ctx-chevron,
+    .insight-ctx-trigger[data-open="true"] .insight-ctx-chevron { opacity: 1; }
+    .insight-ctx-trigger[data-open="true"] .insight-ctx-chevron svg { transform: rotate(0deg); }
     .insight-ctx-items { padding-left: 12px; display: none; flex-direction: column; gap: 4px; }
     .insight-ctx-items[data-open="true"] { display: flex; }
     /* question 问答(上游 question-answers) */
@@ -1693,7 +1732,10 @@
     }
     .insight-text:hover .insight-text-meta-row,
     .insight-text:focus-within .insight-text-meta-row { opacity: 1; pointer-events: auto; }
-    .insight-text-meta { font-size: 12px; color: #8f8f8f; user-select: none; cursor: default; }
+    /* 上游 text-part-meta:text-12-regular(13px/150%) text-text-weak */
+    .insight-text-meta { font-size: 13px; line-height: 150%; color: #8f8f8f; user-select: none; cursor: default; }
+    /* 上游 text-part-copy-wrapper[data-interrupted]:中断轮整行右对齐、gap 12px */
+    .insight-text-meta-row[data-interrupted] { width: 100%; justify-content: flex-end; gap: 12px; }
     /* 正文复制回复按钮(对齐上游 text-part-copy-wrapper 内 IconButton ghost normal:
        24px 透明钮、4px 圆角、16px currentColor 图标(#8F8F8F)、hover 浅灰底) */
     .insight-copy-btn {
@@ -1739,6 +1781,11 @@
       border-radius: 2px;
       background: #ed4831;
     }
+    /* 常规 turn 的 MakeErrorNotice(上下文超出提示)在 insight 页不带 mx-3:12px 内缩由 SessionTurn px-3 承担;
+       压缩 turn(insight-turn--compaction 无内缩)仍需 12px 边距,维持 .error-notice 默认 margin */
+    .insight-scope .insight-turn:not(.insight-turn--compaction) .error-notice { margin: 0; }
+    /* insight 页 reasoning 折叠箭头为上游 Icon chevron-down small = 16px(design 分支 12px) */
+    .insight-scope .reasoning-toggle svg { width: 16px; height: 16px; }
     /* 压缩 turn 状态条(insight-compaction-status) */
     .insight-compaction-status {
       display: flex;
@@ -1895,6 +1942,64 @@
     }
     .insight-task-foot .file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .insight-task-id { flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* ── 会话内文件变更组(对齐上游 SessionTurn diffs group / session-turn.css)── */
+    .insight-diffs { width: 100%; min-width: 0; }
+    .insight-diffs-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 4px;
+      padding-bottom: 12px;
+      height: 44px;
+    }
+    /* label:上游 14px/500/150% var(--text-strong);"Changed" 为 zh 词条缺失时的 en 回退,与 insight 页实际渲染一致 */
+    .insight-diffs-label {
+      font-variant-numeric: tabular-nums;
+      color: #171717;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 150%;
+    }
+    .insight-diff-changes { display: flex; gap: 8px; align-items: center; }
+    .insight-diff-changes .insight-diff-add { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 14px; line-height: 150%; color: #167517; }
+    .insight-diff-changes .insight-diff-del { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 14px; line-height: 150%; color: #fa3012; }
+    .insight-diffs-content { padding-top: 0; display: flex; flex-direction: column; }
+    /* 文件行:上游 Accordion.Trigger 32px 高、8px 12px 内距、#f7f7f7 底(insight --background-stronger)、
+       #DBDBDB 描边、相邻行 -1px 合并边框、首尾 8px 圆角、13px/150% */
+    .insight-diff-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      min-width: 0;
+      height: 32px;
+      padding: 8px 12px;
+      background: #f7f7f7;
+      border: 1px solid #DBDBDB;
+      color: #171717;
+      font-size: 13px;
+      line-height: 150%;
+    }
+    .insight-diff-row + .insight-diff-row { margin-top: -1px; }
+    .insight-diff-row:first-child { border-top-left-radius: 8px; border-top-right-radius: 8px; }
+    /* 用 last-of-type:超出 10 个文件时后面还挂 more 提示行(span),最后一行仍保持底部圆角 */
+    .insight-diff-row:last-of-type { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }
+    .insight-diff-row:hover { background: #0000000A; }
+    .insight-diff-path { display: flex; flex-grow: 1; min-width: 0; font-size: 13px; line-height: 150%; }
+    /* 目录段:rtl 裁切保留尾部(与文件名相邻处),颜色 var(--text-base) = #6F6F6F */
+    .insight-diff-dir { color: #6f6f6f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+    .insight-diff-name { min-width: 0; color: #171717; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .insight-diff-meta { flex-shrink: 0; display: inline-flex; align-items: center; gap: 10px; }
+    /* 超出 10 个文件时的静态提示(上游 ui.sessionTurn.diffs.more,zh 缺 key 回退 en) */
+    .insight-diffs-more {
+      color: #8F8F8F;
+      font-size: 13px;
+      line-height: 150%;
+      margin-top: 12px;
+      padding: 0 0 6px;
+      cursor: default;
+    }
   </style>
 </head>
 <body>
@@ -1946,8 +2051,11 @@
     const CODE_COPY_SVG = '<svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><g><path d="M11.4451 5.41518C11.7601 5.41518 12.0251 5.52768 12.2401 5.75268C12.4551 5.97268 12.5626 6.24018 12.5626 6.55518L12.5626 14.0402C12.5626 14.3502 12.4551 14.6177 12.2401 14.8427C12.0251 15.0627 11.7601 15.1727 11.4451 15.1727L3.94507 15.1727C3.63007 15.1727 3.36507 15.0627 3.15007 14.8427C2.93507 14.6177 2.82757 14.3502 2.82757 14.0402L2.82757 6.55518C2.82757 6.24018 2.93507 5.97268 3.15007 5.75268C3.36507 5.52768 3.63007 5.41518 3.94507 5.41518L11.4451 5.41518ZM3.94507 4.30518C3.53507 4.30518 3.16007 4.40518 2.82007 4.60518C2.47507 4.81018 2.20007 5.08518 1.99507 5.43018C1.79507 5.77018 1.69507 6.14518 1.69507 6.55518L1.69507 14.0402C1.69507 14.4502 1.79507 14.8277 1.99507 15.1727C2.20007 15.5227 2.47507 15.7952 2.82007 15.9902C3.16007 16.1902 3.53507 16.2902 3.94507 16.2902L11.4451 16.2902C11.8551 16.2902 12.2301 16.1902 12.5701 15.9902C12.9151 15.7952 13.1901 15.5227 13.3951 15.1727C13.5951 14.8277 13.6951 14.4502 13.6951 14.0402L13.6951 6.55518C13.6951 6.14518 13.5951 5.77018 13.3951 5.43018C13.1901 5.08518 12.9151 4.81018 12.5701 4.60518C12.2301 4.40518 11.8551 4.30518 11.4451 4.30518L3.94507 4.30518ZM8.20507 9.81018L8.20507 7.36518C8.20507 7.13518 8.11257 6.97518 7.92757 6.88518C7.74257 6.79518 7.55507 6.79518 7.36507 6.88518C7.17007 6.97518 7.07257 7.13518 7.07257 7.36518L7.07257 9.81018L4.64257 9.81018C4.41757 9.81018 4.25507 9.90268 4.15507 10.0877C4.06007 10.2727 4.06007 10.4602 4.15507 10.6502C4.25507 10.8352 4.41757 10.9277 4.64257 10.9277L7.07257 10.9277L7.07257 13.3577C7.07257 13.5977 7.17007 13.7652 7.36507 13.8602C7.55507 13.9552 7.74257 13.9552 7.92757 13.8602C8.11257 13.7652 8.20507 13.5977 8.20507 13.3577L8.20507 10.9277L10.6351 10.9277C10.8751 10.9277 11.0451 10.8352 11.1451 10.6502C11.2401 10.4602 11.2401 10.2727 11.1451 10.0877C11.0451 9.90268 10.8751 9.81018 10.6351 9.81018L8.20507 9.81018Z" fill="rgb(0,0,0)" fill-opacity="0.600000024" fill-rule="nonzero"/><path d="M7.29008 1.69482C6.72508 1.69482 6.20508 1.83982 5.73008 2.12982C5.26008 2.42482 4.89758 2.81982 4.64258 3.31482L6.03008 3.31482C6.21008 3.15482 6.40508 3.03482 6.61508 2.95482C6.82508 2.86982 7.05008 2.82732 7.29008 2.82732L13.3051 2.82732C13.6401 2.82732 13.9501 2.90982 14.2351 3.07482C14.5251 3.24482 14.7551 3.47482 14.9251 3.76482C15.0901 4.04982 15.1726 4.35982 15.1726 4.69482L15.1726 10.6948C15.1726 10.9348 15.1276 11.1623 15.0376 11.3773C14.9476 11.5923 14.8251 11.7848 14.6701 11.9548L14.6701 13.3348C15.1601 13.0848 15.5526 12.7223 15.8476 12.2473C16.1426 11.7723 16.2901 11.2548 16.2901 10.6948L16.2901 4.69482C16.2901 4.15482 16.1551 3.65482 15.8851 3.19482C15.6151 2.73482 15.2526 2.36982 14.7976 2.09982C14.3426 1.82982 13.8451 1.69482 13.3051 1.69482L7.29008 1.69482Z" fill="rgb(0,0,0)" fill-opacity="0.600000024" fill-rule="nonzero"/></g></svg>'
     const CODE_CHECK_SVG = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 11.9657L8.37838 14.7529L15 5.83398" stroke="rgb(0,0,0)" stroke-opacity="0.6" stroke-linecap="square" stroke-width="1.5"/></svg>'
     const CODE_CHEVRON_SVG = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgb(0,0,0)" fill-opacity="0.6"/></svg>'
-    // 思考过程折叠箭头(design 页 ReasoningCollapsed 内联 12x12 svg;insight 上游为 icon chevron-down,视觉一致)
+    // 思考过程折叠箭头(design 页 ReasoningCollapsed 内联 12x12 svg;insight 上游为 icon chevron-down small = 16px)
     const REASONING_CHEVRON_SVG = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
+    // 上游 ui icon chevron-down(20 viewBox,fill-opacity 0.6):insight 页 ctx 箭头与 reasoning 箭头共用,16px;
+    // 显式 width/height 防御作用域 class 缺失时 svg 撑满默认尺寸(CSS 同值不冲突)
+    const INSIGHT_CHEVRON_SVG = '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 6.91961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor" fill-opacity="0.6"/></svg>'
     function codeBlockHtml(lang, code) {
       return (
         '<div data-component="markdown-code">' +
@@ -2849,7 +2957,8 @@
           map.set(call.filePath, { path: call.filePath, name: call.filePath.split(/[/\\]/).pop() ?? call.filePath, ops: [op], status: call.status })
         }
       }
-      if (map.size === 0) return null
+      // design 页只要 otherToolCalls 非空就渲染摘要框(无文件操作时 head 只剩 "文件操作: ")
+      if (calls.length === 0) return null
       let w = 0, e = 0, r = 0
       for (const entry of map.values()) for (const op of entry.ops) { if (op === "write") w++; else if (op === "edit") e++; else r++ }
       const parts = []
@@ -2863,7 +2972,7 @@
       head.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4h8M2 6h8M2 8h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
       head.appendChild(document.createTextNode("文件操作: " + parts.join(" · ")))
       box.appendChild(head)
-      if (map.size <= 5) {
+      if (map.size > 0 && map.size <= 5) {
         // 行区 gap-0.5(2px)、徽标组 gap-0.5(对齐 design FileOpsSummary 的子容器间距,
         // 区别于容器级 head↔行区 gap-1)
         const rows = document.createElement("div")
@@ -3098,7 +3207,7 @@
       return divider
     }
     // 错误提示卡(对齐 design/insight 共用 MakeErrorNotice:红底警示卡 + 标题 + 文本行)
-    function buildErrorNotice(title, lines) {
+    function buildErrorNotice(title, lines = []) {
       const notice = document.createElement("div")
       notice.className = "error-notice"
       notice.innerHTML = '<svg viewBox="0 0 14 14" width="14" height="14" fill="none" aria-hidden="true"><path d="M5.79 2.1a1.4 1.4 0 0 1 2.42 0l4.24 7.35a1.4 1.4 0 0 1-1.21 2.1H2.76a1.4 1.4 0 0 1-1.21-2.1L5.79 2.1Z" fill="#E02128"/><path d="M7 4.3v3.15M7 9.38v.17" stroke="white" stroke-width="1.05" stroke-linecap="round"/></svg>'
@@ -3106,7 +3215,7 @@
       content.style.minWidth = "0"
       content.style.flex = "1"
       content.appendChild(makeSpan("notice-title", title))
-      for (const line of lines) {
+      for (const line of typeof lines === "string" ? [lines] : Array.isArray(lines) ? lines : []) {
         const msg = document.createElement("div")
         msg.textContent = line
         msg.style.userSelect = "text"
@@ -3543,7 +3652,8 @@
           const proseRow = buildProseRow(proseSegments, isFormSubmitted(turns, turnIndex))
           if (proseRow) turnEl.appendChild(proseRow)
 
-          // 工具调用区(对齐 design:技能组 → 其他工具组 → 子任务卡,同一 8px 间距容器)
+          // 工具调用区(对齐 design:技能组 → 其他工具组 → 子任务卡 → 文件操作摘要 → 涉及文件列表,
+          // 同一 8px 间距容器;文件操作摘要只要存在其他工具调用就出框,即使无文件操作 —— 对齐 design 的 Show 门)
           const { skillCalls, otherCalls } = collectToolCalls(turn, allParts)
           const subtasks = collectSubtasks(allParts, sessionsById)
           if (skillCalls.length > 0 || otherCalls.length > 0 || subtasks.length > 0) {
@@ -3552,13 +3662,12 @@
             if (skillCalls.length > 0) buildToolGroupCards(skillCalls, toolsWrap)
             if (otherCalls.length > 0) buildToolGroupCards(otherCalls, toolsWrap)
             for (const st of subtasks) toolsWrap.appendChild(buildSubtaskCard(st))
+            const fileOps = buildFileOps(otherCalls)
+            if (fileOps) toolsWrap.appendChild(fileOps)
+            const producedFiles = buildProducedFiles(otherCalls)
+            if (producedFiles) toolsWrap.appendChild(producedFiles)
             turnEl.appendChild(toolsWrap)
           }
-          // 文件操作摘要 + 涉及文件列表(对齐 design FileOpsSummary / ProducedFilesList)
-          const fileOps = buildFileOps(otherCalls)
-          if (fileOps) turnEl.appendChild(fileOps)
-          const producedFiles = buildProducedFiles(otherCalls)
-          if (producedFiles) turnEl.appendChild(producedFiles)
 
           // 错误提示(对齐 design MakeErrorNotice:生成出错/认证失败/上下文超出提示)
           const errorNotice = buildTurnErrorNotice(turn)
@@ -4012,7 +4121,13 @@
         }
       }
     }
-    // ContextToolGroup 单项(对齐 contextToolTrigger:subtitle 优先,兜底 error/title/description)
+    // ContextToolGroup 单项(对齐 contextToolTrigger:subtitle 优先,兜底 error/title/description;
+    // list/glob/grep 展示目录、read 展示文件名 —— 对齐上游 getDirectory/getFilename 取值)
+    function insightDirectoryOf(path) {
+      const trimmed = String(path || "").replace(/[/\\]+$/, "")
+      const parts = trimmed.split(/[/\\]/)
+      return parts.slice(0, parts.length - 1).join("/") + "/"
+    }
     function insightCtxItemInfo(part) {
       const input = (part.state || {}).input || {}
       const path = typeof input.path === "string" ? input.path : "/"
@@ -4023,15 +4138,15 @@
         if (typeof input.limit === "number") args.push("limit=" + input.limit)
         return { title: "读取文件", subtitle: input.filePath ? insightFilenameOf(input.filePath) : "", args }
       }
-      if (tool === "list") return { title: "列表", subtitle: insightFilenameOf(path), args: [] }
+      if (tool === "list") return { title: "列表", subtitle: insightDirectoryOf(path), args: [] }
       if (tool === "glob") {
-        return { title: "查找文件", subtitle: insightFilenameOf(path), args: input.pattern ? ["pattern=" + input.pattern] : [] }
+        return { title: "查找文件", subtitle: insightDirectoryOf(path), args: input.pattern ? ["pattern=" + input.pattern] : [] }
       }
       if (tool === "grep") {
         const args = []
         if (typeof input.pattern === "string") args.push("pattern=" + input.pattern)
         if (typeof input.include === "string") args.push("include=" + input.include)
-        return { title: "检索内容", subtitle: insightFilenameOf(path), args }
+        return { title: "检索内容", subtitle: insightDirectoryOf(path), args }
       }
       return { title: tool, subtitle: insightToolLabel(input) ?? "", args: [] }
     }
@@ -4069,7 +4184,7 @@
       trigger.appendChild(title)
       const chevron = document.createElement("span")
       chevron.className = "insight-ctx-chevron"
-      chevron.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
+      chevron.innerHTML = INSIGHT_CHEVRON_SVG
       trigger.appendChild(chevron)
       const items = document.createElement("div")
       items.className = "insight-ctx-items"
@@ -4103,7 +4218,7 @@
       toggle.innerHTML =
         "<span>已深度思考</span>" +
         (duration ? "<span>（用时" + duration + "）</span>" : "") +
-        '<span style="display:inline-flex;align-items:center;flex-shrink:0;">' + REASONING_CHEVRON_SVG + "</span>"
+        '<span style="display:inline-flex;align-items:center;flex-shrink:0;">' + INSIGHT_CHEVRON_SVG + "</span>"
       const body = document.createElement("div")
       body.className = "insight-reasoning-body"
       body.style.display = autoOpen ? "" : "none"
@@ -4266,10 +4381,11 @@
       const body = document.createElement("div")
       body.className = "insight-task-body"
       if (status === "pending" || status === "processing") {
-        body.textContent = entry.message ?? ""
+        body.textContent = entry.message ?? "请稍后点击刷新获取结果"
       } else if (status === "completed") {
+        // 完成语对齐 insight TaskCard completedSummary:"分析已完成,请点击查看" / "共生成N份文件,请点击查看"
         const n = entry.resourceLinks.length
-        body.textContent = n <= 0 ? "分析已完成" : "共生成" + insightCnNum(n) + "份文件"
+        body.textContent = n <= 0 ? "分析已完成,请点击查看" : "共生成" + insightCnNum(n) + "份文件,请点击查看"
       } else if (status === "failed") {
         body.textContent = "请稍后重试"
         if (entry.message) {
@@ -4390,7 +4506,7 @@
     }
 
     // ── insight turn 渲染 ──
-    function renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token) {
+    function renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token, models) {
       const turnEl = document.createElement("div")
       const userParts = (turn.user && turn.user.parts) || []
       const isCompactionTurn = userParts.some((p) => p.type === "compaction")
@@ -4429,7 +4545,7 @@
         if (compacted) {
           turnEl.appendChild(buildDivider("会话已压缩"))
         } else if (failure) {
-          turnEl.appendChild(buildErrorNotice("上下文压缩失败", failureMessage))
+          turnEl.appendChild(buildErrorNotice("上下文压缩失败", failureMessage ? [failureMessage] : []))
         } else {
           const stalled = document.createElement("div")
           stalled.className = "stalled-notice"
@@ -4469,11 +4585,11 @@
             thumb.appendChild(img)
             attBox.appendChild(thumb)
           } else {
-            attBox.appendChild(buildInsightAttachmentCard(part.filename, kindFromMime(part.mime || mimeFromFilename(part.filename))))
+            attBox.appendChild(buildInsightAttachmentCard(part.filename, part.mime || mimeFromFilename(part.filename)))
           }
         } else if (part.url && /^data:/.test(part.url)) {
           // chat 时代的内联附件:上游渲染为附件 chip,此处与其样式对齐(文件卡片)
-          attBox.appendChild(buildInsightAttachmentCard(part.filename, kindFromMime(part.mime || mimeFromFilename(part.filename))))
+          attBox.appendChild(buildInsightAttachmentCard(part.filename, part.mime || mimeFromFilename(part.filename)))
         }
       }
       const attachBlock = userParts.find(
@@ -4481,13 +4597,14 @@
       )
       if (attachBlock) {
         for (const f of parseUploadedFilesBlock(attachBlock.text)) {
-          attBox.appendChild(buildInsightAttachmentCard(f.filename, kindFromMime(mimeFromFilename(f.filename))))
+          attBox.appendChild(buildInsightAttachmentCard(f.filename, mimeFromFilename(f.filename)))
         }
       }
       if (attBox.children.length > 0) turnEl.appendChild(attBox)
 
-      // 2. 用户气泡 + 气泡下方 meta(agent · 模型 · 时间,hover 显示);
-      //    回填轮整个 user-message 被上游隐藏,气泡与 meta 均不渲染
+      // 2. 用户气泡 + 气泡下方 meta 行(agent · 模型 · 时间,hover 显示 + 复制消息按钮);
+      //    回填轮整个 user-message 被上游隐藏,气泡与 meta 均不渲染;
+      //    上游 copy-wrapper 包在 Show when={text()} 内 —— 附件轮(无文字)不出 meta 行
       if (turn.user && !isReplayTurn) {
         const row = document.createElement("div")
         row.className = "insight-user-row"
@@ -4505,19 +4622,24 @@
           bubble.appendChild(mask)
           bubble.appendChild(buildBubbleExpandButton())
           row.appendChild(bubble)
+
+          const info = turn.user.info || {}
+          // 模型展示名:上游取 provider.models[modelID].name,分享页用导出时固化的 manifest.models 映射
+          const modelID = (info.model || {}).modelID
+          const modelLabel = modelID ? ((models || {})[((info.model || {}).providerID || "") + "/" + modelID] ?? modelID) : ""
+          const metaHead = [insightAgentLabel(info.agent), modelLabel].filter(Boolean).join("\u00A0·\u00A0")
+          const created = (info.time || {}).created
+          const meta = document.createElement("div")
+          meta.className = "insight-user-meta"
+          const metaText = document.createElement("span")
+          metaText.className = "insight-user-meta-text"
+          if (metaHead) metaText.appendChild(makeSpan("insight-user-meta-head", metaHead))
+          if (metaHead && typeof created === "number") metaText.appendChild(makeSpan("", "\u00A0·\u00A0"))
+          if (typeof created === "number") metaText.appendChild(makeSpan("insight-user-meta-tail", insightShortTime(created)))
+          if (metaText.children.length > 0) meta.appendChild(metaText)
+          meta.appendChild(buildInsightCopyButton(userTextContent.trim(), "复制消息", "已复制"))
+          row.appendChild(meta)
         }
-        const info = turn.user.info || {}
-        const metaItems = [insightAgentLabel(info.agent), (info.model || {}).modelID].filter(Boolean)
-        const meta = document.createElement("div")
-        meta.className = "insight-user-meta"
-        if (metaItems.length > 0 || typeof (info.time || {}).created === "number") {
-          if (metaItems.length > 0) meta.appendChild(makeSpan("", metaItems.join(" · ")))
-          if (typeof (info.time || {}).created === "number") {
-            if (metaItems.length > 0) meta.appendChild(makeSpan("", "·"))
-            meta.appendChild(makeSpan("", insightShortTime(info.time.created)))
-          }
-        }
-        row.appendChild(meta)
         turnEl.appendChild(row)
       }
 
@@ -4537,22 +4659,27 @@
           })
           .map((p) => ({ part: p, msg: m })),
       )
+      // 最后一个非空 text part(跨消息,对齐 showAssistantCopyPartID)挂 meta
+      let lastTextEntry = null
+      for (const entry of renderableParts) {
+        if (entry.part.type === "text") lastTextEntry = entry
+      }
+      // turnDurationMs(对齐上游:用户消息 created → 最后一条 assistant completed)
+      const userCreated = ((turn.user || {}).info || {}).time?.created
+      const maxCompleted = turn.assistants.reduce((max, m) => {
+        const c = (m.info || {}).time?.completed
+        return typeof c === "number" && c > max ? c : max
+      }, -Infinity)
+      const turnDurationMs = typeof userCreated === "number" && maxCompleted !== -Infinity && maxCompleted >= userCreated ? maxCompleted - userCreated : -1
+      const interrupted = turn.assistants.some((m) => ((m.info || {}).error || {}).name === "MessageAbortedError")
+
+      // 中断 divider(对齐上游 session-turn:message-content → divider → assistant-content,
+      // 位于用户消息与 assistant 内容之间,message-container gap 0 无额外间距)
+      if (interrupted) turnEl.appendChild(buildDivider("已中断"))
+
       if (renderableParts.length > 0) {
         const msgs = document.createElement("div")
         msgs.className = "insight-msgs"
-        // 最后一个非空 text part(跨消息,对齐 showAssistantCopyPartID)挂 meta
-        let lastTextEntry = null
-        for (const entry of renderableParts) {
-          if (entry.part.type === "text") lastTextEntry = entry
-        }
-        // turnDurationMs(对齐上游:用户消息 created → 最后一条 assistant completed)
-        const userCreated = ((turn.user || {}).info || {}).time?.created
-        const maxCompleted = turn.assistants.reduce((max, m) => {
-          const c = (m.info || {}).time?.completed
-          return typeof c === "number" && c > max ? c : max
-        }, -Infinity)
-        const turnDurationMs = typeof userCreated === "number" && maxCompleted !== -Infinity && maxCompleted >= userCreated ? maxCompleted - userCreated : -1
-        const interrupted = turn.assistants.some((m) => ((m.info || {}).error || {}).name === "MessageAbortedError")
 
         let i = 0
         while (i < renderableParts.length) {
@@ -4587,16 +4714,20 @@
             if (entryRefEquals(renderableParts[i], lastTextEntry)) {
               const metaRow = document.createElement("div")
               metaRow.className = "insight-text-meta-row"
+              // 上游 text-part-copy-wrapper[data-interrupted]:中断轮整行右对齐、gap 12px
+              if (interrupted) metaRow.setAttribute("data-interrupted", "")
               // 上游顺序:复制回复按钮在前,text-part-meta 在后
               metaRow.appendChild(buildInsightCopyButton(part.text.trim()))
+              const msgInfo = msg.info || {}
+              const modelLabel = msgInfo.modelID ? ((models || {})[(msgInfo.providerID || "") + "/" + msgInfo.modelID] ?? msgInfo.modelID) : ""
               const metaItems = [
-                insightAgentLabel((msg.info || {}).agent),
-                (msg.info || {}).modelID,
+                insightAgentLabel(msgInfo.agent),
+                modelLabel,
                 insightDurationText(turnDurationMs),
                 interrupted ? "已中断" : "",
               ].filter(Boolean)
               if (metaItems.length > 0) {
-                metaRow.appendChild(makeSpan("insight-text-meta", metaItems.join(" · ")))
+                metaRow.appendChild(makeSpan("insight-text-meta", metaItems.join(" \u00B7 ")))
               }
               textEl.appendChild(metaRow)
             }
@@ -4608,6 +4739,7 @@
             // question 完成态:问题行 + 问答明细;其余工具:BasicTool 触发行
             if (part.tool === "question") {
               const wrap = document.createElement("div")
+              wrap.className = "insight-question"
               wrap.appendChild(buildInsightToolRow(insightQuestionRowInfo(part)))
               const answers = insightQuestionAnswers(part)
               if (answers.length > 0) {
@@ -4632,32 +4764,32 @@
           }
           i++
         }
-        // 中断 divider(对齐上游 session-turn divider)
-        if (interrupted) {
-          const divider = buildDivider("已中断")
-          divider.style.marginTop = "0"
-          msgs.appendChild(divider)
-        }
-        // 错误卡(对齐上游:ContextOverflowError 走 renderContextOverflow 的 MakeErrorNotice
-        // "上下文超出提示";其余错误走 Card error + insight 覆盖的黑字中性边框卡)
-        const failedMsg = turn.assistants.find((m) => {
-          const err = (m.info || {}).error
-          return err && err.name !== "MessageAbortedError"
-        })
-        if (failedMsg) {
-          const err = failedMsg.info.error
-          const data = err.data || {}
-          const message = typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : ""
-          if (err.name === "ContextOverflowError") {
-            msgs.appendChild(buildErrorNotice("上下文超出提示", ["系统的单次处理能力已满。", "请进行“上下文压缩”，或新建对话。"]))
-          } else {
-            const errorCard = document.createElement("div")
-            errorCard.className = "insight-error-card"
-            errorCard.textContent = message
-            msgs.appendChild(errorCard)
-          }
-        }
         turnEl.appendChild(msgs)
+      }
+
+      // 3.5 会话内文件变更组(对齐上游 session-turn diffs group:assistant 内容之后、错误卡之前)
+      const diffsGroup = buildInsightDiffs(turn.user)
+      if (diffsGroup) turnEl.appendChild(diffsGroup)
+
+      // 错误卡(对齐上游:ContextOverflowError 走 renderContextOverflow 的 MakeErrorNotice
+      // "上下文超出提示";其余错误走 Card error + insight 覆盖的黑字中性边框卡。
+      // 位于 message-container 尾部、assistant 内容之后,无额外间距;错误文案经 unwrap 解包 JSON 包装)
+      const failedMsg = turn.assistants.find((m) => {
+        const err = (m.info || {}).error
+        return err && err.name !== "MessageAbortedError"
+      })
+      if (failedMsg) {
+        const err = failedMsg.info.error
+        const data = err.data || {}
+        const rawMessage = typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : ""
+        if (err.name === "ContextOverflowError") {
+          turnEl.appendChild(buildErrorNotice("上下文超出提示", ["系统的单次处理能力已满。", "请进行“上下文压缩”，或新建对话。"]))
+        } else {
+          const errorCard = document.createElement("div")
+          errorCard.className = "insight-error-card"
+          errorCard.textContent = insightUnwrapError(rawMessage)
+          turnEl.appendChild(errorCard)
+        }
       }
 
       // 4. 知识库引用 + 产物入口卡 + 长任务卡(对齐 InsightTurn 尾部三个区)
@@ -4680,17 +4812,18 @@
     // 正文复制回复按钮(对齐上游 text-part-copy-wrapper:IconButton ghost + ui copy/check 图标)
     const UI_COPY_ICON = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6.2513 6.24935V2.91602H17.0846V13.7493H13.7513M13.7513 6.24935V17.0827H2.91797V6.24935H13.7513Z" stroke="currentColor" stroke-linecap="round"/></svg>'
     const UI_CHECK_ICON = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 11.9657L8.37838 14.7529L15 5.83398" stroke="currentColor" stroke-linecap="square"/></svg>'
-    function buildInsightCopyButton(text) {
+    function buildInsightCopyButton(text, label = "复制回复", copiedLabel = "已复制") {
       const btn = document.createElement("button")
       btn.type = "button"
       btn.className = "insight-copy-btn"
-      btn.setAttribute("aria-label", "复制回复")
-      btn.title = "复制回复"
+      btn.setAttribute("aria-label", label)
+      btn.title = label
       btn.innerHTML = UI_COPY_ICON
       btn.addEventListener("click", () => {
         const done = () => {
           btn.innerHTML = UI_CHECK_ICON
-          setTimeout(() => { btn.innerHTML = UI_COPY_ICON }, 2000)
+          btn.title = copiedLabel
+          setTimeout(() => { btn.innerHTML = UI_COPY_ICON; btn.title = label }, 2000)
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(text).then(done).catch(() => copyViaTextarea(text, done))
@@ -4714,16 +4847,115 @@
       const answers = ((part.state || {}).metadata || {}).answers
       return Array.isArray(answers) ? answers.map((a) => (Array.isArray(a) ? a.map(String) : [])) : []
     }
-    function buildInsightAttachmentCard(filename, kind) {
+    // 附件文件卡:图标走 insight 页 fileTypeIconUrl(IconFile* 系列),与产物入口卡同一套 ——
+    // 区别于 design 分支 getFileIconUrl 的 word/Excel/ppt 系列图标
+    function buildInsightAttachmentCard(filename, mimeType) {
       const card = document.createElement("div")
       card.className = "insight-attachment-card"
       card.title = filename
       const icon = document.createElement("img")
-      icon.src = getFileIconUrl(kind, filename)
+      icon.src = insightFileIconUrl(filename, mimeType)
       icon.alt = ""
       card.appendChild(icon)
       card.appendChild(makeSpan("insight-attachment-name", filename))
       return card
+    }
+
+    // 错误文案解包(对齐上游 session-turn unwrap:"Error: {json}" / 双重 JSON 编码 → 取 err.type/message 等;
+    // design 分支的 MakeErrorNotice 直接展示原始 message,insight 页普通错误卡才走 unwrap)
+    function insightUnwrapError(message) {
+      const text = String(message || "").replace(/^Error:\s*/, "").trim()
+      const parse = (value) => {
+        try { return JSON.parse(value) } catch { return undefined }
+      }
+      const read = (value) => {
+        const first = parse(value)
+        return typeof first === "string" ? parse(first.trim()) : first
+      }
+      let json = read(text)
+      if (json === undefined) {
+        const start = text.indexOf("{")
+        const end = text.lastIndexOf("}")
+        if (start !== -1 && end > start) json = read(text.slice(start, end + 1))
+      }
+      if (!json || typeof json !== "object" || Array.isArray(json)) return message
+      const err = json.error && typeof json.error === "object" && !Array.isArray(json.error) ? json.error : undefined
+      if (err) {
+        const type = typeof err.type === "string" ? err.type : undefined
+        const msg = typeof err.message === "string" ? err.message : undefined
+        if (type && msg) return type + ": " + msg
+        if (msg) return msg
+        if (type) return type
+        if (typeof err.code === "string") return err.code
+      }
+      if (typeof json.message === "string") return json.message
+      if (typeof json.error === "string") return json.error
+      return message
+    }
+    // 会话内文件变更组(对齐上游 session-turn diffs group:用户消息 summary.diffs,去重保留最后一次出现;
+    // 文件行静态展示不展开 patch —— 分享页无 diff 查看器,展开属交互能力,与工具行同为静态化处理)
+    function buildInsightDiffs(userMessage) {
+      const files = (((userMessage || {}).info || {}).summary || {}).diffs
+      if (!Array.isArray(files) || files.length === 0) return null
+      const seen = new Set()
+      const diffs = []
+      for (let i = files.length - 1; i >= 0; i--) {
+        const d = files[i]
+        if (!d || typeof d.file !== "string" || seen.has(d.file)) continue
+        seen.add(d.file)
+        diffs.unshift({ file: d.file, additions: typeof d.additions === "number" ? d.additions : 0, deletions: typeof d.deletions === "number" ? d.deletions : 0 })
+      }
+      if (diffs.length === 0) return null
+
+      const wrap = document.createElement("div")
+      wrap.className = "insight-diffs"
+      const header = document.createElement("div")
+      header.className = "insight-diffs-header"
+      // 上游 "{n} {t('ui.sessionTurn.diffs.changed')} {t('ui.common.file.one|other')}";
+      // zh 词条缺失回退 en "Changed",与 insight 页实际渲染一致
+      header.appendChild(makeSpan("insight-diffs-label", diffs.length + " Changed \u4E2A\u6587\u4EF6"))
+      const totalAdd = diffs.reduce((acc, d) => acc + d.additions, 0)
+      const totalDel = diffs.reduce((acc, d) => acc + d.deletions, 0)
+      if (totalAdd + totalDel > 0) {
+        const changes = document.createElement("span")
+        changes.className = "insight-diff-changes"
+        changes.appendChild(makeSpan("insight-diff-add", "+" + totalAdd))
+        changes.appendChild(makeSpan("insight-diff-del", "-" + totalDel))
+        header.appendChild(changes)
+      }
+      wrap.appendChild(header)
+
+      const content = document.createElement("div")
+      content.className = "insight-diffs-content"
+      const MAX_FILES = 10
+      const visible = diffs.slice(0, MAX_FILES)
+      for (const diff of visible) {
+        const row = document.createElement("div")
+        row.className = "insight-diff-row"
+        const path = document.createElement("span")
+        path.className = "insight-diff-path"
+        if (diff.file.includes("/")) {
+          path.appendChild(makeSpan("insight-diff-dir", "\u202A" + insightDirectoryOf(diff.file) + "\u202C"))
+        }
+        path.appendChild(makeSpan("insight-diff-name", insightFilenameOf(diff.file)))
+        row.appendChild(path)
+        const meta = document.createElement("span")
+        meta.className = "insight-diff-meta"
+        if (diff.additions + diff.deletions > 0) {
+          const changes = document.createElement("span")
+          changes.className = "insight-diff-changes"
+          changes.appendChild(makeSpan("insight-diff-add", "+" + diff.additions))
+          changes.appendChild(makeSpan("insight-diff-del", "-" + diff.deletions))
+          meta.appendChild(changes)
+        }
+        row.appendChild(meta)
+        content.appendChild(row)
+      }
+      if (diffs.length > MAX_FILES) {
+        content.appendChild(makeSpan("insight-diffs-more", "+" + (diffs.length - MAX_FILES) + " more files"))
+      }
+      wrap.appendChild(content)
+      return wrap
     }
 
     function renderInsightConversation(manifest, session, filePath, token, list) {
@@ -4760,7 +4992,7 @@
       }
       if (current) turns.push(current)
       for (const turn of turns) {
-        list.appendChild(renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token))
+        list.appendChild(renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token, manifest.models || {}))
       }
       if (list.children.length === 0) {
         showEmptyState()

@@ -1138,9 +1138,20 @@
   gap: 4px;
   padding: 8px;
   border: 1px solid #e3e6ec;
-  border-radius: 14px;
+  border-radius: 4px;
   background: #fff;
   box-shadow: 0 12px 36px rgba(20, 30, 60, 0.14);
+}
+
+.studio-composer-audio-popover-arrow {
+  position: absolute;
+  bottom: -7px;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-right: 1px solid #e3e6ec;
+  border-bottom: 1px solid #e3e6ec;
+  transform: rotate(45deg);
 }
 
 .studio-composer-audio-popover-icon {
