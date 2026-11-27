@@ -1,6 +1,43 @@
 import { expect, test } from "bun:test"
 import { fileURLToPath } from "node:url"
 
+test("model pickers preserve settings order after hiding disabled models", () => {
+  const result = Bun.spawnSync(
+    [process.execPath, "--conditions=browser", "-e", `
+      import { createRoot } from "solid-js"
+      import { useFilteredList } from ${JSON.stringify(fileURLToPath(new URL("../../../ui/src/hooks/use-filtered-list.tsx", import.meta.url)))}
+      import { modelListSorting } from ${JSON.stringify(fileURLToPath(new URL("./provider-sort.ts", import.meta.url)))}
+      const items = [
+        { id: "z", name: "Zulu", provider: { id: "z", name: "Zulu" } },
+        { id: "b", name: "Beta", provider: { id: "a", name: "Alpha" } },
+        { id: "a", name: "Alpha", provider: { id: "a", name: "Alpha" } },
+        { id: "hidden", name: "Hidden", provider: { id: "a", name: "Alpha" } },
+        { id: "p", name: "Popular", provider: { id: "popular", name: "Popular" } },
+        { id: "r", name: "Ranked", provider: { id: "ranked", name: "Ranked", options: { sortOrder: 0 } } },
+        { id: "t", name: "Tied", provider: { id: "tied", name: "Earlier", options: { sortOrder: 0 } } },
+      ]
+      const root = createRoot(dispose => ({
+        dispose,
+        settings: useFilteredList({ items, key: x => x.id, ...modelListSorting(["popular"]) }),
+        picker: useFilteredList({ items: items.filter(x => x.id !== "hidden"), key: x => x.id, ...modelListSorting(["popular"]) }),
+      }))
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+      console.log(JSON.stringify({
+        settings: root.settings.flat().map(x => x.id),
+        picker: root.picker.flat().map(x => x.id),
+      }))
+      root.dispose()
+    `],
+    { cwd: fileURLToPath(new URL("../../", import.meta.url)) },
+  )
+  expect(result.exitCode).toBe(0)
+  expect(result.stderr.toString()).toBe("")
+  expect(JSON.parse(result.stdout.toString())).toEqual({
+    settings: ["t", "r", "p", "a", "b", "hidden", "z"],
+    picker: ["t", "r", "p", "a", "b", "z"],
+  })
+})
+
 test("same-name providers remain separate and ordered in model lists", () => {
   // Run the real filtered list with Solid's browser effects, without replacing its implementation.
   const result = Bun.spawnSync(
