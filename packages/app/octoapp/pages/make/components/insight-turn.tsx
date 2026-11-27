@@ -536,6 +536,8 @@ export function InsightTurn(props: {
   onArtifactSaved?: (filePath: string) => void
   /** html 类型产物自动落盘成功后回调（自动归档等后台流程的触发点； */
   onHtmlArtifactSaved?: (card: OutputCard, filePath: string, sessionID: string) => void
+  /** link 卡片 gts/gts-ep 监听（卡片名以 .gts/.gts-ep 结尾时归档指向的 html 文件）*/
+  onGtsLinkArtifact?: (filePath: string, sessionID: string) => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1354,6 +1356,26 @@ const stateStatus = state.status as string | undefined
         autoSavedArtifacts.delete(key)
         console.error("[InsightTurn] autoSave failed:", err, "card:", card.id)
       })
+    }
+  })
+
+  // link 卡片 gts/gts-ep 监听：卡片名（extractLinkTitle 从 content 派生，"a.gts.html"
+  // → "a.gts"）以 .gts/.gts-ep 结尾时，把指向的本地 html 文件归档——legacy subtype
+  // 排除规则的专门例外（仅此入口，write/edit 路径的 gts 仍排除）。卡片物化（轮次完成、
+  // 非 aborted）时触发；重挂载重物化同 normal 历史追归档自愈（内容哈希去重防重传）。
+  // URL 链接（http/fastui:// 等）跳过；内存级 autoSavedArtifacts（gtslink: 前缀）防同
+  // 运行期重触发。
+  createEffect(() => {
+    if (!props.projectDir) return
+    for (const card of outputCards()) {
+      if (card.type !== "link") continue
+      if (!/\.(gts-ep|gts)$/i.test(card.title)) continue
+      const raw = card.content.trim()
+      if (!raw || /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) continue
+      const key = `gtslink:${card.id}`
+      if (autoSavedArtifacts.has(key)) continue
+      autoSavedArtifacts.add(key)
+      props.onGtsLinkArtifact?.(raw, props.sessionID)
     }
   })
 

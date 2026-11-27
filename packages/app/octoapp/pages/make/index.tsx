@@ -137,7 +137,7 @@ import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules
 import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
-import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
+import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview, absoluteLinkPath } from "./utils/fastui-export"
 import { isVisibleUserMessage, isHiddenCompactionTurn } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 import { uploadZipPackage, codeArchiveDedupKey, startArchivePoll, pauseArchivePolls, resumeArchivePolls, type AutoArchiveResult, type PendingArchivePoll } from "./utils/auto-archive"
@@ -2576,7 +2576,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const CODE_ARCHIVE_DEBOUNCE_MS = 10_000
   const codeArchiveDebounce = new Map<string, ReturnType<typeof setTimeout>>()
 
-  function handleCodeHtmlArtifactArchive(filePath: string, sessionID: string) {
+  function handleCodeHtmlArtifactArchive(filePath: string, sessionID: string, opts?: { skipSubtypeGate?: boolean }) {
     if (!settings.general.cloudSyncPush()) return
     if (!isAssetLibraryLoggedIn()) {
       reportAutoArchiveResult({ title: filePath.split(/[/\\]/).pop() ?? filePath, mode: "code" }, { success: false, message: "未登录" })
@@ -2585,7 +2585,7 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     const fileName = filePath.split(/[/\\]/).pop() ?? filePath
     const subtype = extractSubtypeFromFilename(fileName)
-    if (getSubtypeConfig(subtype).features.downloadUI === "legacy") return
+    if (!opts?.skipSubtypeGate && getSubtypeConfig(subtype).features.downloadUI === "legacy") return
     const readFileBuffer = getDesktopApi()?.readFileBuffer
     if (!readFileBuffer) {
       console.log("[AutoArchive] code mode skipped: no desktop readFileBuffer", filePath)
@@ -2629,6 +2629,13 @@ const sessionMessagesLoaded = createMemo(() => {
         })()
       }, CODE_ARCHIVE_DEBOUNCE_MS),
     )
+  }
+
+  /** link 卡片 gts/gts-ep 归档 */
+  function handleGtsLinkArtifact(link: string, sessionID: string) {
+    const dir = projectDir()
+    if (!dir) return
+    handleCodeHtmlArtifactArchive(absoluteLinkPath(link, dir), sessionID, { skipSubtypeGate: true })
   }
 
   // code 模式产物补偿扫描（catch-up）
@@ -6832,6 +6839,7 @@ onPreview={(url) => {
                         onRegenerateMessage={() => handleRegenerateMessage(userMessages()[0])}
                         onArtifactSaved={recordArtifactInit}
                         onHtmlArtifactSaved={handleHtmlArtifactSaved}
+                        onGtsLinkArtifact={handleGtsLinkArtifact}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -6873,6 +6881,7 @@ onPreview={(url) => {
                             onRegenerateMessage={() => handleRegenerateMessage(msg)}
                             onArtifactSaved={recordArtifactInit}
                             onHtmlArtifactSaved={handleHtmlArtifactSaved}
+                            onGtsLinkArtifact={handleGtsLinkArtifact}
                           />
                         )
                       }}
