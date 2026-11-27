@@ -11,6 +11,7 @@ export interface OctoToastOptions {
   variant?: OctoToastVariant
   duration?: number
   persistent?: boolean
+  deduplicate?: boolean
 }
 
 interface ToastItem {
@@ -18,6 +19,7 @@ interface ToastItem {
   title?: string
   description?: string
   variant: OctoToastVariant
+  dedupeKey?: string
   timer?: ReturnType<typeof setTimeout>
 }
 
@@ -27,19 +29,21 @@ const [everMultiple, setEverMultiple] = createSignal(false)
 let nextId = 1
 
 const activeKeys = new Set<string>()
-function toastKey(opts: OctoToastOptions | ToastItem): string {
+function toastKey(opts: OctoToastOptions): string {
   return `${opts.title ?? ""}::${opts.description ?? ""}`
 }
 
 export function showOctoToast(options: OctoToastOptions | string): number {
   const opts = typeof options === "string" ? { description: options } : options
   const variant = opts.variant ?? "default"
-  const key = toastKey(opts)
-  if (activeKeys.has(key)) return -1
-  activeKeys.add(key)
+  const key = opts.deduplicate === false ? undefined : toastKey(opts)
+  if (key !== undefined) {
+    if (activeKeys.has(key)) return -1
+    activeKeys.add(key)
+  }
 
   const id = nextId++
-  const item: ToastItem = { id, title: opts.title, description: opts.description, variant }
+  const item: ToastItem = { id, title: opts.title, description: opts.description, variant, dedupeKey: key }
 
   const duration = opts.persistent ? 0 : (opts.duration ?? 4000)
   if (duration > 0) {
@@ -56,7 +60,7 @@ export function dismissOctoToast(id: number) {
   setToasts((list) => {
     const item = list.find((t) => t.id === id)
     if (item) {
-      activeKeys.delete(toastKey(item))
+      if (item.dedupeKey !== undefined) activeKeys.delete(item.dedupeKey)
       item.timer && clearTimeout(item.timer)
     }
     return list.filter((t) => t.id !== id)

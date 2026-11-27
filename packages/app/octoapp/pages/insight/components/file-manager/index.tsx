@@ -495,7 +495,7 @@ function FileManagerInner(props: {
   }
   function showUploadedFiles(fileNames: string[]) {
     for (const name of fileNames) {
-      showOctoToast({ title: "Uploaded", description: name })
+      showOctoToast({ title: "Uploaded", description: name, deduplicate: false })
     }
   }
   async function processDirectoryEntry(dirEntry: FileSystemDirectoryEntry) {
@@ -553,10 +553,12 @@ function FileManagerInner(props: {
   }
   async function processFileEntry(fileEntry: FileSystemFileEntry, onSuccess?: (fileName: string) => void) {
     const finish = beginInsightOperation("files-upload", { sessionId: props.sessionId, kind: "file", method: "drop", count: 1 })
-    const file = await getFileFromEntry(fileEntry).catch((error) => {
+    const file = await getFileFromEntry(fileEntry).catch(() => {
       finish("failure", { reason: "read-entry" })
-      throw error
+      showToast({ title: "上传失败", description: `无法读取文件：${fileEntry.name}`, variant: "error" })
+      return undefined
     })
+    if (!file) return
     await uploadSingleFile(file, "drop", finish, onSuccess)
   }
   async function readAllDirectoryEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
@@ -569,7 +571,7 @@ function FileManagerInner(props: {
     return entries
   }
   function getFileFromEntry(fileEntry: FileSystemFileEntry): Promise<File> {
-    return new Promise((resolve) => fileEntry.file(resolve))
+    return new Promise((resolve, reject) => fileEntry.file(resolve, reject))
   }
 
   // ── 下载 ────────────────────────────────────────────────────────
