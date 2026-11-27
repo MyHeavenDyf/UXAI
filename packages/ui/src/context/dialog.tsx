@@ -15,6 +15,7 @@ import { Dialog as Kobalte } from "@kobalte/core/dialog"
 import { makeEventListener } from "@solid-primitives/event-listener"
 
 type DialogElement = () => JSX.Element
+type DialogOptions = { dismissible?: boolean }
 
 type Active = {
   id: string
@@ -23,6 +24,7 @@ type Active = {
   owner: Owner
   onClose?: () => void
   setClosing: (closing: boolean) => void
+  dismissible: boolean
 }
 
 const Context = createContext<ReturnType<typeof init>>()
@@ -33,14 +35,14 @@ function init() {
   const lock = { value: false }
 
   onCleanup(() => {
-    if (timer.current === undefined) return
-    clearTimeout(timer.current)
+    if (timer.current !== undefined) clearTimeout(timer.current)
     timer.current = undefined
+    active()?.dispose()
   })
 
   const close = () => {
     const current = active()
-    if (!current || lock.value) return
+    if (!current || !current.dismissible || lock.value) return
     lock.value = true
     current.onClose?.()
     current.setClosing(true)
@@ -72,9 +74,10 @@ function init() {
     makeEventListener(window, "keydown", onKeyDown, { capture: true })
   })
 
-  const show = (element: DialogElement, owner: Owner, onClose?: () => void) => {
+  const show = (element: DialogElement, owner: Owner, onClose?: () => void, options?: DialogOptions) => {
     // Immediately dispose any existing dialog when showing a new one
     const current = active()
+    if (current && !current.dismissible) return
     if (current) {
       current.dispose()
       setActive(undefined)
@@ -115,7 +118,7 @@ function init() {
 
     if (!dispose || !setClosing) return
 
-    setActive({ id, node, dispose, owner, onClose: onClose ?? current?.onClose, setClosing })
+    setActive({ id, node, dispose, owner, onClose: onClose ?? current?.onClose, setClosing, dismissible: options?.dismissible !== false })
   }
 
   return {
@@ -152,9 +155,9 @@ export function useDialog() {
     get active() {
       return ctx.active
     },
-    show(element: DialogElement, onClose?: () => void) {
+    show(element: DialogElement, onClose?: () => void, options?: DialogOptions) {
       const base = ctx.active?.owner ?? owner
-      ctx.show(element, base, onClose)
+      ctx.show(element, base, onClose, options)
     },
     close() {
       ctx.close()

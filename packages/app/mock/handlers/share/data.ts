@@ -1,6 +1,10 @@
 // 分享页 mock 数据:与 design 页面会话区对齐的真实 session 导出
 // 来源:真实分享导出 manifest.json(「生成一个html文件」会话,含 468 行长数字换行用户消息,
 // 用于对齐 design 页会话区 ExpandableBubble 的展开/收起样式)
+// 尾部附加三组压缩相关 fixture:
+//   1. 自动压缩轮(compaction part + summary 消息)— design/insight 页均整轮不可见
+//   2. 压缩回填轮(metadata.compaction_replay)— design 页分割线提示、insight 页隐藏气泡
+//   3. 手动 /compact(compaction + synthetic text + summary 消息)— 回显气泡 + 会话已压缩分割线
 export const MOCK_MANIFEST = {
   "format": "octo-session",
   "version": 1,
@@ -532,11 +536,274 @@ export const MOCK_MANIFEST = {
               "messageID": "msg_162a8e355001kfsu8BJBBWunIA"
             }
           ]
+        },
+        {
+          "info": {
+            "role": "user",
+            "time": {
+              "created": 1792656800000
+            },
+            "agent": "octo_make",
+            "model": {
+              "providerID": "zf",
+              "modelID": "deepseek-v4.1-flash"
+            },
+            "summary": {
+              "diffs": []
+            },
+            "id": "msg_mckcmp0001auto0000000000001",
+            "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k"
+          },
+          "parts": [
+            {
+              "type": "compaction",
+              "id": "prt_mckcmp0001auto0000000000001",
+              "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",
+              "messageID": "msg_mckcmp0001auto0000000000001"
+            }
+          ]
+        },
+        {
+          "info": {
+            "parentID": "msg_mckcmp0001auto0000000000001",
+            "role": "assistant",
+            "mode": "octo_make",
+            "agent": "octo_make",
+            "path": {
+              "cwd": "/Users/ljc/Desktop/workspace/UXAI",
+              "root": "/Users/ljc/Desktop/workspace/UXAI"
+            },
+            "cost": 0,
+            "tokens": {
+              "total": 100,
+              "input": 80,
+              "output": 20,
+              "reasoning": 0,
+              "cache": {
+                "write": 0,
+                "read": 0
+              }
+            },
+            "modelID": "deepseek-v4.1-flash",
+            "providerID": "zf",
+            "time": {
+              "created": 1792656801000,
+              "completed": 1792656809000
+            },
+            "summary": true,
+            "finish": "stop",
+            "id": "msg_mckcmp0001summ00000000000002",
+            "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k"
+          },
+          "parts": [
+            {
+              "type": "text",
+              "text": "会话摘要:用户先后请求生成 HTML 页面与卡片页面,均已交付。最新请求为给页面增加深色模式切换按钮,尚未完成。",
+              "time": {
+                "start": 1792656805000,
+                "end": 1792656808000
+              },
+              "id": "prt_mckcmp0001summ00000000000002",
+              "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",
+              "messageID": "msg_mckcmp0001summ00000000000002"
+            }
+          ]
+        },
+        {
+          "info": {
+            "role": "user",
+            "time": {
+              "created": 1792656900000
+            },
+            "agent": "octo_make",
+            "model": {
+              "providerID": "zf",
+              "modelID": "deepseek-v4.1-flash"
+            },
+            "summary": {
+              "diffs": []
+            },
+            "id": "msg_mckrpl0001replay000000000003",
+            "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k"
+          },
+          "parts": [
+            {
+              "type": "text",
+              "text": "再给页面加一个深色模式切换按钮",
+              "synthetic": true,
+              "metadata": {
+                "compaction_replay": true
+              },
+              "time": {
+                "start": 1792656900000,
+                "end": 1792656900000
+              },
+              "id": "prt_mckrpl0001replay000000000003",
+              "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",
+              "messageID": "msg_mckrpl0001replay000000000003"
+            }
+          ]
+        },
+        {
+          "info": {
+            "parentID": "msg_mckrpl0001replay000000000003",
+            "role": "assistant",
+            "mode": "octo_make",
+            "agent": "octo_make",
+            "path": {
+              "cwd": "/Users/ljc/Desktop/workspace/UXAI",
+              "root": "/Users/ljc/Desktop/workspace/UXAI"
+            },
+            "cost": 0,
+            "tokens": {
+              "total": 600,
+              "input": 400,
+              "output": 180,
+              "reasoning": 20,
+              "cache": {
+                "write": 0,
+                "read": 0
+              }
+            },
+            "modelID": "deepseek-v4.1-flash",
+            "providerID": "zf",
+            "time": {
+              "created": 1792656901000,
+              "completed": 1792656915000
+            },
+            "finish": "stop",
+            "id": "msg_mckrpl0001reply00000000000004",
+            "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k"
+          },
+          "parts": [
+            {
+              "snapshot": "mckrplsnapshot00000000000000001",
+              "type": "step-start",
+              "id": "prt_mckrpl0001stepstart0000000005",
+              "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",
+              "messageID": "msg_mckrpl0001reply00000000000004"
+            },
+            {
+              "type": "reasoning",
+              "text": "The user wants a dark mode toggle button added to the previously generated card page. I will describe the plan briefly.",
+              "time": {
+                "start": 1792656902000,
+                "end": 1792656904000
+              },
+              "id": "prt_mckrpl0001reasoning00000000006",
+              "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",
+              "messageID": "msg_mckrpl0001reply00000000000004"
+            },
+            {
+              "type": "text",
+              "text": "好的,我来为卡片页面加上深色模式切换按钮:\n\n1. **右上角固定一个切换按钮**,点击在亮色/深色主题间切换\n2. **CSS 变量驱动主题**,深色下卡片、背景、文字同步换肤\n3. **偏好持久化**到 localStorage,刷新后保持上次选择\n\n确认后我就直接更新页面。",
+              "time": {
+                "start": 1792656904000,
+                "end": 1792656906000
+              },
+              "id": "prt_mckrpl0001text00000000000007",
+              "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",
+              "messageID": "msg_mckrpl0001reply00000000000004"
+            },
+            {
+              "reason": "stop",
+              "snapshot": "mckrplsnapshot00000000000000001",
+              "type": "step-finish",
+              "tokens": {
+                "total": 600,
+                "input": 400,
+                "output": 180,
+                "reasoning": 20,
+                "cache": {
+                  "write": 0,
+                  "read": 0
+                }
+              },
+              "cost": 0,
+              "id": "prt_mckrpl0001stepfinish000000008",
+              "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",
+              "messageID": "msg_mckrpl0001reply00000000000004"
+            }
+          ]
+        },
+        {
+          "info": {
+            "role": "user",
+            "time": {
+              "created": 1792657100000
+            },
+            "agent": "octo_make",
+            "model": {
+              "providerID": "zf",
+              "modelID": "deepseek-v4.1-flash"
+            },
+            "summary": {
+              "diffs": []
+            },
+            "id": "msg_mckmanual00000000000000009",
+            "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k"
+          },
+          "parts": [
+            {
+              "type": "compaction",
+              "id": "prt_mckmanual00000000000000009",
+              "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",
+              "messageID": "msg_mckmanual00000000000000009"
+            },
+            {
+              "type": "text",
+              "text": "/compact",
+              "synthetic": true,
+              "id": "prt_mckmanual00000000000000010",
+              "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",
+              "messageID": "msg_mckmanual00000000000000009"
+            }
+          ]
+        },
+        {
+          "info": {
+            "parentID": "msg_mckmanual00000000000000009",
+            "role": "assistant",
+            "mode": "octo_make",
+            "agent": "octo_make",
+            "path": {
+              "cwd": "/Users/ljc/Desktop/workspace/UXAI",
+              "root": "/Users/ljc/Desktop/workspace/UXAI"
+            },
+            "cost": 0,
+            "tokens": {
+              "total": 100,
+              "input": 80,
+              "output": 20,
+              "reasoning": 0,
+              "cache": {
+                "write": 0,
+                "read": 0
+              }
+            },
+            "modelID": "deepseek-v4.1-flash",
+            "providerID": "zf",
+            "time": {
+              "created": 1792657101000,
+              "completed": 1792657109000
+            },
+            "summary": true,
+            "finish": "stop",
+            "id": "msg_mckmanual00000000000000011",
+            "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k"
+          },
+          "parts": []
         }
       ],
       "todos": []
     }
   ],
+  // 模型展示名快照(对齐 portable.ts 导出契约:"<providerID>/<modelID>" → 展示名;
+  // 分享页 turn meta 据此显示友好名,缺失时回退 modelID)
+  "models": {
+    "w3/GLM-V5_2": "GLM V5.2",
+    "zf/deepseek-v4.1-flash": "deepseek-v4.1-flash",
+  },
   "files": [
     {
       "sessionID": "ses_ea81269ebffeoElgBZZqcXw47k",

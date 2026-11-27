@@ -2,6 +2,7 @@ import path from "node:path"
 import { lstat, realpath } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { isExcludedPortableFile } from "./portable-exclusions"
+import { portableMarkdownReferences } from "./portable-insight-files"
 
 const textFile = /\.(?:html?|css|[cm]?js|jsx|tsx?|svg)$/i
 const entryFile = /\.(?:html?|svg|jsx|tsx)$/i
@@ -11,16 +12,42 @@ const moduleExtensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json"]
 
 function moduleReferences(text: string) {
   // Tokenize without executing code; comments and quoted examples must not become imports.
-  const tokens = text.matchAll(
-    /\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[\w$]+|[^\s]/g,
-  )
+  // Scan iteratively: repeated regex alternatives for large quoted bundle strings
+  // can exhaust V8's regexp stack in packaged Electron runtimes.
+  const tokens = (function* () {
+    for (let index = 0; index < text.length;) {
+      const char = text[index]
+      if (/\s/.test(char)) { index++; continue }
+      if (char === "/" && text[index + 1] === "/") {
+        index += 2
+        while (index < text.length && text[index] !== "\r" && text[index] !== "\n") index++
+        continue
+      }
+      if (char === "/" && text[index + 1] === "*") {
+        const end = text.indexOf("*/", index + 2)
+        if (end === -1) return
+        index = end + 2
+        continue
+      }
+      const start = index++
+      if (char === '"' || char === "'" || char === "`") {
+        while (index < text.length && text[index] !== char) {
+          index += text[index] === "\\" ? 2 : 1
+        }
+        if (index >= text.length) return
+        index++
+      } else if (/[\w$]/.test(char)) {
+        while (index < text.length && /[\w$]/.test(text[index])) index++
+      }
+      yield text.slice(start, index)
+    }
+  })()
   const buffer: string[] = []
   const peek = (index: number): string | undefined => {
     while (buffer.length <= index) {
       const next = tokens.next()
       if (next.done) return
-      const value = next.value[0]
-      if (!value.startsWith("//") && !value.startsWith("/*")) buffer.push(value)
+      buffer.push(next.value)
     }
     return buffer[index]
   }
@@ -167,6 +194,8 @@ function cssReferences(text: string) {
 }
 
 function references(text: string, file: string) {
+  if (/\.md$/i.test(file))
+    return { base: undefined, refs: portableMarkdownReferences(text), documentRefs: [] as string[], optional: new Set<string>() }
   if (/\.css$/i.test(file))
     return { base: undefined, refs: cssReferences(text), documentRefs: [] as string[], optional: new Set<string>() }
   if (/\.(?:[cm]?js|jsx|tsx?)$/i.test(file)) {
@@ -225,18 +254,22 @@ function inside(root: string, file: string) {
 export async function collectPortableDependencies(input: {
   root: string
   files: string[]
+  /** Inspect owned documents for shared dependencies without exporting them twice. */
+  entries?: string[]
+  markdown?: boolean
   /** Kept for caller compatibility; real dependency targets are no longer restricted to these roots. */
   trustedRoots: string[]
   read: (file: string) => Promise<Uint8Array>
   blacklist?: readonly string[]
 }) {
-  if (!input.files.length) return []
+  if (!(input.entries ?? input.files).length) return []
   const known = new Set(input.files)
   const found = new Map<string, string>()
   const visited = new Set<string>()
   const missing = new Set<string>()
   const skipped = new Set<string>()
   const parsedFiles = new Map<string, ReturnType<typeof references>>()
+  const failedFiles = new Set<string>()
   const key = (file: string, document?: string) => JSON.stringify([file, document])
   const warnSkipped = (file: string, reference: string, base: URL, reason: string, error?: unknown) => {
     const warning = JSON.stringify([file, base.href, reference, reason])
@@ -254,14 +287,14 @@ export async function collectPortableDependencies(input: {
     )
   }
   const pending = new Map<string, { file: string; source: string; document?: string }>(
-    input.files
+    (input.entries ?? input.files)
       .filter(
         (file) =>
-          entryFile.test(file) &&
-          !path
+          (entryFile.test(file) || (input.markdown && /\.md$/i.test(file))) &&
+          (input.entries !== undefined || !path
             .relative(input.root, file)
             .split(path.sep)
-            .some((part) => part.startsWith(".")),
+            .some((part) => part.startsWith("."))),
       )
       .map((file) => [key(file), { file, source: file }]),
   )
@@ -289,7 +322,17 @@ export async function collectPortableDependencies(input: {
           warnSkipped(file, file, pathToFileURL(file), "unreadable", error)
         })
         if (!content) return
-        const parsed = parsedFiles.get(file) ?? references(new TextDecoder().decode(content), file)
+        if (failedFiles.has(file)) return
+        const parsed = (() => {
+          try {
+            return parsedFiles.get(file) ?? references(new TextDecoder().decode(content), file)
+          } catch (error) {
+            failedFiles.add(file)
+            warnSkipped(file, file, pathToFileURL(file), "parse-failed", error)
+          }
+        })()
+        // Keep the file itself in the archive; only its dependency discovery failed.
+        if (!parsed) return
         parsedFiles.set(file, parsed)
         const sourceURL = pathToFileURL(file)
         const base = URL.canParse(parsed.base ?? "", sourceURL) ? new URL(parsed.base ?? "", sourceURL) : sourceURL
@@ -357,8 +400,9 @@ export async function collectPortableDependencies(input: {
             }
             continue
           }
+          const textual = textFile.test(resolved.file) || (input.markdown && /\.md$/i.test(resolved.file))
           if (!known.has(resolved.file)) {
-            if (!textFile.test(resolved.file)) {
+            if (!textual) {
               const readable = await input.read(resolved.source).then(
                 () => true,
                 (error) => {
@@ -370,7 +414,7 @@ export async function collectPortableDependencies(input: {
             }
             found.set(resolved.file, resolved.source)
           }
-          if (textFile.test(resolved.file) && !visited.has(key(resolved.file, page))) {
+          if (textual && !visited.has(key(resolved.file, page))) {
             pending.set(key(resolved.file, page), { ...resolved, document: page })
           }
         }

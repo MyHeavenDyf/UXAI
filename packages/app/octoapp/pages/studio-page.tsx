@@ -528,6 +528,12 @@ function StudioPageContent() {
   }
   const isVideoFirstLastFrameInput = () => capability() === "video.generate" && videoInputMode() === "first-last-frame"
   const isVideoMultiReferenceInput = () => capability() === "video.generate" && videoInputMode() === "multi-reference"
+  const [videoAudioSettingStore, setVideoAudioSettingStore] = persisted(
+    Persist.global("studio.video.audio"),
+    createStore({ enabled: false, seen: false }),
+  )
+  const videoGenerateAudio = () => videoAudioSettingStore.enabled
+  const setVideoGenerateAudio = (value: boolean) => setVideoAudioSettingStore({ enabled: value, seen: true })
   createEffect(() => {
     if (capability() === "video.generate" && videoQualityMode() === "4k" && count() !== 1) setCount(1)
   })
@@ -4474,6 +4480,7 @@ function StudioPageContent() {
         count: count(),
         styleModel: styleModel(),
         hasReferenceImage: referenceImages.length > 0,
+        ...(nextCapability === "video.generate" ? { generateAudio: videoGenerateAudio() } : {}),
       }),
     })
     const studioContext = overrides?.useRestoredInputs
@@ -4498,6 +4505,7 @@ function StudioPageContent() {
           mode: STUDIO_VIDEO_MODE[nextVideoQualityMode],
           resolution: STUDIO_VIDEO_RESOLUTION[nextVideoQualityMode],
           ...(nextVideoInputMode === "multi-reference" ? { videoInputMode: "multi-reference" as const } : {}),
+          ...(videoGenerateAudio() ? { generateAudio: true } : {}),
           firstFrame: nextVideoFrames.first,
           lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
         }
@@ -5489,6 +5497,8 @@ function StudioPageContent() {
                   videoQualityMode={videoQualityMode()}
                   videoMode={videoMode()}
                   videoInputMode={videoInputMode()}
+                  videoGenerateAudio={videoGenerateAudio()}
+                  videoGenerateAudioNew={!videoAudioSettingStore.seen}
                   status={effectiveStatus()}
                   busy={isBusy() || recommendation.busy()}
                   onRecommend={initializeRecommendation}
@@ -5518,6 +5528,7 @@ function StudioPageContent() {
                   onVideoQualityMode={setVideoQualityMode}
                   onVideoMode={setVideoMode}
                   onVideoInputMode={setVideoInputMode}
+                  onVideoGenerateAudio={setVideoGenerateAudio}
                   onOpenMenu={setOpenMenu}
                   onCreateTemplate={openTemplateCreator}
                   onListStyleTemplates={listStudioStyleTemplates}
@@ -5763,6 +5774,8 @@ function StudioPageContent() {
             videoQualityMode={videoQualityMode()}
             videoMode={videoMode()}
             videoInputMode={videoInputMode()}
+            videoGenerateAudio={videoGenerateAudio()}
+            videoGenerateAudioNew={!videoAudioSettingStore.seen}
             status={effectiveStatus()}
             busy={isBusy() || recommendation.busy()}
             onRecommend={initializeRecommendation}
@@ -5792,6 +5805,7 @@ function StudioPageContent() {
             onVideoQualityMode={setVideoQualityMode}
             onVideoMode={setVideoMode}
             onVideoInputMode={setVideoInputMode}
+            onVideoGenerateAudio={setVideoGenerateAudio}
             onOpenMenu={setOpenMenu}
             onCreateTemplate={openTemplateCreator}
             onListStyleTemplates={listStudioStyleTemplates}

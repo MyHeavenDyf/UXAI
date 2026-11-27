@@ -2,6 +2,7 @@
 
 import { $ } from "bun"
 import path from "path"
+import { forceUpdate, parseForceUpdate } from "./release-policy"
 
 const dir = process.env.LATEST_YML_DIR!
 if (!dir) throw new Error("LATEST_YML_DIR is required")
@@ -23,12 +24,14 @@ type LatestYml = {
   version: string
   files: FileEntry[]
   releaseDate: string
+  forceUpdate: boolean
 }
 
 function parse(content: string): LatestYml {
   const lines = content.split("\n")
   let version = ""
   let releaseDate = ""
+  let policy = forceUpdate
   const files: FileEntry[] = []
   let current: Partial<FileEntry> | undefined
 
@@ -40,6 +43,7 @@ function parse(content: string): LatestYml {
   for (const line of lines) {
     const indented = line.startsWith("    ") || line.startsWith("  -")
     if (line.startsWith("version:")) version = line.slice("version:".length).trim()
+    else if (line.startsWith("forceUpdate:")) policy = parseForceUpdate(line.slice("forceUpdate:".length).trim())
     else if (line.startsWith("releaseDate:"))
       releaseDate = line.slice("releaseDate:".length).trim().replace(/^'|'$/g, "")
     else if (line.trim().startsWith("- url:")) {
@@ -55,11 +59,11 @@ function parse(content: string): LatestYml {
   }
   flush()
 
-  return { version, files, releaseDate }
+  return { version, files, releaseDate, forceUpdate: policy }
 }
 
 function serialize(data: LatestYml) {
-  const lines = [`version: ${data.version}`, "files:"]
+  const lines = [`version: ${data.version}`, `forceUpdate: ${data.forceUpdate}`, "files:"]
   for (const file of data.files) {
     lines.push(`  - url: ${file.url}`)
     lines.push(`    sha512: ${file.sha512}`)
@@ -87,6 +91,7 @@ if (winX64 || winArm64) {
     version: base.version,
     files: [...(winArm64?.files ?? []), ...(winX64?.files ?? [])],
     releaseDate: base.releaseDate,
+    forceUpdate: Boolean(winArm64?.forceUpdate || winX64?.forceUpdate),
   })
 }
 
@@ -107,6 +112,7 @@ if (macX64 || macArm64) {
     version: base.version,
     files: [...(macArm64?.files ?? []), ...(macX64?.files ?? [])],
     releaseDate: base.releaseDate,
+    forceUpdate: Boolean(macArm64?.forceUpdate || macX64?.forceUpdate),
   })
 }
 

@@ -453,6 +453,126 @@ describe("revert + compact workflow", () => {
   )
 
   it.live(
+    "cleanup removes child task sessions spawned after the revert point and keeps earlier ones",
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const revert = yield* SessionRevert.Service
+
+          const info = yield* session.create({})
+          const sid = info.id
+
+          const u1 = yield* user(sid)
+          yield* text(sid, u1.id, "第一个需求")
+          const a1 = yield* assistant(sid, u1.id, dir)
+          yield* text(sid, a1.id, "完成 1")
+
+          // 回退点之前派发的子会话:早期消息保留,会话保留
+          const earlyChild = yield* session.create({ parentID: sid, agent: "octo_design" })
+          const earlyPrompt = yield* user(earlyChild.id, "octo_design")
+          yield* text(earlyChild.id, earlyPrompt.id, "【需求原文】早期任务")
+
+          const u2 = yield* user(sid)
+          yield* text(sid, u2.id, "第二个需求")
+          const a2 = yield* assistant(sid, u2.id, dir)
+          yield* text(sid, a2.id, "完成 2")
+
+          // 回退点之后派发的子会话:整会话落在回退点之后,消息与会话一并删除
+          const lateChild = yield* session.create({ parentID: sid, agent: "octo_design" })
+          const latePrompt = yield* user(lateChild.id, "octo_design")
+          yield* text(lateChild.id, latePrompt.id, "【需求原文】后期任务")
+          const lateReply = yield* assistant(lateChild.id, latePrompt.id, dir)
+          yield* text(lateChild.id, lateReply.id, "产物")
+
+          yield* revert.revert({ sessionID: sid, messageID: u2.id })
+          const state = yield* session.get(sid)
+          yield* revert.cleanup(state)
+
+          const mainIds = (yield* session.messages({ sessionID: sid })).map((m) => m.info.id)
+          expect(mainIds).toContain(u1.id)
+          expect(mainIds).toContain(a1.id)
+          expect(mainIds).not.toContain(u2.id)
+          expect(mainIds).not.toContain(a2.id)
+
+          const earlyIds = (yield* session.messages({ sessionID: earlyChild.id })).map((m) => m.info.id)
+          expect(earlyIds).toEqual([earlyPrompt.id])
+
+          const kidIds = (yield* session.children(sid)).map((k) => k.id)
+          expect(kidIds).toContain(earlyChild.id)
+          expect(kidIds).not.toContain(lateChild.id)
+
+          expect((yield* session.get(sid)).revert).toBeUndefined()
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live(
+    "revert restores and deletes files written by child task sessions",
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const revert = yield* SessionRevert.Service
+          const snapshot = yield* Snapshot.Service
+
+          yield* write(path.join(dir, "a.txt"), "a0")
+
+          const info = yield* session.create({})
+          const sid = info.id
+
+          const childTurn = Effect.fn("test.childTurn")(function* (childID: SessionID, file: string, next: string) {
+            const prompt = yield* user(childID, "octo_design")
+            yield* text(childID, prompt.id, `【需求原文】${file}:${next}`)
+            const a = yield* assistant(childID, prompt.id, dir)
+            const before = yield* snapshot.track()
+            if (!before) throw new Error("expected snapshot")
+            yield* write(path.join(dir, file), next)
+            const after = yield* snapshot.track()
+            if (!after) throw new Error("expected snapshot")
+            const patch = yield* snapshot.patch(before)
+            yield* session.updatePart({
+              id: PartID.ascending(),
+              messageID: a.id,
+              sessionID: childID,
+              type: "patch",
+              hash: patch.hash,
+              files: patch.files,
+            })
+          })
+
+          const u1 = yield* user(sid)
+          yield* text(sid, u1.id, "第一个需求")
+          const child = yield* session.create({ parentID: sid, agent: "octo_design" })
+          // 保留轮次:子会话把 a.txt 从 a0 改到 a1
+          yield* childTurn(child.id, "a.txt", "a1")
+
+          const u2 = yield* user(sid)
+          yield* text(sid, u2.id, "第二个需求")
+          // 回退轮次:子会话把 a.txt 改到 a2,并新建 b.txt
+          yield* childTurn(child.id, "a.txt", "a2")
+          yield* childTurn(child.id, "b.txt", "b2")
+          expect(yield* read(path.join(dir, "a.txt"))).toBe("a2")
+          expect(yield* read(path.join(dir, "b.txt"))).toBe("b2")
+
+          yield* revert.revert({ sessionID: sid, messageID: u2.id })
+          expect((yield* session.get(sid)).revert?.messageID).toBe(u2.id)
+          // a.txt 恢复到回退点状态(第一轮的 a1);b.txt 是回退轮次新建的 → 删除
+          expect(yield* read(path.join(dir, "a.txt"))).toBe("a1")
+          const bExists = yield* Effect.promise(() =>
+            fs.stat(path.join(dir, "b.txt")).then(
+              () => true,
+              () => false,
+            ),
+          )
+          expect(bExists).toBe(false)
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live(
     "restore messages in sequential order",
     provideTmpdirInstance(
       (dir) =>

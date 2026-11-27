@@ -39,10 +39,10 @@ export function usePortableSessionActions(input: {
     const session = input.session()
     if (!session || action() || !platform.saveFilePickerDialog) return
     input.close()
-    const name = (sessionTitle(session.title) ?? "session")
+    const name = Array.from((sessionTitle(session.title) ?? "session")
       .replace(/[<>:"/\\|?*]/g, "-")
       .replace(/\s+/g, " ")
-      .trim()
+      .trim()).slice(0, 10).join("").trim()
     const output = await platform
       .saveFilePickerDialog({
         title: language.t("session.portable.export.picker"),
@@ -71,7 +71,7 @@ export function usePortableSessionActions(input: {
         sessionID: session.id,
         path: output,
         operationID,
-        ...(workspaceKind() === "code" ? { scope: "project" as const } : {}),
+        ...(session.agent !== "octo_insight" && workspaceKind() === "code" ? { scope: "project" as const } : {}),
       })
       .then((result) => {
         showToast({

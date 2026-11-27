@@ -651,7 +651,10 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <button
           type="button"
           class={`mention-tab-btn ${activeTab() === 'files' ? 'mention-tab-btn--active' : ''}`}
-          onClick={() => { setActiveTab('files'); setSelectedCategory('platform'); props.onFilesTabOpen?.() }}
+          onClick={() => {
+            if (activeTab() !== 'files') props.onFilesTabOpen?.()
+            setActiveTab('files'); setSelectedCategory('platform')
+          }}
         >
           设计文件
         </button>

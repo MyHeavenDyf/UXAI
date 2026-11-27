@@ -200,6 +200,41 @@ it.instance("shows the same user input as Design instead of injected artifact or
   }),
 )
 
+it.instance("hides auto-compaction continuation and replay injections from the preview", () =>
+  Effect.gen(function* () {
+    const service = yield* Session.Service
+    const session = yield* service.create({ title: "压缩注入" })
+    const base = {
+      sessionID: session.id,
+      role: "user" as const,
+      agent: "build",
+      model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+    }
+    const real = yield* service.updateMessage({ ...base, id: MessageID.ascending(), time: { created: 0 } })
+    yield* service.updatePart({
+      id: PartID.ascending(), messageID: real.id, sessionID: session.id, type: "text", text: "生成一个登录页",
+    })
+    // auto-compaction 续跑注入:唯一 synthetic text part 带 compaction_continue 标记
+    const continuation = yield* service.updateMessage({ ...base, id: MessageID.ascending(), time: { created: 1 } })
+    yield* service.updatePart({
+      id: PartID.ascending(), messageID: continuation.id, sessionID: session.id, type: "text",
+      text: "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed.",
+      synthetic: true, metadata: { compaction_continue: true },
+      time: { start: 1, end: 1 },
+    })
+    // overflow 回放注入:用户原话副本带 compaction_replay 标记
+    const replay = yield* service.updateMessage({ ...base, id: MessageID.ascending(), time: { created: 2 } })
+    yield* service.updatePart({
+      id: PartID.ascending(), messageID: replay.id, sessionID: session.id, type: "text",
+      text: "生成一个登录页", synthetic: true, metadata: { compaction_replay: true },
+    })
+    const page = yield* previewSession({ sessionID: session.id })
+    expect(page.messages.map((message) => [message.id, message.text])).toEqual([[real.id, "生成一个登录页"]])
+    expect(JSON.stringify(page)).not.toContain("Continue if you have next steps")
+    expect(page.messages).toHaveLength(1)
+  }),
+)
+
 it.instance("keeps a thousand-message session bounded to one preview page", () =>
   Effect.gen(function* () {
     const session = yield* (yield* Session.Service).create({ title: "千条消息预览" })

@@ -15,6 +15,7 @@ import { Deferred, Effect, Layer, Schema, Context } from "effect"
 import os from "os"
 import { evaluate as evalRule } from "./evaluate"
 import { PermissionID } from "./schema"
+import { trackPendingAsk, untrackPendingAsk } from "./pending-registry"
 
 const log = Log.create({ service: "permission" })
 
@@ -165,8 +166,9 @@ export const layer = Layer.effect(
 
         yield* Effect.addFinalizer(() =>
           Effect.gen(function* () {
-            for (const item of state.pending.values()) {
+            for (const [id, item] of state.pending.entries()) {
               yield* Deferred.fail(item.deferred, new RejectedError())
+              untrackPendingAsk(id)
             }
             state.pending.clear()
           }),
@@ -204,11 +206,18 @@ export const layer = Layer.effect(
 
       const deferred = yield* Deferred.make<void, RejectedError | CorrectedError>()
       pending.set(id, { info, deferred })
+      trackPendingAsk(id, {
+        directory: yield* InstanceState.directory,
+        project: (yield* InstanceState.context).project.id,
+        workspace: yield* InstanceState.workspaceID,
+        info,
+      })
       yield* bus.publish(Event.Asked, info)
       return yield* Effect.ensuring(
         Deferred.await(deferred),
         Effect.sync(() => {
           pending.delete(id)
+          untrackPendingAsk(id)
         }),
       )
     })
@@ -219,6 +228,7 @@ export const layer = Layer.effect(
       if (!existing) return
 
       pending.delete(input.requestID)
+      untrackPendingAsk(input.requestID)
       yield* bus.publish(Event.Replied, {
         sessionID: existing.info.sessionID,
         requestID: existing.info.id,
