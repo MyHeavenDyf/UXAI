@@ -1493,6 +1493,7 @@ async function buildVideoRequestBody(input: ImageGenerateInput, context: Interna
     count: getStudioCount(input),
     mode: getVideoMode(input),
     resolution: getVideoResolution(input),
+    generate_audio: input.extra?.generateAudio === true,
   }
   if (getVideoInputMode(input) === "multi-reference") {
     const images = await getVideoReferenceImages(input)

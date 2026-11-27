@@ -17,6 +17,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "@/pages/make/components/octo-toast"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { tracker } from "@/utils/tracker"
 import { beginInsightOperation, trackInsight, uploadStatus } from "../../utils/interaction-tracking"
@@ -344,9 +345,12 @@ function FileManagerInner(props: {
     return { finalFolderName, okCount, errors }
   }
 
-  async function uploadSingleFile(file: File, method = "picker", finish = beginInsightOperation("files-upload", {
-    sessionId: props.sessionId, kind: "file", method, count: 1,
-  })) {
+  async function uploadSingleFile(
+    file: File,
+    method = "picker",
+    finish = beginInsightOperation("files-upload", { sessionId: props.sessionId, kind: "file", method, count: 1 }),
+    onSuccess?: (fileName: string) => void,
+  ) {
     if (!checkExternalFile(file)) {
       finish("failure", { reason: "validation", rejectedCount: 1, successCount: 0 })
       return
@@ -359,7 +363,8 @@ function FileManagerInner(props: {
         await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
       }
       finish("success", { successCount: 1 })
-      showToast({ title: "上传完成", description: file.name, variant: "success", duration: 2000 })
+      if (onSuccess) onSuccess(file.name)
+      else showToast({ title: "上传完成", description: file.name, variant: "success", duration: 2000 })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
@@ -369,9 +374,12 @@ function FileManagerInner(props: {
   }
 
   async function handleUpload(files: FileList | File[], method = "picker") {
+    const uploaded: string[] = []
+    const onSuccess = files.length > 1 ? (fileName: string) => uploaded.push(fileName) : undefined
     for (const file of Array.from(files)) {
-      await uploadSingleFile(file, method)
+      await uploadSingleFile(file, method, undefined, onSuccess)
     }
+    showUploadedFiles(uploaded)
   }
 
   async function handleFolderUpload(files: FileList, inputValue?: string) {
@@ -477,9 +485,17 @@ function FileManagerInner(props: {
     })
   }
   async function processEntries(entries: FileSystemEntry[]) {
+    const uploaded: string[] = []
+    const onSuccess = entries.filter((entry) => entry.isFile).length > 1 ? (fileName: string) => uploaded.push(fileName) : undefined
     for (const entry of entries) {
       if (entry.isDirectory) await processDirectoryEntry(entry as FileSystemDirectoryEntry)
-      else if (entry.isFile) await processFileEntry(entry as FileSystemFileEntry)
+      else if (entry.isFile) await processFileEntry(entry as FileSystemFileEntry, onSuccess)
+    }
+    showUploadedFiles(uploaded)
+  }
+  function showUploadedFiles(fileNames: string[]) {
+    for (const name of fileNames) {
+      showOctoToast({ title: "Uploaded", description: name, deduplicate: false })
     }
   }
   async function processDirectoryEntry(dirEntry: FileSystemDirectoryEntry) {
@@ -535,13 +551,15 @@ function FileManagerInner(props: {
       showToast({ title: "上传失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     }
   }
-  async function processFileEntry(fileEntry: FileSystemFileEntry) {
+  async function processFileEntry(fileEntry: FileSystemFileEntry, onSuccess?: (fileName: string) => void) {
     const finish = beginInsightOperation("files-upload", { sessionId: props.sessionId, kind: "file", method: "drop", count: 1 })
-    const file = await getFileFromEntry(fileEntry).catch((error) => {
+    const file = await getFileFromEntry(fileEntry).catch(() => {
       finish("failure", { reason: "read-entry" })
-      throw error
+      showToast({ title: "上传失败", description: `无法读取文件：${fileEntry.name}`, variant: "error" })
+      return undefined
     })
-    await uploadSingleFile(file, "drop", finish)
+    if (!file) return
+    await uploadSingleFile(file, "drop", finish, onSuccess)
   }
   async function readAllDirectoryEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
     const entries: FileSystemEntry[] = []
@@ -553,7 +571,7 @@ function FileManagerInner(props: {
     return entries
   }
   function getFileFromEntry(fileEntry: FileSystemFileEntry): Promise<File> {
-    return new Promise((resolve) => fileEntry.file(resolve))
+    return new Promise((resolve, reject) => fileEntry.file(resolve, reject))
   }
 
   // ── 下载 ────────────────────────────────────────────────────────

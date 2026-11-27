@@ -9,7 +9,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: #ffffff;
       color: #191919;
       display: flex;
@@ -286,7 +286,8 @@
       padding: 0 16px;
     }
     .text-assistant {
-      color: #191919;
+      /* design 页正文:上游 markdown.css color var(--text-strong),theme.css 值 #171717 */
+      color: #171717;
       font-size: 14px;
       line-height: 22px;
     }
@@ -304,19 +305,20 @@
     .text-assistant[data-component="markdown"] h5,
     .text-assistant[data-component="markdown"] h6 {
       font-size: 14px;
-      color: #191919;
+      color: #171717;
       font-weight: 500;
       margin: 0 0 8px 0;
-      line-height: 1.4;
+      line-height: 150%;
     }
     .text-assistant[data-component="markdown"] strong,
     .text-assistant[data-component="markdown"] b {
-      color: #191919;
+      color: #171717;
       font-weight: 500;
     }
     .text-assistant[data-component="markdown"] p { margin: 0 0 8px 0; }
     .text-assistant[data-component="markdown"] a {
-      color: #0a59f7;
+      /* design 页 oc-2 主题 var(--text-interactive-base) = #0445e6(insight 页才覆盖为品牌蓝 #0A59F7) */
+      color: #0445e6;
       text-decoration: none;
     }
     .text-assistant[data-component="markdown"] a:hover { text-decoration: underline; text-underline-offset: 2px; }
@@ -329,16 +331,21 @@
     .text-assistant[data-component="markdown"] ul { list-style-type: disc; }
     .text-assistant[data-component="markdown"] ol { list-style-type: decimal; padding-left: 2.25rem; }
     .text-assistant[data-component="markdown"] li { margin-bottom: 8px; }
+    .text-assistant[data-component="markdown"] li::marker { color: #8f8f8f; }
     .text-assistant[data-component="markdown"] li > p:first-child { display: inline; margin: 0; }
     .text-assistant[data-component="markdown"] li > ul,
     .text-assistant[data-component="markdown"] li > ol { margin: 0.25rem 0; padding-left: 1rem; }
+    /* 嵌套有序列表缩进更深(上游 markdown.css li > ol 单列 1.75rem) */
+    .text-assistant[data-component="markdown"] li > ol { padding-left: 1.75rem; }
+    /* 引用块(上游 markdown.css:左边线 var(--border-weak-base),文字 var(--text-weak) = #8f8f8f) */
     .text-assistant[data-component="markdown"] blockquote {
-      border-left: 2px solid #E5E7EB;
+      border-left: 2px solid #DBDBDB;
       margin: 1.5rem 0;
       padding-left: 0.5rem;
-      color: rgba(0,0,0,0.6);
+      color: #8f8f8f;
       font-style: normal;
     }
+    .text-assistant[data-component="markdown"] img { max-width: 100%; height: auto; border-radius: 4px; margin: 1.5rem 0; display: block; }
     .text-assistant[data-component="markdown"] hr { border: none; height: 0; margin: 0; }
     /* ── 行内代码(对齐 design markdown.css :not(pre) > code:品牌蓝文字、无背景) ── */
     .text-assistant[data-component="markdown"] :not(pre) > code {
@@ -373,31 +380,70 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .markdown-code-btn {
+    /* 复制按钮(对齐上游 markdown-copy-button:18px 图标 + 文字标签,非方块图标按钮) */
+    .markdown-code-copy {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      border: 0;
-      border-radius: 4px;
-      background: transparent;
-      color: rgba(0, 0, 0, 0.6);
+      gap: 4px;
+      background: none;
+      border: none;
       cursor: pointer;
+      color: rgba(0, 0, 0, 0.6);
+      font-size: 14px;
+      line-height: 22px;
+      padding: 0;
       flex-shrink: 0;
     }
-    .markdown-code-btn:hover { background: rgba(0, 0, 0, 0.05); }
-    .markdown-code-btn svg { width: 16px; height: 16px; display: block; }
-    .markdown-code-btn .icon-check { display: none; }
-    .markdown-code-btn[data-copied="true"] .icon-copy { display: none; }
-    .markdown-code-btn[data-copied="true"] .icon-check { display: block; }
-    .text-assistant[data-component="markdown"] [data-component="markdown-code"]:not([data-expandable="true"]) [data-action="expand"] {
+    .markdown-code-copy svg { width: 18px; height: 18px; display: inline-flex; }
+    .markdown-code-copy .icon-check { display: none; }
+    .markdown-code-copy[data-copied="true"] .icon-copy { display: none; }
+    .markdown-code-copy[data-copied="true"] .icon-check { display: inline-flex; }
+    /* 底部展开浮层(对齐上游 markdown-code-expand-container:仅超长代码块出现,
+       折叠时渐变蒙层盖住代码,hover/展开后透出;按钮右下角"展开/收起"+旋转箭头) */
+    .text-assistant[data-component="markdown"] [data-slot="markdown-code-expand-container"] {
       display: none;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 60px;
+      background: linear-gradient(0deg, rgba(249,249,251,1) 0%, rgba(249,249,251,1) 50.226%, rgba(249,249,251,0.9) 70.355%, rgba(249,249,251,0) 100%);
+      align-items: flex-end;
+      justify-content: flex-end;
+      padding: 0 16px 8px 0;
+      pointer-events: none;
     }
-    .text-assistant[data-component="markdown"] [data-component="markdown-code"] [data-action="expand"] svg {
-      transition: transform 0.2s;
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"][data-expandable="true"] [data-slot="markdown-code-expand-container"] {
+      display: flex;
     }
-    .text-assistant[data-component="markdown"] [data-component="markdown-code"][data-expanded="true"] [data-action="expand"] svg {
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"][data-expandable="true"]:not([data-expanded="true"]):hover [data-slot="markdown-code-expand-container"] {
+      background: none;
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"][data-expandable="true"][data-expanded="true"] [data-slot="markdown-code-expand-container"] {
+      height: auto;
+      background: none;
+      padding-bottom: 8px;
+    }
+    .markdown-code-expand-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: rgba(0, 0, 0, 0.6);
+      font-size: 14px;
+      line-height: 22px;
+      padding: 0;
+      pointer-events: auto;
+    }
+    .markdown-code-expand-btn svg {
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .text-assistant[data-component="markdown"] [data-component="markdown-code"][data-expanded="true"] .markdown-code-expand-btn svg {
       transform: rotate(180deg);
     }
     .text-assistant[data-component="markdown"] [data-component="markdown-code"] pre {
@@ -438,17 +484,18 @@
       display: block;
       overflow-x: auto;
     }
+    /* 单元格描边:上游 td 用 var(--border-weaker-base)(#E8E8E8)、th 用 var(--border-weak-base)(#DBDBDB) */
     .text-assistant[data-component="markdown"] th,
     .text-assistant[data-component="markdown"] td {
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid #E8E8E8;
       padding: 12px;
       text-align: left;
       vertical-align: top;
     }
     .text-assistant[data-component="markdown"] th {
-      color: #191919;
+      color: #171717;
       font-weight: 500;
-      border-bottom: 1px solid #e5e5e5;
+      border-bottom: 1px solid #DBDBDB;
     }
     /* ── artifact 输出卡片(对齐 design InsightTurn outputCards) ── */
     .artifact-card {
@@ -493,7 +540,8 @@
       text-align: left;
     }
     .reasoning-toggle svg {
-      color: #777;
+      /* 对齐上游 reasoning-part-chevron 的 var(--icon-base) = #8F8F8F */
+      color: #8F8F8F;
       transition: transform 0.2s ease;
     }
     .reasoning-toggle[data-open="true"] svg {
@@ -543,6 +591,8 @@
       align-items: center;
       gap: 8px;
       font-size: 12px;
+      /* 上游 text-xs 同时给 16px 行高(Tailwind text-xs 默认 1rem) */
+      line-height: 16px;
       border-radius: 6px;
       background: #ffffff;
       border: 1px solid #E5E7EB;
@@ -594,8 +644,10 @@
       border: 1px solid #E5E7EB;
     }
     .file-ops-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(0, 0, 0, 0.6); }
+    .file-ops-rows { display: flex; flex-direction: column; gap: 2px; }
     .file-ops-row { display: flex; align-items: center; gap: 6px; font-size: 11px; }
     .file-ops-row .file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #191919; }
+    .file-ops-badges { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
     .op-badge { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; font-size: 10px; font-weight: 700; }
     .op-badge-w { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
     .op-badge-e { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
@@ -659,10 +711,11 @@
     .subtask-output .so-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .subtask-output .so-title { font-size: 12px; line-height: 22px; font-weight: 500; color: rgb(25, 25, 25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .subtask-output .so-preview { font-size: 12px; line-height: 22px; color: rgb(25, 25, 25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    /* ── 压缩/中断分隔线(对齐 design MessageDivider) ── */
+    /* ── 压缩/中断分隔线(对齐 design MessageDivider:上游 compaction-part,line var(--border-weak-base) = #DBDBDB;
+       label class text-12-regular text-text-weak = 13px/150%) ── */
     .msg-divider { display: flex; align-items: center; gap: 12px; width: 100%; }
-    .msg-divider .line { flex: 1 1 auto; height: 1px; background: #e5e5e5; }
-    .msg-divider .label { flex: 0 0 auto; white-space: nowrap; text-align: center; font-size: 12px; color: #8f8f8f; }
+    .msg-divider .line { flex: 1 1 auto; height: 1px; background: #DBDBDB; }
+    .msg-divider .label { flex: 0 0 auto; white-space: nowrap; text-align: center; font-size: 13px; line-height: 150%; color: #8f8f8f; }
     /* ── 错误/停滞提示(对齐 design MakeErrorNotice / 压缩提示) ── */
     .error-notice {
       margin: 0 12px;
@@ -681,20 +734,44 @@
     .stalled-notice {
       margin: 0 12px;
       padding: 8px 16px;
-      font-size: 14px;
-      line-height: 22px;
+      /* 上游 text-sm:字号 13px(var(--font-size-small))、行高 20px(Tailwind text-sm 默认 1.25rem) */
+      font-size: 13px;
+      line-height: 20px;
       border-radius: 6px;
       border: 1px solid rgba(234, 179, 8, 0.3);
       background: rgba(255, 247, 224, 1);
       color: #7a4f00;
     }
-    /* ── turn 元信息 hover(对齐 design insight-turn-meta.css) ── */
+    /* ── turn 底部回复复制行(对齐 design octo-reply-copy-row / octo-revert-icon-btn) ── */
+    .reply-copy-row {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 4px;
+      padding-left: 16px;
+    }
+    .reply-copy-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      color: inherit;
+    }
+    .reply-copy-btn:hover { background: rgba(0, 0, 0, 0.05); }
+    .reply-copy-btn svg { width: 16px; height: 16px; display: block; }
+    /* ── turn 元信息 hover(对齐 design insight-turn-meta.css:锚定在回复复制行上方) ── */
     .turn-meta-wrapper {
       position: absolute;
-      bottom: 0;
+      bottom: 100%;
       left: 0;
       right: 0;
-      transform: translateY(100%);
       display: flex;
       align-items: center;
       justify-content: flex-start;
@@ -752,6 +829,8 @@
       font-weight: 500;
     }
     .qf-chip-on { background: #0a59f7; color: #fff; border-color: #0a59f7; }
+    /* 禁用态(对齐上游 .qf-chip:disabled / .qf-input:disabled:锁定表单内选项与输入框降不透明度) */
+    .qf-chip:disabled { opacity: 0.5; cursor: not-allowed; }
     .qf-input,
     .qf-textarea {
       padding: 8px 12px;
@@ -763,6 +842,8 @@
       font-family: inherit;
       resize: vertical;
     }
+    .qf-input:disabled,
+    .qf-textarea:disabled { opacity: 0.7; cursor: not-allowed; }
     .qf-input::placeholder,
     .qf-textarea::placeholder { color: #9CA3AF; }
     .qform-foot {
@@ -775,20 +856,25 @@
     }
     .qf-locked-note { font-size: 12px; color: #9CA3AF; }
 
-    /* ── studio 会话区(对齐 studio 页面 StudioConversation / studio-01~03.css) ── */
-    /* 会话滚动区留白对齐 .studio-center-scroll .scroll-view__viewport: 36px 28px 22px */
-    body[data-module="studio"] .chat-scroll-view { padding: 36px 28px 22px 28px; }
-    body[data-module="studio"] .chat-content { padding-top: 0; gap: 0; }
-    /* design 基础留白(#conversation-list 12px 顶/60px 底)不适用于 studio:app 的 studio 视口自带全部留白 */
-    body[data-module="studio"] #conversation-list { padding: 0; }
-    /* 对齐 studio-02.css @media (max-width: 1227px) .studio-conversation { padding: 24px } */
-    @media (max-width: 1227px) {
-      body[data-module="studio"] .chat-scroll-view { padding: 24px; }
-    }
-    /* ── insight 会话区(对齐 insight 页 ScrollView: padding 0 12px,无额外顶/底留白) ── */
-    body[data-module="insight"] .chat-scroll-view { padding: 0 12px; }
-    body[data-module="insight"] .chat-content { padding-top: 0; }
-    body[data-module="insight"] #conversation-list { padding: 0; }
+     /* ── studio 会话区(对齐 studio 页面 StudioConversation / studio-01~03.css) ── */
+     /* 会话滚动区留白对齐 .studio-center-scroll .scroll-view__viewport: 36px 28px 22px */
+     body[data-module="studio"] .chat-scroll-view { padding: 36px 28px 22px 28px; }
+     body[data-module="studio"] .chat-content { padding-top: 0; gap: 0; }
+     /* 顶部留白由 studio 视口自带(36px);底部统一加分享页 60px 留白,与 design 分支
+        #conversation-list 的 60px 底距一致 */
+     body[data-module="studio"] #conversation-list { padding: 0 0 60px 0; }
+     /* 对齐 studio-02.css @media (max-width: 1227px) .studio-conversation { padding: 24px } */
+     @media (max-width: 1227px) {
+       body[data-module="studio"] .chat-scroll-view { padding: 24px; }
+     }
+      /* ── insight 会话区(对齐 insight 页 ScrollView: padding 0 12px + 内容列 800px 居中 + py-3) ── */
+      /* 824 = 800(内容列宽)+ 2×12(滚动区内边距);turn 间距 16px 由 .chat-content gap 承担
+         (上游 gap-0 + 每个 InsightTurn mb-4,视觉等价);底部统一加分享页 60px 留白 */
+      body[data-module="insight"] .chat-scroll-view { max-width: 824px; padding: 0 12px; }
+      body[data-module="insight"] .chat-content { padding-top: 0; }
+      body[data-module="insight"] #conversation-list { padding: 12px 0 60px 0; }
+      /* 头部标题容器随 insight 内容列(824px)对齐,否则沿用 design 的 1024px,标题左边界与会话区错位 */
+      body[data-module="insight"] .header-title { max-width: 824px; }
 
     .studio-conversation {
       display: flex;
@@ -1456,9 +1542,61 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    /* 用户气泡:上游 user-message-body 宽度 min(82%, 64ch);气泡下方 meta hover 显示 */
-    .insight-scope .bubble-user { max-width: min(82%, 64ch); }
+    /* 用户气泡:上游 user-message-body 宽度 min(82%, 64ch);
+        insight 页上游 user-message-text 内边距 8px 12px(octo-tokens 仅覆盖圆角/底色/字号);
+        根节点 [data-component="user-message] 文字 var(--text-strong) = #171717、行高 var(--line-height-large) = 150%
+        (压缩轮回显气泡为行内样式 #191919/22px,不受此规则影响) */
+    .insight-scope .bubble-user { max-width: min(82%, 64ch); padding: 8px 12px; color: #171717; line-height: 150%; }
+    /* insight 页正文 Markdown:上游 [data-component="text-part"] 内 Markdown 覆盖
+       (22px 行高、h1 16px/h2+ 14px 加粗分级、12px 段距、li 零底距、hr 24px)——
+       与 design 页 markdown.css 基础样式(160%/8px)不同 */
+    .insight-scope .text-assistant[data-component="markdown"] { line-height: 22px; color: #191919; }
+    .insight-scope .text-assistant[data-component="markdown"] h1 {
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 24px;
+      margin: 0 0 12px 0;
+      color: #191919;
+    }
+    .insight-scope .text-assistant[data-component="markdown"] h2,
+    .insight-scope .text-assistant[data-component="markdown"] h3,
+    .insight-scope .text-assistant[data-component="markdown"] h4,
+    .insight-scope .text-assistant[data-component="markdown"] h5,
+    .insight-scope .text-assistant[data-component="markdown"] h6 {
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 22px;
+      margin: 0 0 12px 0;
+      color: #191919;
+    }
+    .insight-scope .text-assistant[data-component="markdown"] h1 + p,
+    .insight-scope .text-assistant[data-component="markdown"] h2 + p,
+    .insight-scope .text-assistant[data-component="markdown"] h3 + p,
+    .insight-scope .text-assistant[data-component="markdown"] h4 + p,
+    .insight-scope .text-assistant[data-component="markdown"] h5 + p,
+    .insight-scope .text-assistant[data-component="markdown"] h6 + p,
+    .insight-scope .text-assistant[data-component="markdown"] h1 + ol,
+    .insight-scope .text-assistant[data-component="markdown"] h2 + ol,
+    .insight-scope .text-assistant[data-component="markdown"] h3 + ol,
+    .insight-scope .text-assistant[data-component="markdown"] h4 + ol,
+    .insight-scope .text-assistant[data-component="markdown"] h1 + ul,
+    .insight-scope .text-assistant[data-component="markdown"] h2 + ul,
+    .insight-scope .text-assistant[data-component="markdown"] h3 + ul,
+    .insight-scope .text-assistant[data-component="markdown"] h4 + ul { margin-top: -4px; }
+    .insight-scope .text-assistant[data-component="markdown"] p { margin: 0 0 12px 0; color: #191919; }
+    .insight-scope .text-assistant[data-component="markdown"] ul,
+    .insight-scope .text-assistant[data-component="markdown"] ol { margin: 8px 0 12px 0; }
+    .insight-scope .text-assistant[data-component="markdown"] li { margin-bottom: 0; }
+    .insight-scope .text-assistant[data-component="markdown"] table { margin: 12px 0; }
+    .insight-scope .text-assistant[data-component="markdown"] hr { margin: 24px 0; }
+    /* insight 页 token 差异:引用块/表格描边用 insight 的 border-weak-base(#DBDBDB) 与 weaker(#E8E8E8);
+       分割线 line 两页同为 #DBDBDB(基础 .msg-divider 已对齐,无需覆盖) */
+    .insight-scope .text-assistant[data-component="markdown"] blockquote { border-left-color: #DBDBDB; }
+    .insight-scope .text-assistant[data-component="markdown"] td { border-bottom-color: #E8E8E8; }
+    .insight-scope .text-assistant[data-component="markdown"] th { border-bottom-color: #DBDBDB; }
     .insight-user-row { display: flex; flex-direction: column; align-items: flex-end; }
+    /* 上游 user-message-copy-wrapper:min-height 20px、右对齐、gap 10px、hover 显示;
+       内部 meta 文字均为 text-12-regular(13px/150%) text-text-weak(#8F8F8F) */
     .insight-user-meta {
       min-height: 20px;
       width: 100%;
@@ -1469,32 +1607,45 @@
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.15s ease;
-      font-size: 12px;
-      line-height: 18px;
+      font-size: 13px;
+      line-height: 150%;
       color: #8f8f8f;
-      padding-top: 2px;
     }
     .insight-user-row:hover .insight-user-meta,
-    .insight-user-row:focus-within .insight-user-meta { opacity: 1; }
+    .insight-user-row:focus-within .insight-user-meta { opacity: 1; pointer-events: auto; }
+    /* 上游 meta-wrap:flex-1 右对齐、overflow 裁切;meta 头(可收缩省略)与时间(不收缩)用 \u00A0·\u00A0 相接 */
+    .insight-user-meta-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
+    .insight-user-meta-head { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; user-select: none; }
+    .insight-user-meta-tail { flex: 0 0 auto; white-space: nowrap; text-align: right; user-select: none; }
     /* assistant 内容:上游 assistant-content(flex 列 + 12px 间距) */
     .insight-msgs { display: flex; flex-direction: column; gap: 12px; }
-    /* 思考过程:上游 reasoning-part(正文 Markdown、20px 顶距 + 左边线) */
+    /* 思考过程:上游 reasoning-part(正文 Markdown、20px 顶距 + 左边线);
+       展开含 Markdown 时 margin-bottom 收敛为 -4px(对齐上游 :has(markdown) 规则) */
     .insight-reasoning { margin-bottom: 8px; }
+    .insight-reasoning[data-open="true"] { margin-bottom: -4px; }
     .insight-reasoning-body {
       margin-top: 20px;
       padding-left: 12px;
       border-left: 1px solid rgba(0, 0, 0, 0.08);
     }
-    /* 工具行:上游 BasicTool trigger(32px 行高)与 ContextToolGroup */
+    /* 上游 reasoning-part 内 Markdown:12px/18px 灰字,段落 12px 底距,li 2px 底距;
+       含加粗的段落(小标题)顶部再空 12px,首段除外(对齐上游 p:has(strong) 规则)。
+       选择器带 .insight-scope 抬高特异性,确保压过下方 insight 正文 text-part 覆盖 */
+    .insight-scope .insight-reasoning-body .text-assistant { font-size: 12px; line-height: 18px; color: #777; }
+    .insight-scope .insight-reasoning-body .text-assistant p { margin: 0 0 12px 0; }
+    .insight-scope .insight-reasoning-body .text-assistant p:has(strong) { margin-top: 12px; margin-bottom: 0; }
+    .insight-scope .insight-reasoning-body .text-assistant p:has(strong):first-child { margin-top: 0; }
+    .insight-scope .insight-reasoning-body .text-assistant strong { color: #777; }
+    .insight-scope .insight-reasoning-body .text-assistant li { margin-bottom: 2px; }
+    /* Tool row: upstream BasicTool trigger (32px 行高、14px/150% 文字 baseline 对齐) and ContextToolGroup */
     .insight-tool-row {
-      min-height: 32px;
       width: 100%;
       display: flex;
-      align-items: center;
+      align-items: baseline;
       gap: 8px;
       min-width: 0;
       font-size: 14px;
-      line-height: 22px;
+      line-height: 150%;
       text-align: left;
     }
     .insight-tool-title { flex-shrink: 0; color: #171717; font-weight: 500; }
@@ -1506,9 +1657,16 @@
       white-space: nowrap;
       color: #6f6f6f;
     }
+    /* 单工具行:上游 Collapsible.Trigger 固定 32px 高、垂直居中;ctx 组明细行无箭头,高度随内容 */
+    .insight-msgs > .insight-tool-row { min-height: 32px; align-items: center; }
+    .insight-msgs > .insight-question { min-height: 32px; }
+    .insight-question { display: flex; flex-direction: column; align-items: stretch; }
+    /* 上游 tool-collapsible:trigger ↔ content 4px 间距 */
+    .insight-question .insight-question-answers { margin-top: 4px; }
     .insight-ctx-trigger {
       width: 100%;
-      min-height: 24px;
+      /* 上游 collapsible-trigger 32px 高;ctx 内层 context-tool-group-trigger min-height 24px */
+      min-height: 32px;
       display: flex;
       align-items: center;
       gap: 0;
@@ -1525,7 +1683,7 @@
       align-items: center;
       gap: 8px;
       font-size: 14px;
-      line-height: 22px;
+      line-height: 150%;
     }
     .insight-ctx-label { color: #171717; font-weight: 500; }
     .insight-ctx-summary {
@@ -1536,8 +1694,24 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .insight-ctx-chevron { color: #8f8f8f; display: inline-flex; margin-left: 4px; transition: transform 0.2s ease; }
-    .insight-ctx-trigger[data-open="true"] .insight-ctx-chevron { transform: rotate(180deg); }
+    /* 上游 Collapsible.Arrow:24px 容器、16px 图标、--icon-weaker(#e0e0e0)、hover/展开才显现、
+       收起 -90° → 展开 0°(设计上箭头常驻占位,不随内容挤压) */
+    .insight-ctx-chevron {
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #e0e0e0;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      cursor: pointer;
+    }
+    .insight-ctx-chevron svg { width: 16px; height: 16px; display: inline-flex; transform: rotate(-90deg); transition: transform 0.15s ease; }
+    .insight-ctx-trigger:hover .insight-ctx-chevron,
+    .insight-ctx-trigger[data-open="true"] .insight-ctx-chevron { opacity: 1; }
+    .insight-ctx-trigger[data-open="true"] .insight-ctx-chevron svg { transform: rotate(0deg); }
     .insight-ctx-items { padding-left: 12px; display: none; flex-direction: column; gap: 4px; }
     .insight-ctx-items[data-open="true"] { display: flex; }
     /* question 问答(上游 question-answers) */
@@ -1557,17 +1731,39 @@
       transition: opacity 0.15s ease;
     }
     .insight-text:hover .insight-text-meta-row,
-    .insight-text:focus-within .insight-text-meta-row { opacity: 1; }
-    .insight-text-meta { font-size: 12px; color: #8f8f8f; user-select: none; cursor: default; }
-    /* 错误卡(上游 Card error + insight 强制黑字) */
+    .insight-text:focus-within .insight-text-meta-row { opacity: 1; pointer-events: auto; }
+    /* 上游 text-part-meta:text-12-regular(13px/150%) text-text-weak */
+    .insight-text-meta { font-size: 13px; line-height: 150%; color: #8f8f8f; user-select: none; cursor: default; }
+    /* 上游 text-part-copy-wrapper[data-interrupted]:中断轮整行右对齐、gap 12px */
+    .insight-text-meta-row[data-interrupted] { width: 100%; justify-content: flex-end; gap: 12px; }
+    /* 正文复制回复按钮(对齐上游 text-part-copy-wrapper 内 IconButton ghost normal:
+       24px 透明钮、4px 圆角、16px currentColor 图标(#8F8F8F)、hover 浅灰底) */
+    .insight-copy-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      color: #8F8F8F;
+      flex-shrink: 0;
+    }
+    .insight-copy-btn:hover { background: rgba(0, 0, 0, 0.059); }
+    .insight-copy-btn svg { width: 16px; height: 16px; display: block; }
+    /* 错误卡(上游 Card variant=error + insight 覆盖:中性描边、黑字、左侧 2px 红 accent 线) */
     .insight-error-card {
-      padding: 12px 16px;
-      border-radius: 8px;
-      background: #fff8f6;
-      border: 1px solid rgba(237, 72, 49, 0.2);
+      position: relative;
+      padding: 10px 12px 10px 10px;
+      border-radius: 6px;
+      background: transparent;
+      border: 1px solid #E5E7EB;
       color: #191919;
       font-size: 14px;
-      line-height: 22px;
+      line-height: 25.2px;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       word-break: break-word;
@@ -1575,6 +1771,21 @@
       overflow-y: auto;
       user-select: text;
     }
+    .insight-error-card::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      border-radius: 2px;
+      background: #ed4831;
+    }
+    /* 常规 turn 的 MakeErrorNotice(上下文超出提示)在 insight 页不带 mx-3:12px 内缩由 SessionTurn px-3 承担;
+       压缩 turn(insight-turn--compaction 无内缩)仍需 12px 边距,维持 .error-notice 默认 margin */
+    .insight-scope .insight-turn:not(.insight-turn--compaction) .error-notice { margin: 0; }
+    /* insight 页 reasoning 折叠箭头为上游 Icon chevron-down small = 16px(design 分支 12px) */
+    .insight-scope .reasoning-toggle svg { width: 16px; height: 16px; }
     /* 压缩 turn 状态条(insight-compaction-status) */
     .insight-compaction-status {
       display: flex;
@@ -1598,8 +1809,14 @@
       animation: octo-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
       flex-shrink: 0;
     }
-    /* 知识库引用(octo-kb-refs) */
-    .insight-kb-refs { padding-top: 8px; border-top: 1px solid rgba(0, 0, 0, 0.07); }
+    /* 知识库引用(octo-kb-refs:横向 12px 由 .insight-turn 内缩承担,底距 12px 对齐上游;
+       font-family 对齐 var(--octo-font)) */
+    .insight-kb-refs {
+      margin-bottom: 12px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(0, 0, 0, 0.07);
+      font-family: "HarmonyOS Sans", Inter, "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
     .insight-kb-toggle {
       display: inline-flex;
       align-items: center;
@@ -1725,6 +1942,64 @@
     }
     .insight-task-foot .file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .insight-task-id { flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* ── 会话内文件变更组(对齐上游 SessionTurn diffs group / session-turn.css)── */
+    .insight-diffs { width: 100%; min-width: 0; }
+    .insight-diffs-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 4px;
+      padding-bottom: 12px;
+      height: 44px;
+    }
+    /* label:上游 14px/500/150% var(--text-strong);"Changed" 为 zh 词条缺失时的 en 回退,与 insight 页实际渲染一致 */
+    .insight-diffs-label {
+      font-variant-numeric: tabular-nums;
+      color: #171717;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 150%;
+    }
+    .insight-diff-changes { display: flex; gap: 8px; align-items: center; }
+    .insight-diff-changes .insight-diff-add { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 14px; line-height: 150%; color: #167517; }
+    .insight-diff-changes .insight-diff-del { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 14px; line-height: 150%; color: #fa3012; }
+    .insight-diffs-content { padding-top: 0; display: flex; flex-direction: column; }
+    /* 文件行:上游 Accordion.Trigger 32px 高、8px 12px 内距、#f7f7f7 底(insight --background-stronger)、
+       #DBDBDB 描边、相邻行 -1px 合并边框、首尾 8px 圆角、13px/150% */
+    .insight-diff-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      min-width: 0;
+      height: 32px;
+      padding: 8px 12px;
+      background: #f7f7f7;
+      border: 1px solid #DBDBDB;
+      color: #171717;
+      font-size: 13px;
+      line-height: 150%;
+    }
+    .insight-diff-row + .insight-diff-row { margin-top: -1px; }
+    .insight-diff-row:first-child { border-top-left-radius: 8px; border-top-right-radius: 8px; }
+    /* 用 last-of-type:超出 10 个文件时后面还挂 more 提示行(span),最后一行仍保持底部圆角 */
+    .insight-diff-row:last-of-type { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }
+    .insight-diff-row:hover { background: #0000000A; }
+    .insight-diff-path { display: flex; flex-grow: 1; min-width: 0; font-size: 13px; line-height: 150%; }
+    /* 目录段:rtl 裁切保留尾部(与文件名相邻处),颜色 var(--text-base) = #6F6F6F */
+    .insight-diff-dir { color: #6f6f6f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+    .insight-diff-name { min-width: 0; color: #171717; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .insight-diff-meta { flex-shrink: 0; display: inline-flex; align-items: center; gap: 10px; }
+    /* 超出 10 个文件时的静态提示(上游 ui.sessionTurn.diffs.more,zh 缺 key 回退 en) */
+    .insight-diffs-more {
+      color: #8F8F8F;
+      font-size: 13px;
+      line-height: 150%;
+      margin-top: 12px;
+      padding: 0 0 6px;
+      cursor: default;
+    }
   </style>
 </head>
 <body>
@@ -1771,22 +2046,34 @@
         .replace(/~~([^~]+)~~/g, '<del>$1</del>')
       return styled.replace(/\u0000(\d+)\u0000/g, (full, i) => codeSpans[+i])
     }
-    // 代码块(对齐 design [data-component="markdown-code]:头部语言标签 + 复制/展开按钮 + 320px 限高)
-    const CODE_COPY_SVG = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3.5A1.5 1.5 0 0 0 2 3v5.5A1.5 1.5 0 0 0 3.5 10H4" stroke="currentColor" stroke-width="1.2"/></svg>'
-    const CODE_CHECK_SVG = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-    const CODE_CHEVRON_SVG = '<svg viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
+    // 代码块(对齐上游 markdown.tsx:头部语言标签 + 图标带文字的复制按钮;
+    // 展开按钮不在头部,是折叠代码块底部的渐变浮层"展开/收起")
+    const CODE_COPY_SVG = '<svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><g><path d="M11.4451 5.41518C11.7601 5.41518 12.0251 5.52768 12.2401 5.75268C12.4551 5.97268 12.5626 6.24018 12.5626 6.55518L12.5626 14.0402C12.5626 14.3502 12.4551 14.6177 12.2401 14.8427C12.0251 15.0627 11.7601 15.1727 11.4451 15.1727L3.94507 15.1727C3.63007 15.1727 3.36507 15.0627 3.15007 14.8427C2.93507 14.6177 2.82757 14.3502 2.82757 14.0402L2.82757 6.55518C2.82757 6.24018 2.93507 5.97268 3.15007 5.75268C3.36507 5.52768 3.63007 5.41518 3.94507 5.41518L11.4451 5.41518ZM3.94507 4.30518C3.53507 4.30518 3.16007 4.40518 2.82007 4.60518C2.47507 4.81018 2.20007 5.08518 1.99507 5.43018C1.79507 5.77018 1.69507 6.14518 1.69507 6.55518L1.69507 14.0402C1.69507 14.4502 1.79507 14.8277 1.99507 15.1727C2.20007 15.5227 2.47507 15.7952 2.82007 15.9902C3.16007 16.1902 3.53507 16.2902 3.94507 16.2902L11.4451 16.2902C11.8551 16.2902 12.2301 16.1902 12.5701 15.9902C12.9151 15.7952 13.1901 15.5227 13.3951 15.1727C13.5951 14.8277 13.6951 14.4502 13.6951 14.0402L13.6951 6.55518C13.6951 6.14518 13.5951 5.77018 13.3951 5.43018C13.1901 5.08518 12.9151 4.81018 12.5701 4.60518C12.2301 4.40518 11.8551 4.30518 11.4451 4.30518L3.94507 4.30518ZM8.20507 9.81018L8.20507 7.36518C8.20507 7.13518 8.11257 6.97518 7.92757 6.88518C7.74257 6.79518 7.55507 6.79518 7.36507 6.88518C7.17007 6.97518 7.07257 7.13518 7.07257 7.36518L7.07257 9.81018L4.64257 9.81018C4.41757 9.81018 4.25507 9.90268 4.15507 10.0877C4.06007 10.2727 4.06007 10.4602 4.15507 10.6502C4.25507 10.8352 4.41757 10.9277 4.64257 10.9277L7.07257 10.9277L7.07257 13.3577C7.07257 13.5977 7.17007 13.7652 7.36507 13.8602C7.55507 13.9552 7.74257 13.9552 7.92757 13.8602C8.11257 13.7652 8.20507 13.5977 8.20507 13.3577L8.20507 10.9277L10.6351 10.9277C10.8751 10.9277 11.0451 10.8352 11.1451 10.6502C11.2401 10.4602 11.2401 10.2727 11.1451 10.0877C11.0451 9.90268 10.8751 9.81018 10.6351 9.81018L8.20507 9.81018Z" fill="rgb(0,0,0)" fill-opacity="0.600000024" fill-rule="nonzero"/><path d="M7.29008 1.69482C6.72508 1.69482 6.20508 1.83982 5.73008 2.12982C5.26008 2.42482 4.89758 2.81982 4.64258 3.31482L6.03008 3.31482C6.21008 3.15482 6.40508 3.03482 6.61508 2.95482C6.82508 2.86982 7.05008 2.82732 7.29008 2.82732L13.3051 2.82732C13.6401 2.82732 13.9501 2.90982 14.2351 3.07482C14.5251 3.24482 14.7551 3.47482 14.9251 3.76482C15.0901 4.04982 15.1726 4.35982 15.1726 4.69482L15.1726 10.6948C15.1726 10.9348 15.1276 11.1623 15.0376 11.3773C14.9476 11.5923 14.8251 11.7848 14.6701 11.9548L14.6701 13.3348C15.1601 13.0848 15.5526 12.7223 15.8476 12.2473C16.1426 11.7723 16.2901 11.2548 16.2901 10.6948L16.2901 4.69482C16.2901 4.15482 16.1551 3.65482 15.8851 3.19482C15.6151 2.73482 15.2526 2.36982 14.7976 2.09982C14.3426 1.82982 13.8451 1.69482 13.3051 1.69482L7.29008 1.69482Z" fill="rgb(0,0,0)" fill-opacity="0.600000024" fill-rule="nonzero"/></g></svg>'
+    const CODE_CHECK_SVG = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 11.9657L8.37838 14.7529L15 5.83398" stroke="rgb(0,0,0)" stroke-opacity="0.6" stroke-linecap="square" stroke-width="1.5"/></svg>'
+    const CODE_CHEVRON_SVG = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgb(0,0,0)" fill-opacity="0.6"/></svg>'
+    // 思考过程折叠箭头(design 页 ReasoningCollapsed 内联 12x12 svg;insight 上游为 icon chevron-down small = 16px)
+    const REASONING_CHEVRON_SVG = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
+    // 上游 ui icon chevron-down(20 viewBox,fill-opacity 0.6):insight 页 ctx 箭头与 reasoning 箭头共用,16px;
+    // 显式 width/height 防御作用域 class 缺失时 svg 撑满默认尺寸(CSS 同值不冲突)
+    const INSIGHT_CHEVRON_SVG = '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 6.91961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor" fill-opacity="0.6"/></svg>'
     function codeBlockHtml(lang, code) {
       return (
         '<div data-component="markdown-code">' +
         '<div data-slot="markdown-code-header">' +
         (lang ? '<span data-slot="markdown-code-lang">' + escapeHtml(lang.toUpperCase()) + "</span>" : "") +
-        '<button type="button" class="markdown-code-btn" data-action="copy" title="复制" aria-label="复制">' +
+        '<button type="button" class="markdown-code-copy" data-action="copy" aria-label="复制">' +
         '<span class="icon-copy">' + CODE_COPY_SVG + "</span>" +
         '<span class="icon-check">' + CODE_CHECK_SVG + "</span>" +
+        '<span class="markdown-copy-label">复制</span>' +
         "</button>" +
-        '<button type="button" class="markdown-code-btn" data-action="expand" title="展开" aria-label="展开">' + CODE_CHEVRON_SVG + "</button>" +
         "</div>" +
         "<pre><code" + (lang ? ' class="language-' + escapeHtml(lang) + '"' : "") + ">" + escapeHtml(code) + "</code></pre>" +
+        '<div data-slot="markdown-code-expand-container">' +
+        '<button type="button" class="markdown-code-expand-btn" data-action="expand" aria-label="展开">' +
+        '<span class="markdown-code-expand-label">展开</span>' +
+        CODE_CHEVRON_SVG +
+        "</button>" +
+        "</div>" +
         "</div>"
       )
     }
@@ -1921,6 +2208,22 @@
       const sepIdx = raw.lastIndexOf("\n---\n")
       if (sepIdx !== -1) return raw.slice(sepIdx + 5).trim()
       return raw.trim()
+    }
+
+    // 自动压缩回填轮判定(对齐 design utils/visible-message.ts isHiddenCompactionTurn):
+    // text part 带 metadata.compaction_replay → 回填轮(判定只看标记,与 synthetic 无关,
+    // 服务端 replayTextPart 实际 synthetic: true);
+    // 无 replay 时的续跑合成消息带 synthetic + metadata.compaction_continue → 同样回填轮;
+    // 带 compaction part 的轮(手动 /compact)不是回填轮。
+    // 这两类轮不显示用户气泡,续跑的 assistant 回复挂在该轮之下仍正常渲染。
+    function hasCompactionMarker(metadata, key) {
+      return typeof metadata === "object" && metadata !== null && metadata[key] === true
+    }
+    function isHiddenCompactionTurnParts(parts) {
+      const list = parts || []
+      if (list.some(p => p.type === "text" && hasCompactionMarker(p.metadata, "compaction_replay"))) return true
+      if (list.some(p => p.type === "compaction")) return false
+      return list.some(p => p.type === "text" && p.synthetic === true && hasCompactionMarker(p.metadata, "compaction_continue"))
     }
 
     // artifact type 映射(对齐 design ARTIFACT_TYPE_MAP)
@@ -2651,10 +2954,11 @@
           if (!existing.ops.includes(op)) existing.ops.push(op)
           if (call.status === "error") existing.status = "error"
         } else {
-          map.set(call.filePath, { name: call.filePath.split(/[/\\]/).pop() ?? call.filePath, ops: [op], status: call.status })
+          map.set(call.filePath, { path: call.filePath, name: call.filePath.split(/[/\\]/).pop() ?? call.filePath, ops: [op], status: call.status })
         }
       }
-      if (map.size === 0) return null
+      // design 页只要 otherToolCalls 非空就渲染摘要框(无文件操作时 head 只剩 "文件操作: ")
+      if (calls.length === 0) return null
       let w = 0, e = 0, r = 0
       for (const entry of map.values()) for (const op of entry.ops) { if (op === "write") w++; else if (op === "edit") e++; else r++ }
       const parts = []
@@ -2668,19 +2972,28 @@
       head.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4h8M2 6h8M2 8h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
       head.appendChild(document.createTextNode("文件操作: " + parts.join(" · ")))
       box.appendChild(head)
-      if (map.size <= 5) {
+      if (map.size > 0 && map.size <= 5) {
+        // 行区 gap-0.5(2px)、徽标组 gap-0.5(对齐 design FileOpsSummary 的子容器间距,
+        // 区别于容器级 head↔行区 gap-1)
+        const rows = document.createElement("div")
+        rows.className = "file-ops-rows"
         for (const entry of map.values()) {
           const row = document.createElement("div")
           row.className = "file-ops-row"
+          row.title = entry.path
           row.appendChild(makeSpan("file-name", entry.name))
+          const badges = document.createElement("span")
+          badges.className = "file-ops-badges"
           for (const op of entry.ops) {
             const badge = document.createElement("span")
             badge.className = "op-badge op-badge-" + op[0]
             badge.textContent = op[0].toUpperCase()
-            row.appendChild(badge)
+            badges.appendChild(badge)
           }
-          box.appendChild(row)
+          row.appendChild(badges)
+          rows.appendChild(row)
         }
+        box.appendChild(rows)
       }
       return box
     }
@@ -2893,6 +3206,24 @@
       divider.appendChild(line2)
       return divider
     }
+    // 错误提示卡(对齐 design/insight 共用 MakeErrorNotice:红底警示卡 + 标题 + 文本行)
+    function buildErrorNotice(title, lines = []) {
+      const notice = document.createElement("div")
+      notice.className = "error-notice"
+      notice.innerHTML = '<svg viewBox="0 0 14 14" width="14" height="14" fill="none" aria-hidden="true"><path d="M5.79 2.1a1.4 1.4 0 0 1 2.42 0l4.24 7.35a1.4 1.4 0 0 1-1.21 2.1H2.76a1.4 1.4 0 0 1-1.21-2.1L5.79 2.1Z" fill="#E02128"/><path d="M7 4.3v3.15M7 9.38v.17" stroke="white" stroke-width="1.05" stroke-linecap="round"/></svg>'
+      const content = document.createElement("div")
+      content.style.minWidth = "0"
+      content.style.flex = "1"
+      content.appendChild(makeSpan("notice-title", title))
+      for (const line of typeof lines === "string" ? [lines] : Array.isArray(lines) ? lines : []) {
+        const msg = document.createElement("div")
+        msg.textContent = line
+        msg.style.userSelect = "text"
+        content.appendChild(msg)
+      }
+      notice.appendChild(content)
+      return notice
+    }
     function buildCompactionBlock(turn) {
       const compacted = turn.assistants.some(m => {
         const info = m.info || {}
@@ -2904,20 +3235,7 @@
         const err = (failedMsg.info || {}).error || {}
         const data = err.data || {}
         const message = typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : ""
-        const notice = document.createElement("div")
-        notice.className = "error-notice"
-        notice.innerHTML = '<svg viewBox="0 0 14 14" width="14" height="14" fill="none"><path d="M5.79 2.1a1.4 1.4 0 0 1 2.42 0l4.24 7.35a1.4 1.4 0 0 1-1.21 2.1H2.76a1.4 1.4 0 0 1-1.21-2.1L5.79 2.1Z" fill="#E02128"/><path d="M7 4.3v3.15M7 9.38v.17" stroke="white" stroke-width="1.05" stroke-linecap="round"/></svg>'
-        const content = document.createElement("div")
-        content.style.minWidth = "0"
-        content.style.flex = "1"
-        content.appendChild(makeSpan("notice-title", "上下文压缩失败"))
-        if (message) {
-          const msg = document.createElement("div")
-          msg.textContent = message
-          content.appendChild(msg)
-        }
-        notice.appendChild(content)
-        return notice
+        return buildErrorNotice("上下文压缩失败", message ? [message] : [])
       }
       const stalled = document.createElement("div")
       stalled.className = "stalled-notice"
@@ -2937,27 +3255,34 @@
       const message = typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : ""
       const title = err.name === "ProviderAuthError" ? "认证失败"
         : err.name === "ContextOverflowError" ? "上下文超出提示" : "生成出错"
-      const notice = document.createElement("div")
-      notice.className = "error-notice"
-      notice.innerHTML = '<svg viewBox="0 0 14 14" width="14" height="14" fill="none"><path d="M5.79 2.1a1.4 1.4 0 0 1 2.42 0l4.24 7.35a1.4 1.4 0 0 1-1.21 2.1H2.76a1.4 1.4 0 0 1-1.21-2.1L5.79 2.1Z" fill="#E02128"/><path d="M7 4.3v3.15M7 9.38v.17" stroke="white" stroke-width="1.05" stroke-linecap="round"/></svg>'
-      const content = document.createElement("div")
-      content.style.minWidth = "0"
-      content.style.flex = "1"
-      content.appendChild(makeSpan("notice-title", title))
-      if (err.name === "ContextOverflowError") {
-        const overflowLine1 = document.createElement("div")
-        overflowLine1.textContent = "系统的单次处理能力已满。"
-        content.appendChild(overflowLine1)
-        const overflowLine2 = document.createElement("div")
-        overflowLine2.textContent = "请进行“上下文压缩”，或新建对话。"
-        content.appendChild(overflowLine2)
-      } else if (message) {
-        const msg = document.createElement("div")
-        msg.textContent = message
-        content.appendChild(msg)
-      }
-      notice.appendChild(content)
-      return notice
+      const lines = err.name === "ContextOverflowError"
+        ? ["系统的单次处理能力已满。", "请进行“上下文压缩”，或新建对话。"]
+        : message ? [message] : []
+      return buildErrorNotice(title, lines)
+    }
+    // 复制回复按钮(对齐 design octo-revert-icon-btn + IconCopy/IconCheckmark:
+    // 20px 透明图标钮,悬停浅灰底,点击复制 prose,2s 内换对勾图标)
+    const REPLY_COPY_ICON = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.1845 4.81291C10.4651 4.81291 10.7011 4.91312 10.8926 5.11353C11.0841 5.30949 11.1799 5.54775 11.1799 5.82833L11.1799 12.4953C11.1799 12.7715 11.0841 13.0097 10.8926 13.2101C10.7011 13.4061 10.4651 13.5041 10.1845 13.5041L3.50411 13.5041C3.22354 13.5041 2.9875 13.4061 2.79599 13.2101C2.60449 13.0097 2.50874 12.7715 2.50874 12.4953L2.50874 5.82833C2.50874 5.54775 2.60449 5.30949 2.79599 5.11353C2.9875 4.91312 3.22354 4.81291 3.50411 4.81291L10.1845 4.81291ZM3.50411 3.82422C3.13892 3.82422 2.8049 3.91329 2.50206 4.09143C2.19476 4.27403 1.94981 4.51898 1.76721 4.82627C1.58907 5.12912 1.5 5.46314 1.5 5.82833L1.5 12.4953C1.5 12.8605 1.58907 13.1968 1.76721 13.5041C1.94981 13.8158 2.19476 14.0585 2.50206 14.2322C2.8049 14.4104 3.13892 14.4995 3.50411 14.4995L10.1845 14.4995C10.5497 14.4995 10.8837 14.4104 11.1865 14.2322C11.4938 14.0585 11.7388 13.8158 11.9214 13.5041C12.0995 13.1968 12.1886 12.8605 12.1886 12.4953L12.1886 5.82833C12.1886 5.46314 12.0995 5.12912 11.9214 4.82627C11.7388 4.51898 11.4938 4.27403 11.1865 4.09143C10.8837 3.91329 10.5497 3.82422 10.1845 3.82422L3.50411 3.82422Z" fill="rgb(0,0,0)" fill-opacity="0.600000024" fill-rule="nonzero"/><path d="M6.48366 1.5C5.9804 1.5 5.51723 1.62915 5.09414 1.88746C4.67551 2.15022 4.35262 2.50206 4.12549 2.94296L5.36136 2.94296C5.52169 2.80045 5.69537 2.69356 5.88243 2.6223C6.06948 2.54659 6.26989 2.50874 6.48366 2.50874L11.8413 2.50874C12.1397 2.50874 12.4158 2.58222 12.6697 2.72919C12.928 2.88061 13.1329 3.08547 13.2843 3.34378C13.4312 3.59764 13.5047 3.87376 13.5047 4.17215L13.5047 9.51645C13.5047 9.73022 13.4646 9.93285 13.3845 10.1244C13.3043 10.3159 13.1952 10.4873 13.0571 10.6387L13.0571 11.8679C13.4936 11.6453 13.8432 11.3224 14.106 10.8993C14.3687 10.4762 14.5001 10.0152 14.5001 9.51645L14.5001 4.17215C14.5001 3.69116 14.3799 3.2458 14.1394 2.83607C13.8989 2.42634 13.576 2.10123 13.1707 1.86074C12.7654 1.62025 12.3223 1.5 11.8413 1.5L6.48366 1.5Z" fill="rgb(0,0,0)" fill-opacity="0.600000024" fill-rule="nonzero"/></svg>'
+    const REPLY_CHECK_ICON = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6.33336 12.1266C6.51558 12.1266 6.69336 12.0933 6.86669 12.0266C7.03558 11.9555 7.18447 11.8555 7.31336 11.7266L14.3534 4.71994C14.4467 4.62216 14.4934 4.50438 14.4934 4.3666C14.4934 4.22883 14.4467 4.11105 14.3534 4.01327C14.2556 3.9066 14.1378 3.85327 14 3.85327C13.8623 3.85327 13.74 3.9066 13.6334 4.01327L6.59336 11.0266C6.51781 11.0977 6.43114 11.1333 6.33336 11.1333C6.24003 11.1333 6.15558 11.0977 6.08003 11.0266L2.35336 7.3266C2.25558 7.21994 2.13781 7.16883 2.00003 7.17327C1.86225 7.18216 1.74447 7.23327 1.64669 7.3266C1.54003 7.42438 1.48669 7.54216 1.48669 7.67994C1.48669 7.81772 1.54003 7.93549 1.64669 8.03327L5.37336 11.7266C5.50225 11.8555 5.64892 11.9555 5.81336 12.0266C5.98225 12.0933 6.15558 12.1266 6.33336 12.1266Z" fill="rgb(0,0,0)" fill-opacity="0.90196079" fill-rule="nonzero"/></svg>'
+    function buildReplyCopyButton(text) {
+      const btn = document.createElement("button")
+      btn.type = "button"
+      btn.className = "reply-copy-btn"
+      btn.setAttribute("aria-label", "复制回复")
+      btn.title = "复制回复"
+      btn.innerHTML = REPLY_COPY_ICON
+      btn.addEventListener("click", () => {
+        const done = () => {
+          btn.innerHTML = REPLY_CHECK_ICON
+          setTimeout(() => { btn.innerHTML = REPLY_COPY_ICON }, 2000)
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(() => copyViaTextarea(text, done))
+        } else {
+          copyViaTextarea(text, done)
+        }
+      })
+      return btn
     }
     // turn 元信息:agent · 模型名 · 耗时 · 中断(对齐 design turnMeta;模型名优先 manifest.models
     // 的展示名映射 — 导出时由 provider 目录解析,对齐 design 页 provider.models[name] 的取值)
@@ -3232,17 +3557,30 @@
 
       for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
         const turn = turns[turnIndex]
+        const userParts = (turn.user && turn.user.parts) || []
+        // 手动 /compact 压缩 turn:只显示压缩状态,不渲染正常 assistant 内容(对齐 design isCompactionTurn)
+        const isCompactionTurn = userParts.some(p => p.type === "compaction")
+        // 自动压缩轮(仅 compaction part、无 text part):design 页 isVisibleUserMessage 判定不可见,整轮不渲染
+        if (isCompactionTurn && !userParts.some(p => p.type === "text")) continue
+        // 自动压缩回填轮(compaction_replay / compaction_continue):不渲染用户气泡,
+        // 以分割线提示续跑;续跑 assistant 回复挂在该轮之下仍正常渲染(对齐 design isReplayTurn)
+        const isReplayTurn = turn.user ? isHiddenCompactionTurnParts(userParts) : false
+
         const turnEl = document.createElement("div")
         turnEl.className = "turn"
 
-        // 用户消息行(附件:图片缩略图/文件 chip/[附件] 清单 + 文字气泡)
-        const userRow = buildUserRow(turn, imageBlobMap, token)
-        if (userRow.children.length > 0) turnEl.appendChild(userRow)
+        if (isReplayTurn) {
+          turnEl.appendChild(buildDivider("上下文已自动压缩，继续生成"))
+        } else {
+          // 用户消息行(附件:图片缩略图/文件 chip/[附件] 清单 + 文字气泡)
+          const userRow = buildUserRow(turn, imageBlobMap, token)
+          if (userRow.children.length > 0) turnEl.appendChild(userRow)
+        }
 
         const allParts = turn.assistants.flatMap(m => (m.parts || []).map(p => ({ part: p, msg: m })))
+        // 复制回复的内容 = 本轮 proseText(压缩轮无 prose,保持空 → 不出复制按钮)
+        let replyText = ""
 
-        // 手动 /compact 压缩 turn:只显示压缩状态,不渲染正常 assistant 内容(对齐 design isCompactionTurn)
-        const isCompactionTurn = ((turn.user && turn.user.parts) || []).some(p => p.type === "compaction")
         if (isCompactionTurn) {
           turnEl.appendChild(buildCompactionBlock(turn))
         } else if (turn.assistants.length > 0) {
@@ -3295,6 +3633,8 @@
               if (hasModuleList) prose = MODULE_LIST_GUIDANCE
               else if (hasPatternMatch) prose = PATTERN_MATCH_GUIDANCE
             }
+            // 复制回复的内容 = proseText(同款清洗结果,对齐 design replyCopyable/handleCopyReply)
+            replyText = prose
             proseSegments = splitProseSegments(prose)
           }
 
@@ -3312,7 +3652,8 @@
           const proseRow = buildProseRow(proseSegments, isFormSubmitted(turns, turnIndex))
           if (proseRow) turnEl.appendChild(proseRow)
 
-          // 工具调用区(对齐 design:技能组 → 其他工具组 → 子任务卡,同一 8px 间距容器)
+          // 工具调用区(对齐 design:技能组 → 其他工具组 → 子任务卡 → 文件操作摘要 → 涉及文件列表,
+          // 同一 8px 间距容器;文件操作摘要只要存在其他工具调用就出框,即使无文件操作 —— 对齐 design 的 Show 门)
           const { skillCalls, otherCalls } = collectToolCalls(turn, allParts)
           const subtasks = collectSubtasks(allParts, sessionsById)
           if (skillCalls.length > 0 || otherCalls.length > 0 || subtasks.length > 0) {
@@ -3321,13 +3662,12 @@
             if (skillCalls.length > 0) buildToolGroupCards(skillCalls, toolsWrap)
             if (otherCalls.length > 0) buildToolGroupCards(otherCalls, toolsWrap)
             for (const st of subtasks) toolsWrap.appendChild(buildSubtaskCard(st))
+            const fileOps = buildFileOps(otherCalls)
+            if (fileOps) toolsWrap.appendChild(fileOps)
+            const producedFiles = buildProducedFiles(otherCalls)
+            if (producedFiles) toolsWrap.appendChild(producedFiles)
             turnEl.appendChild(toolsWrap)
           }
-          // 文件操作摘要 + 涉及文件列表(对齐 design FileOpsSummary / ProducedFilesList)
-          const fileOps = buildFileOps(otherCalls)
-          if (fileOps) turnEl.appendChild(fileOps)
-          const producedFiles = buildProducedFiles(otherCalls)
-          if (producedFiles) turnEl.appendChild(producedFiles)
 
           // 错误提示(对齐 design MakeErrorNotice:生成出错/认证失败/上下文超出提示)
           const errorNotice = buildTurnErrorNotice(turn)
@@ -3370,9 +3710,16 @@
           }
         }
 
-        // hover 元信息:agent · model · 耗时 · 中断(对齐 design turnMeta)
+        // 底部回复复制行(对齐 design octo-reply-copy-row):常驻复制回复按钮,
+        // meta 悬停显示在行上方(hover 元信息:agent · model · 耗时 · 中断)
         const meta = buildTurnMeta(turn, manifest.models || {})
-        if (meta) turnEl.appendChild(meta)
+        if (meta || replyText) {
+          const copyRow = document.createElement("div")
+          copyRow.className = "reply-copy-row"
+          if (meta) copyRow.appendChild(meta)
+          if (replyText) copyRow.appendChild(buildReplyCopyButton(replyText))
+          turnEl.appendChild(copyRow)
+        }
 
         list.appendChild(turnEl)
       }
@@ -3774,7 +4121,13 @@
         }
       }
     }
-    // ContextToolGroup 单项(对齐 contextToolTrigger:subtitle 优先,兜底 error/title/description)
+    // ContextToolGroup 单项(对齐 contextToolTrigger:subtitle 优先,兜底 error/title/description;
+    // list/glob/grep 展示目录、read 展示文件名 —— 对齐上游 getDirectory/getFilename 取值)
+    function insightDirectoryOf(path) {
+      const trimmed = String(path || "").replace(/[/\\]+$/, "")
+      const parts = trimmed.split(/[/\\]/)
+      return parts.slice(0, parts.length - 1).join("/") + "/"
+    }
     function insightCtxItemInfo(part) {
       const input = (part.state || {}).input || {}
       const path = typeof input.path === "string" ? input.path : "/"
@@ -3785,15 +4138,15 @@
         if (typeof input.limit === "number") args.push("limit=" + input.limit)
         return { title: "读取文件", subtitle: input.filePath ? insightFilenameOf(input.filePath) : "", args }
       }
-      if (tool === "list") return { title: "列表", subtitle: insightFilenameOf(path), args: [] }
+      if (tool === "list") return { title: "列表", subtitle: insightDirectoryOf(path), args: [] }
       if (tool === "glob") {
-        return { title: "查找文件", subtitle: insightFilenameOf(path), args: input.pattern ? ["pattern=" + input.pattern] : [] }
+        return { title: "查找文件", subtitle: insightDirectoryOf(path), args: input.pattern ? ["pattern=" + input.pattern] : [] }
       }
       if (tool === "grep") {
         const args = []
         if (typeof input.pattern === "string") args.push("pattern=" + input.pattern)
         if (typeof input.include === "string") args.push("include=" + input.include)
-        return { title: "检索内容", subtitle: insightFilenameOf(path), args }
+        return { title: "检索内容", subtitle: insightDirectoryOf(path), args }
       }
       return { title: tool, subtitle: insightToolLabel(input) ?? "", args: [] }
     }
@@ -3831,7 +4184,7 @@
       trigger.appendChild(title)
       const chevron = document.createElement("span")
       chevron.className = "insight-ctx-chevron"
-      chevron.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
+      chevron.innerHTML = INSIGHT_CHEVRON_SVG
       trigger.appendChild(chevron)
       const items = document.createElement("div")
       items.className = "insight-ctx-items"
@@ -3853,6 +4206,8 @@
     function buildInsightReasoning(text, durationMs, autoOpen) {
       const wrap = document.createElement("div")
       wrap.className = "insight-reasoning"
+      // wrapper data-open 对齐上游 :has(markdown) 规则:展开时 margin-bottom 收敛为 -4px
+      wrap.setAttribute("data-open", String(autoOpen))
       const toggle = document.createElement("button")
       toggle.type = "button"
       toggle.className = "reasoning-toggle"
@@ -3863,7 +4218,7 @@
       toggle.innerHTML =
         "<span>已深度思考</span>" +
         (duration ? "<span>（用时" + duration + "）</span>" : "") +
-        '<span style="display:inline-flex;align-items:center;flex-shrink:0;">' + CODE_CHEVRON_SVG + "</span>"
+        '<span style="display:inline-flex;align-items:center;flex-shrink:0;">' + INSIGHT_CHEVRON_SVG + "</span>"
       const body = document.createElement("div")
       body.className = "insight-reasoning-body"
       body.style.display = autoOpen ? "" : "none"
@@ -3876,6 +4231,7 @@
         const open = toggle.getAttribute("data-open") === "true"
         toggle.setAttribute("data-open", String(!open))
         toggle.setAttribute("aria-expanded", String(!open))
+        wrap.setAttribute("data-open", String(!open))
         body.style.display = open ? "none" : ""
       })
       wrap.appendChild(toggle)
@@ -4025,10 +4381,11 @@
       const body = document.createElement("div")
       body.className = "insight-task-body"
       if (status === "pending" || status === "processing") {
-        body.textContent = entry.message ?? ""
+        body.textContent = entry.message ?? "请稍后点击刷新获取结果"
       } else if (status === "completed") {
+        // 完成语对齐 insight TaskCard completedSummary:"分析已完成,请点击查看" / "共生成N份文件,请点击查看"
         const n = entry.resourceLinks.length
-        body.textContent = n <= 0 ? "分析已完成" : "共生成" + insightCnNum(n) + "份文件"
+        body.textContent = n <= 0 ? "分析已完成,请点击查看" : "共生成" + insightCnNum(n) + "份文件,请点击查看"
       } else if (status === "failed") {
         body.textContent = "请稍后重试"
         if (entry.message) {
@@ -4149,58 +4506,61 @@
     }
 
     // ── insight turn 渲染 ──
-    function renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token) {
+    function renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token, models) {
       const turnEl = document.createElement("div")
       const userParts = (turn.user && turn.user.parts) || []
       const isCompactionTurn = userParts.some((p) => p.type === "compaction")
 
       if (isCompactionTurn) {
-        // 压缩 turn(对齐 InsightCompactionTurn:手动 /compact 输入回显气泡 + 状态条)
+        // 压缩 turn(对齐上游 InsightCompactionTurn:手动 /compact 输入回显气泡 + 压缩状态;
+        // 状态三态:成功 → 分割线;任何 error(含中断)→ 压缩失败错误提示;其余 → 未完成黄色提示)
         turnEl.className = "insight-turn insight-turn--compaction"
         const text = (userParts.find((p) => p.type === "text" && typeof p.text === "string" && p.text.trim()) || {}).text?.trim() || "/compact"
         const inner = document.createElement("div")
         inner.style.display = "flex"
         inner.style.justifyContent = "flex-end"
-        inner.style.margin = "0 12px"
+        inner.style.padding = "0 12px"
+        inner.style.marginBottom = "12px"
         const bubble = document.createElement("div")
-        bubble.className = "bubble-user"
+        bubble.style.background = "rgba(10, 89, 247, 0.08)"
+        bubble.style.padding = "12px 16px"
+        bubble.style.borderRadius = "16px 16px 2px 16px"
+        bubble.style.color = "#191919"
+        bubble.style.fontSize = "14px"
+        bubble.style.lineHeight = "22px"
+        bubble.style.whiteSpace = "pre-wrap"
+        bubble.style.maxWidth = "85%"
+        bubble.style.overflowWrap = "break-word"
         bubble.textContent = text
         inner.appendChild(bubble)
         turnEl.appendChild(inner)
         const compacted = turn.assistants.some((m) => (m.info || {}).summary === true && !!(m.info || {}).finish && !(m.info || {}).error)
-        const aborted = turn.assistants.some((m) => ((m.info || {}).error || {}).name === "MessageAbortedError")
-        const failed = turn.assistants.some((m) => {
-          const err = (m.info || {}).error
-          return !!err && err.name !== "MessageAbortedError"
-        })
+        const failure = compacted ? undefined : turn.assistants.find((m) => (m.info || {}).error)
+        const failureMessage = (() => {
+          const err = (failure || {}).info ? failure.info.error : null
+          if (!err) return undefined
+          const data = err.data || {}
+          return typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : undefined
+        })()
         if (compacted) {
           turnEl.appendChild(buildDivider("会话已压缩"))
-        } else if (aborted) {
-          const pill = document.createElement("div")
-          pill.className = "insight-compaction-status"
-          pill.style.marginTop = "12px"
-          pill.textContent = "上下文压缩已停止"
-          turnEl.appendChild(pill)
-        } else if (failed) {
-          const pill = document.createElement("div")
-          pill.className = "insight-compaction-status insight-compaction-status-error"
-          pill.style.marginTop = "12px"
-          pill.textContent = "上下文压缩失败"
-          turnEl.appendChild(pill)
+        } else if (failure) {
+          turnEl.appendChild(buildErrorNotice("上下文压缩失败", failureMessage ? [failureMessage] : []))
         } else {
-          const pill = document.createElement("div")
-          pill.className = "insight-compaction-status"
-          pill.style.marginTop = "12px"
-          const dot = document.createElement("span")
-          dot.className = "insight-compaction-dot"
-          pill.appendChild(dot)
-          pill.appendChild(document.createTextNode("正在压缩上下文…"))
-          turnEl.appendChild(pill)
+          const stalled = document.createElement("div")
+          stalled.className = "stalled-notice"
+          stalled.style.margin = "0 12px"
+          stalled.textContent = "上下文压缩未完成（可能已超时或中断）"
+          turnEl.appendChild(stalled)
         }
         return turnEl
       }
 
       turnEl.className = "insight-turn"
+      // 自动压缩回填轮(compaction_replay / compaction_continue):上游 UserMessageDisplay
+      // 对 compaction_replay 把整个 user-message div display:none,不渲染气泡与 meta;
+      // 附件块在 insight 层(InsightTurn)渲染、不受其影响,仍正常显示
+      const isReplayTurn = isHiddenCompactionTurnParts(userParts)
       // 1. 附件(对齐 insight 层:FilePart 图片 → 48px 缩略图;[附件] 清单 → 文件卡片)
       const fileParts = userParts.filter((p) => p.type === "file" && p.filename)
       const seenUrls = new Set()
@@ -4225,11 +4585,11 @@
             thumb.appendChild(img)
             attBox.appendChild(thumb)
           } else {
-            attBox.appendChild(buildInsightAttachmentCard(part.filename, kindFromMime(part.mime || mimeFromFilename(part.filename))))
+            attBox.appendChild(buildInsightAttachmentCard(part.filename, part.mime || mimeFromFilename(part.filename)))
           }
         } else if (part.url && /^data:/.test(part.url)) {
           // chat 时代的内联附件:上游渲染为附件 chip,此处与其样式对齐(文件卡片)
-          attBox.appendChild(buildInsightAttachmentCard(part.filename, kindFromMime(part.mime || mimeFromFilename(part.filename))))
+          attBox.appendChild(buildInsightAttachmentCard(part.filename, part.mime || mimeFromFilename(part.filename)))
         }
       }
       const attachBlock = userParts.find(
@@ -4237,13 +4597,15 @@
       )
       if (attachBlock) {
         for (const f of parseUploadedFilesBlock(attachBlock.text)) {
-          attBox.appendChild(buildInsightAttachmentCard(f.filename, kindFromMime(mimeFromFilename(f.filename))))
+          attBox.appendChild(buildInsightAttachmentCard(f.filename, mimeFromFilename(f.filename)))
         }
       }
       if (attBox.children.length > 0) turnEl.appendChild(attBox)
 
-      // 2. 用户气泡 + 气泡下方 meta(agent · 模型 · 时间,hover 显示)
-      if (turn.user) {
+      // 2. 用户气泡 + 气泡下方 meta 行(agent · 模型 · 时间,hover 显示 + 复制消息按钮);
+      //    回填轮整个 user-message 被上游隐藏,气泡与 meta 均不渲染;
+      //    上游 copy-wrapper 包在 Show when={text()} 内 —— 附件轮(无文字)不出 meta 行
+      if (turn.user && !isReplayTurn) {
         const row = document.createElement("div")
         row.className = "insight-user-row"
         const userTextContent = insightUserText(userParts)
@@ -4260,19 +4622,24 @@
           bubble.appendChild(mask)
           bubble.appendChild(buildBubbleExpandButton())
           row.appendChild(bubble)
+
+          const info = turn.user.info || {}
+          // 模型展示名:上游取 provider.models[modelID].name,分享页用导出时固化的 manifest.models 映射
+          const modelID = (info.model || {}).modelID
+          const modelLabel = modelID ? ((models || {})[((info.model || {}).providerID || "") + "/" + modelID] ?? modelID) : ""
+          const metaHead = [insightAgentLabel(info.agent), modelLabel].filter(Boolean).join("\u00A0·\u00A0")
+          const created = (info.time || {}).created
+          const meta = document.createElement("div")
+          meta.className = "insight-user-meta"
+          const metaText = document.createElement("span")
+          metaText.className = "insight-user-meta-text"
+          if (metaHead) metaText.appendChild(makeSpan("insight-user-meta-head", metaHead))
+          if (metaHead && typeof created === "number") metaText.appendChild(makeSpan("", "\u00A0·\u00A0"))
+          if (typeof created === "number") metaText.appendChild(makeSpan("insight-user-meta-tail", insightShortTime(created)))
+          if (metaText.children.length > 0) meta.appendChild(metaText)
+          meta.appendChild(buildInsightCopyButton(userTextContent.trim(), "复制消息", "已复制"))
+          row.appendChild(meta)
         }
-        const info = turn.user.info || {}
-        const metaItems = [insightAgentLabel(info.agent), (info.model || {}).modelID].filter(Boolean)
-        const meta = document.createElement("div")
-        meta.className = "insight-user-meta"
-        if (metaItems.length > 0 || typeof (info.time || {}).created === "number") {
-          if (metaItems.length > 0) meta.appendChild(makeSpan("", metaItems.join(" · ")))
-          if (typeof (info.time || {}).created === "number") {
-            if (metaItems.length > 0) meta.appendChild(makeSpan("", "·"))
-            meta.appendChild(makeSpan("", insightShortTime(info.time.created)))
-          }
-        }
-        row.appendChild(meta)
         turnEl.appendChild(row)
       }
 
@@ -4292,22 +4659,27 @@
           })
           .map((p) => ({ part: p, msg: m })),
       )
+      // 最后一个非空 text part(跨消息,对齐 showAssistantCopyPartID)挂 meta
+      let lastTextEntry = null
+      for (const entry of renderableParts) {
+        if (entry.part.type === "text") lastTextEntry = entry
+      }
+      // turnDurationMs(对齐上游:用户消息 created → 最后一条 assistant completed)
+      const userCreated = ((turn.user || {}).info || {}).time?.created
+      const maxCompleted = turn.assistants.reduce((max, m) => {
+        const c = (m.info || {}).time?.completed
+        return typeof c === "number" && c > max ? c : max
+      }, -Infinity)
+      const turnDurationMs = typeof userCreated === "number" && maxCompleted !== -Infinity && maxCompleted >= userCreated ? maxCompleted - userCreated : -1
+      const interrupted = turn.assistants.some((m) => ((m.info || {}).error || {}).name === "MessageAbortedError")
+
+      // 中断 divider(对齐上游 session-turn:message-content → divider → assistant-content,
+      // 位于用户消息与 assistant 内容之间,message-container gap 0 无额外间距)
+      if (interrupted) turnEl.appendChild(buildDivider("已中断"))
+
       if (renderableParts.length > 0) {
         const msgs = document.createElement("div")
         msgs.className = "insight-msgs"
-        // 最后一个非空 text part(跨消息,对齐 showAssistantCopyPartID)挂 meta
-        let lastTextEntry = null
-        for (const entry of renderableParts) {
-          if (entry.part.type === "text") lastTextEntry = entry
-        }
-        // turnDurationMs(对齐上游:用户消息 created → 最后一条 assistant completed)
-        const userCreated = ((turn.user || {}).info || {}).time?.created
-        const maxCompleted = turn.assistants.reduce((max, m) => {
-          const c = (m.info || {}).time?.completed
-          return typeof c === "number" && c > max ? c : max
-        }, -Infinity)
-        const turnDurationMs = typeof userCreated === "number" && maxCompleted !== -Infinity && maxCompleted >= userCreated ? maxCompleted - userCreated : -1
-        const interrupted = turn.assistants.some((m) => ((m.info || {}).error || {}).name === "MessageAbortedError")
 
         let i = 0
         while (i < renderableParts.length) {
@@ -4342,14 +4714,20 @@
             if (entryRefEquals(renderableParts[i], lastTextEntry)) {
               const metaRow = document.createElement("div")
               metaRow.className = "insight-text-meta-row"
+              // 上游 text-part-copy-wrapper[data-interrupted]:中断轮整行右对齐、gap 12px
+              if (interrupted) metaRow.setAttribute("data-interrupted", "")
+              // 上游顺序:复制回复按钮在前,text-part-meta 在后
+              metaRow.appendChild(buildInsightCopyButton(part.text.trim()))
+              const msgInfo = msg.info || {}
+              const modelLabel = msgInfo.modelID ? ((models || {})[(msgInfo.providerID || "") + "/" + msgInfo.modelID] ?? msgInfo.modelID) : ""
               const metaItems = [
-                insightAgentLabel((msg.info || {}).agent),
-                (msg.info || {}).modelID,
+                insightAgentLabel(msgInfo.agent),
+                modelLabel,
                 insightDurationText(turnDurationMs),
                 interrupted ? "已中断" : "",
               ].filter(Boolean)
               if (metaItems.length > 0) {
-                metaRow.appendChild(makeSpan("insight-text-meta", metaItems.join(" · ")))
+                metaRow.appendChild(makeSpan("insight-text-meta", metaItems.join(" \u00B7 ")))
               }
               textEl.appendChild(metaRow)
             }
@@ -4361,6 +4739,7 @@
             // question 完成态:问题行 + 问答明细;其余工具:BasicTool 触发行
             if (part.tool === "question") {
               const wrap = document.createElement("div")
+              wrap.className = "insight-question"
               wrap.appendChild(buildInsightToolRow(insightQuestionRowInfo(part)))
               const answers = insightQuestionAnswers(part)
               if (answers.length > 0) {
@@ -4371,7 +4750,7 @@
                   const item = document.createElement("div")
                   item.className = "insight-question-item"
                   item.appendChild(makeSpan("insight-question-text", String(questions[q].question ?? "")))
-                  item.appendChild(makeSpan("insight-answer-text", (answers[q] || []).join(", ") || "未回答"))
+                  item.appendChild(makeSpan("insight-answer-text", (answers[q] || []).join(", ") || "(无答案)"))
                   qa.appendChild(item)
                 }
                 wrap.appendChild(qa)
@@ -4385,27 +4764,32 @@
           }
           i++
         }
-        // 中断 divider(对齐上游 session-turn divider)
-        if (interrupted) {
-          const divider = buildDivider("已中断")
-          divider.style.marginTop = "0"
-          msgs.appendChild(divider)
-        }
-        // 错误卡(对齐上游 error Card + insight 黑字覆盖)
-        const failedMsg = turn.assistants.find((m) => {
-          const err = (m.info || {}).error
-          return err && err.name !== "MessageAbortedError"
-        })
-        if (failedMsg) {
-          const err = failedMsg.info.error
-          const data = err.data || {}
-          const message = typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : ""
+        turnEl.appendChild(msgs)
+      }
+
+      // 3.5 会话内文件变更组(对齐上游 session-turn diffs group:assistant 内容之后、错误卡之前)
+      const diffsGroup = buildInsightDiffs(turn.user)
+      if (diffsGroup) turnEl.appendChild(diffsGroup)
+
+      // 错误卡(对齐上游:ContextOverflowError 走 renderContextOverflow 的 MakeErrorNotice
+      // "上下文超出提示";其余错误走 Card error + insight 覆盖的黑字中性边框卡。
+      // 位于 message-container 尾部、assistant 内容之后,无额外间距;错误文案经 unwrap 解包 JSON 包装)
+      const failedMsg = turn.assistants.find((m) => {
+        const err = (m.info || {}).error
+        return err && err.name !== "MessageAbortedError"
+      })
+      if (failedMsg) {
+        const err = failedMsg.info.error
+        const data = err.data || {}
+        const rawMessage = typeof data.message === "string" ? data.message : typeof err.message === "string" ? err.message : ""
+        if (err.name === "ContextOverflowError") {
+          turnEl.appendChild(buildErrorNotice("上下文超出提示", ["系统的单次处理能力已满。", "请进行“上下文压缩”，或新建对话。"]))
+        } else {
           const errorCard = document.createElement("div")
           errorCard.className = "insight-error-card"
-          errorCard.textContent = message
-          msgs.appendChild(errorCard)
+          errorCard.textContent = insightUnwrapError(rawMessage)
+          turnEl.appendChild(errorCard)
         }
-        turnEl.appendChild(msgs)
       }
 
       // 4. 知识库引用 + 产物入口卡 + 长任务卡(对齐 InsightTurn 尾部三个区)
@@ -4425,6 +4809,30 @@
       }
       return turnEl
     }
+    // 正文复制回复按钮(对齐上游 text-part-copy-wrapper:IconButton ghost + ui copy/check 图标)
+    const UI_COPY_ICON = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6.2513 6.24935V2.91602H17.0846V13.7493H13.7513M13.7513 6.24935V17.0827H2.91797V6.24935H13.7513Z" stroke="currentColor" stroke-linecap="round"/></svg>'
+    const UI_CHECK_ICON = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 11.9657L8.37838 14.7529L15 5.83398" stroke="currentColor" stroke-linecap="square"/></svg>'
+    function buildInsightCopyButton(text, label = "复制回复", copiedLabel = "已复制") {
+      const btn = document.createElement("button")
+      btn.type = "button"
+      btn.className = "insight-copy-btn"
+      btn.setAttribute("aria-label", label)
+      btn.title = label
+      btn.innerHTML = UI_COPY_ICON
+      btn.addEventListener("click", () => {
+        const done = () => {
+          btn.innerHTML = UI_CHECK_ICON
+          btn.title = copiedLabel
+          setTimeout(() => { btn.innerHTML = UI_COPY_ICON; btn.title = label }, 2000)
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(() => copyViaTextarea(text, done))
+        } else {
+          copyViaTextarea(text, done)
+        }
+      })
+      return btn
+    }
     function entryRefEquals(a, b) {
       return a === b || (!!a && !!b && a.part === b.part && a.msg === b.msg)
     }
@@ -4439,16 +4847,115 @@
       const answers = ((part.state || {}).metadata || {}).answers
       return Array.isArray(answers) ? answers.map((a) => (Array.isArray(a) ? a.map(String) : [])) : []
     }
-    function buildInsightAttachmentCard(filename, kind) {
+    // 附件文件卡:图标走 insight 页 fileTypeIconUrl(IconFile* 系列),与产物入口卡同一套 ——
+    // 区别于 design 分支 getFileIconUrl 的 word/Excel/ppt 系列图标
+    function buildInsightAttachmentCard(filename, mimeType) {
       const card = document.createElement("div")
       card.className = "insight-attachment-card"
       card.title = filename
       const icon = document.createElement("img")
-      icon.src = getFileIconUrl(kind, filename)
+      icon.src = insightFileIconUrl(filename, mimeType)
       icon.alt = ""
       card.appendChild(icon)
       card.appendChild(makeSpan("insight-attachment-name", filename))
       return card
+    }
+
+    // 错误文案解包(对齐上游 session-turn unwrap:"Error: {json}" / 双重 JSON 编码 → 取 err.type/message 等;
+    // design 分支的 MakeErrorNotice 直接展示原始 message,insight 页普通错误卡才走 unwrap)
+    function insightUnwrapError(message) {
+      const text = String(message || "").replace(/^Error:\s*/, "").trim()
+      const parse = (value) => {
+        try { return JSON.parse(value) } catch { return undefined }
+      }
+      const read = (value) => {
+        const first = parse(value)
+        return typeof first === "string" ? parse(first.trim()) : first
+      }
+      let json = read(text)
+      if (json === undefined) {
+        const start = text.indexOf("{")
+        const end = text.lastIndexOf("}")
+        if (start !== -1 && end > start) json = read(text.slice(start, end + 1))
+      }
+      if (!json || typeof json !== "object" || Array.isArray(json)) return message
+      const err = json.error && typeof json.error === "object" && !Array.isArray(json.error) ? json.error : undefined
+      if (err) {
+        const type = typeof err.type === "string" ? err.type : undefined
+        const msg = typeof err.message === "string" ? err.message : undefined
+        if (type && msg) return type + ": " + msg
+        if (msg) return msg
+        if (type) return type
+        if (typeof err.code === "string") return err.code
+      }
+      if (typeof json.message === "string") return json.message
+      if (typeof json.error === "string") return json.error
+      return message
+    }
+    // 会话内文件变更组(对齐上游 session-turn diffs group:用户消息 summary.diffs,去重保留最后一次出现;
+    // 文件行静态展示不展开 patch —— 分享页无 diff 查看器,展开属交互能力,与工具行同为静态化处理)
+    function buildInsightDiffs(userMessage) {
+      const files = (((userMessage || {}).info || {}).summary || {}).diffs
+      if (!Array.isArray(files) || files.length === 0) return null
+      const seen = new Set()
+      const diffs = []
+      for (let i = files.length - 1; i >= 0; i--) {
+        const d = files[i]
+        if (!d || typeof d.file !== "string" || seen.has(d.file)) continue
+        seen.add(d.file)
+        diffs.unshift({ file: d.file, additions: typeof d.additions === "number" ? d.additions : 0, deletions: typeof d.deletions === "number" ? d.deletions : 0 })
+      }
+      if (diffs.length === 0) return null
+
+      const wrap = document.createElement("div")
+      wrap.className = "insight-diffs"
+      const header = document.createElement("div")
+      header.className = "insight-diffs-header"
+      // 上游 "{n} {t('ui.sessionTurn.diffs.changed')} {t('ui.common.file.one|other')}";
+      // zh 词条缺失回退 en "Changed",与 insight 页实际渲染一致
+      header.appendChild(makeSpan("insight-diffs-label", diffs.length + " Changed \u4E2A\u6587\u4EF6"))
+      const totalAdd = diffs.reduce((acc, d) => acc + d.additions, 0)
+      const totalDel = diffs.reduce((acc, d) => acc + d.deletions, 0)
+      if (totalAdd + totalDel > 0) {
+        const changes = document.createElement("span")
+        changes.className = "insight-diff-changes"
+        changes.appendChild(makeSpan("insight-diff-add", "+" + totalAdd))
+        changes.appendChild(makeSpan("insight-diff-del", "-" + totalDel))
+        header.appendChild(changes)
+      }
+      wrap.appendChild(header)
+
+      const content = document.createElement("div")
+      content.className = "insight-diffs-content"
+      const MAX_FILES = 10
+      const visible = diffs.slice(0, MAX_FILES)
+      for (const diff of visible) {
+        const row = document.createElement("div")
+        row.className = "insight-diff-row"
+        const path = document.createElement("span")
+        path.className = "insight-diff-path"
+        if (diff.file.includes("/")) {
+          path.appendChild(makeSpan("insight-diff-dir", "\u202A" + insightDirectoryOf(diff.file) + "\u202C"))
+        }
+        path.appendChild(makeSpan("insight-diff-name", insightFilenameOf(diff.file)))
+        row.appendChild(path)
+        const meta = document.createElement("span")
+        meta.className = "insight-diff-meta"
+        if (diff.additions + diff.deletions > 0) {
+          const changes = document.createElement("span")
+          changes.className = "insight-diff-changes"
+          changes.appendChild(makeSpan("insight-diff-add", "+" + diff.additions))
+          changes.appendChild(makeSpan("insight-diff-del", "-" + diff.deletions))
+          meta.appendChild(changes)
+        }
+        row.appendChild(meta)
+        content.appendChild(row)
+      }
+      if (diffs.length > MAX_FILES) {
+        content.appendChild(makeSpan("insight-diffs-more", "+" + (diffs.length - MAX_FILES) + " more files"))
+      }
+      wrap.appendChild(content)
+      return wrap
     }
 
     function renderInsightConversation(manifest, session, filePath, token, list) {
@@ -4485,7 +4992,7 @@
       }
       if (current) turns.push(current)
       for (const turn of turns) {
-        list.appendChild(renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token))
+        list.appendChild(renderInsightTurn(turn, taskCardsAll, taskCardsByAnchor, imageBlobMap, token, manifest.models || {}))
       }
       if (list.children.length === 0) {
         showEmptyState()
@@ -4516,7 +5023,7 @@
       toggle.innerHTML =
         "<span>已深度思考</span>" +
         (duration ? "<span>（用时" + duration + "）</span>" : "") +
-        "<span style=\"display:inline-flex;align-items:center;flex-shrink:0;\">" + CODE_CHEVRON_SVG + "</span>"
+        "<span style=\"display:inline-flex;align-items:center;flex-shrink:0;\">" + REASONING_CHEVRON_SVG + "</span>"
       const body = document.createElement("div")
       body.className = "reasoning-body"
       body.style.display = "none"
@@ -4552,16 +5059,21 @@
       if (root.dataset.codeActionsBound === "true") return
       root.dataset.codeActionsBound = "true"
       root.addEventListener("click", (e) => {
-        const btn = e.target instanceof Element ? e.target.closest(".markdown-code-btn") : null
+        const btn = e.target instanceof Element ? e.target.closest(".markdown-code-copy, .markdown-code-expand-btn") : null
         if (!btn) return
         const box = btn.closest('[data-component="markdown-code"]')
         if (!box) return
         if (btn.dataset.action === "copy") {
           const code = box.querySelector("pre")
           const text = code ? code.textContent : ""
+          const copyLabel = btn.querySelector(".markdown-copy-label")
           const markCopied = () => {
             btn.dataset.copied = "true"
-            setTimeout(() => { btn.dataset.copied = "false" }, 2000)
+            if (copyLabel) copyLabel.textContent = "已复制"
+            setTimeout(() => {
+              btn.dataset.copied = "false"
+              if (copyLabel) copyLabel.textContent = "复制"
+            }, 2000)
           }
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(markCopied).catch(() => copyViaTextarea(text, markCopied))
@@ -4570,8 +5082,14 @@
           }
         } else if (btn.dataset.action === "expand") {
           const expanded = box.getAttribute("data-expanded") === "true"
-          if (expanded) box.removeAttribute("data-expanded")
-          else box.setAttribute("data-expanded", "true")
+          const expandLabel = btn.querySelector(".markdown-code-expand-label")
+          if (expanded) {
+            box.removeAttribute("data-expanded")
+            if (expandLabel) expandLabel.textContent = "展开"
+          } else {
+            box.setAttribute("data-expanded", "true")
+            if (expandLabel) expandLabel.textContent = "收起"
+          }
         }
       })
     }

@@ -113,7 +113,7 @@ import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/resul
 import { SEND_TEXT_EVENT, type SendTextEventDetail, APPEND_TO_COMPOSER_EVENT, type AppendToComposerEventDetail, SUBMIT_COMPOSER_EVENT } from "./utils/agent-events"
 import { setAssessmentContext, harvestAssessmentReview, pauseAssessment, pendingAssessment } from "./utils/assessment-state"
 import { processMentions } from "./utils/mention-processor"
-import { buildRevertDraft, collectRevertedFiles, collectWriteEditFiles, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart } from "./utils/restore-draft"
+import { buildRevertDraft, collectRevertedFiles, collectWriteEditFiles, recordWriteEvidence, revertSkillsFromConfig, type RevertDraft, type RevertDraftPart, type WriteEvidence } from "./utils/restore-draft"
 import { autoSaveArtifact, inferArtifactFilePath, sanitizeFilename, extractFileContent } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -139,7 +139,7 @@ import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm
 import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
 import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
-import { isVisibleUserMessage, isHiddenCompactionTurn } from "./utils/visible-message"
+import { isHiddenCompactionTurn, isHiddenTaskPromptMessage, isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
 import { uploadZipPackage, codeArchiveDedupKey, startArchivePoll, pauseArchivePolls, resumeArchivePolls, type AutoArchiveResult, type PendingArchivePoll } from "./utils/auto-archive"
 import { isAssetLibraryLoggedIn } from "./utils/asset-upload"
@@ -1428,6 +1428,17 @@ const sessionMessagesLoaded = createMemo(() => {
     const ownerSessionID = params.id
     if (!subSessionID || !ownerSessionID || loadedChildSessions.has(subSessionID)) return
 
+    // plan 子代理会再派只读调研孙会话(explore/general)。这类孙会话不进消息流:agent 已知且
+    // 不在可见清单(如 explore)时跳过 sync——消息流保持「路由转述 → 计划文本」,调研进度由
+    // plan turn 内的子任务卡片展示(未 sync 的子会话卡片走完整内容形态,可展开调研摘要)。
+    // store.session 由 session.created 事件自动填充,无需先 sync;agent 未知(事件竞态)则照旧
+    // 加载,罕见情况下降级为内联渲染,功能无损。
+    const knownAgent = sync.session.get(subSessionID)?.agent
+    if (knownAgent && !["octo_make_plan", "ict_pattern", "octo_design", "octo_code", "plan"].includes(knownAgent)) {
+      loadedChildSessions.add(subSessionID)
+      return
+    }
+
     loadedChildSessions.add(subSessionID)
     try {
       await sync.session.sync(subSessionID)
@@ -1450,9 +1461,9 @@ const sessionMessagesLoaded = createMemo(() => {
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
       if (params.id !== sid) return
-      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern），
-      // 跳过临时 agent（如 proto_replanner）创建的子 session，避免归档后残留干扰对话
-      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern"])
+      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern / octo_design /
+      // octo_code / plan），跳过临时 agent（如 proto_replanner）创建的子 session，避免归档后残留干扰对话
+      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern", "octo_design", "octo_code", "plan"])
       const children = (res.data ?? []).filter((s: any) =>
         s.parentID === sid && !s.time?.archived && VISIBLE_CHILD_AGENTS.has(s.agent),
       )
@@ -1514,6 +1525,20 @@ const sessionMessagesLoaded = createMemo(() => {
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
 
+  // 锚点轨道只对「有用户气泡的真实输入」生成锚点:子会话内部消息(路由派发的 task
+  // prompt/表单回填,气泡已隐藏)与压缩续跑注入不是用户输入,生成锚点会造成锚点与
+  // 可见对话轮次不对应(hover 显示内部模板文本)。子任务内容归属发起它的那条输入,
+  // 由 TurnAnchorNav 滚动侦测回落到最近的前一个锚点。
+  const anchorMessages = createMemo(() =>
+    userMessages().filter(
+      (m) =>
+        !isHiddenTaskPromptMessage(m, params.id) &&
+        !isHiddenCompactionTurn(
+          (sync.data.part[m.id] ?? []) as Array<{ type: string; synthetic?: boolean; metadata?: Record<string, unknown> }>,
+        ),
+    ),
+  )
+
   // 最后一条可回退的用户消息（主会话、未被回退过滤）——回退按钮只显示在这一条上
   const lastMainMessageID = createMemo(() => {
     const sid = params.id
@@ -1527,6 +1552,9 @@ const sessionMessagesLoaded = createMemo(() => {
       () => {
         const msg = lastUserMessage()
         if (!msg) return
+        // 子会话消息(task prompt/压缩注入)不拨动输入框模型选择,只跟随主会话消息
+        const sid = params.id
+        if (!sid || (msg.sessionID ?? sid) !== sid) return
         syncSessionModel(local, msg as UserMessage)
         // Sync tab key so new conversations inherit this session's model.
         if ((msg as UserMessage).model?.providerID && (msg as UserMessage).model?.modelID) {
@@ -1611,7 +1639,13 @@ const sessionMessagesLoaded = createMemo(() => {
 
   const childBusy = createMemo(() => {
     const planSid = activePlanForCurrentSession()
-    return !!planSid && sync.data.session_status[planSid]?.type === "busy"
+    if (planSid && sync.data.session_status[planSid]?.type === "busy") return true
+    // 兜底:任一子会话(design/code/pattern)仍在跑(SSE 断连/竞态下的孤儿运行)视为忙碌,
+    // 正常流程主会话 task await 已 busy,这里只补防御缺口
+    for (const id of childSessionIDs()) {
+      if (sync.data.session_status[id]?.type === "busy") return true
+    }
+    return false
   })
 
   // pattern 子 session 是否正在工作（agent 处理 [模块匹配] 请求期间）
@@ -1728,8 +1762,13 @@ const sessionMessagesLoaded = createMemo(() => {
     if (effectiveBusy()) {
       const id = params.id
       if (id) {
-        const messages = (sync.data.message?.[id] ?? []) as Message[]
-        const pending = [...messages].reverse().find((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+        const findPending = (sid: string) =>
+          [...((sync.data.message?.[sid] ?? []) as Message[])].reverse().find((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+        // 主会话优先;主会话无 pending assistant(子会话孤儿运行)时取活跃子会话的 pending
+        const pending = findPending(id) ?? [...childSessionIDs()]
+          .filter((cid) => sync.data.session_status[cid]?.type === "busy")
+          .map(findPending)
+          .find((m): m is Message => !!m)
         if (pending) {
           const start = pending.time.created
           const fmt = () => {
@@ -2226,12 +2265,35 @@ const sessionMessagesLoaded = createMemo(() => {
     const startIdx = liveMsgs.findIndex((m) => m.id === msg.id)
     const normalizePath = (p: string) => p.replace(/\\/g, "/")
     const involved = new Set<string>()
+    // 路径 → 合并消息(主+子会话)里最早一次 write/edit 的证据:回退轮次内
+    // write 新建(metadata.exists===false)的文件没有 .history 版本,兜底删除用
+    const writeEvidence = new Map<string, WriteEvidence>()
+    for (const m of liveMsgs) {
+      recordWriteEvidence((sync.data.part[m.id] ?? []) as RevertDraftPart[], m.id, writeEvidence)
+    }
     for (let i = startIdx; i < liveMsgs.length; i++) {
       for (const filePath of collectRevertedFiles(
         (sync.data.part[liveMsgs[i]?.id] ?? []) as RevertDraftPart[],
         { sessionId: sid, projectDir: projectDir(), kind: workspaceKind() },
       )) {
         involved.add(normalizePath(filePath))
+      }
+    }
+    // 子任务子会话(octo_design/octo_code 等)回退点之后落盘的文件:write/edit 路径存在
+    // 子会话 parts、<artifact> 产物由前端 autoSave 归档到主会话产物目录(mainSessionID
+    // 归属),只扫主会话消息会漏掉,子任务文件回退后在文件管理器中残留
+    for (const childId of childSessionIDs()) {
+      const childMsgs = (sync.data.message?.[childId] ?? []) as Message[]
+      const liveChildMsgs = currentRevertID ? childMsgs.filter((m) => m.id < currentRevertID) : childMsgs
+      for (const m of liveChildMsgs) {
+        recordWriteEvidence((sync.data.part[m.id] ?? []) as RevertDraftPart[], m.id, writeEvidence)
+        if (m.id <= msg.id) continue
+        for (const filePath of collectRevertedFiles(
+          (sync.data.part[m.id] ?? []) as RevertDraftPart[],
+          { sessionId: sid, projectDir: projectDir(), kind: workspaceKind() },
+        )) {
+          involved.add(normalizePath(filePath))
+        }
       }
     }
 
@@ -2258,39 +2320,75 @@ const sessionMessagesLoaded = createMemo(() => {
 
     const api = getDesktopApi()
     if (api?.readFileBuffer) {
-      // 产物未被服务端 snapshot/patch 追踪，由前端从 .history 恢复。
+      // 本次回退实际删除的文件(.history 全版本在回退点后 → restore 删除 + 无版本兜底删除),完成后统一 toast 反馈
+      const deletedFiles: string[] = []
+      // 恢复失败的文件不能进 removeVersionsAfter——版本历史是唯一恢复来源,清了就永久丢失
+      const restoreFailed = new Set<string>()
+      // 产物在 .octo/{sid}/outputs（项目 .gitignore 内），服务端 snapshot/patch 不追踪 →
+      // revert 拿不到 patch，文件内容必须由前端用 .history 版本自己恢复/删除
       for (const filePath of involved) {
         try {
           const realTab = tabStore.tabs().find((t) => t.filePath && normalizePath(t.filePath) === filePath)
-          const fileName = filePath.split(/[/\\]/).pop() ?? filePath
-          const tab: ResultTab = realTab ?? {
-            id: `revert-${filePath}`,
-            title: fileName,
-            type: "html",
-            subtype: extractSubtypeFromFilename(fileName),
-            content: "",
-            filePath,
-            createdAt: new Date(),
+          let outcome: "restored" | "deleted" | "none"
+          if (realTab) {
+            outcome = await historyController.restoreFilesBefore(realTab, cutoff)
+          } else {
+            const buffer = await api.readFileBuffer(filePath)
+            const fileName = filePath.split(/[/\\]/).pop() ?? filePath
+            const pseudoTab: ResultTab = {
+              id: `revert-${filePath}`,
+              title: fileName,
+              type: "html",
+              subtype: extractSubtypeFromFilename(fileName),
+              content: buffer ? new TextDecoder().decode(buffer) : "",
+              filePath,
+              createdAt: new Date(),
+            }
+            outcome = await historyController.restoreFilesBefore(pseudoTab, cutoff)
           }
-          await historyController.restoreFilesBefore(tab, cutoff)
+          if (outcome !== "none") {
+            if (outcome === "deleted") deletedFiles.push(filePath)
+            continue
+          }
+          // 兜底删除:子代理 write 工具服务端直接落盘的文件(非 git 项目拿不到
+          // patch,没开过 tab 也没有 .history 版本)零版本时上面的恢复是 no-op。
+          // write part 的 metadata.exists 记录写入时文件是否已存在:该路径最早的
+          // 写在回退点之后且写入时不存在 → 文件是回退轮次新建的,直接删除;
+          // 之前已存在的文件保持不动(无恢复来源,与既有行为一致)。
+          const evidence = writeEvidence.get(filePath)
+          if (evidence && evidence.existed === false && evidence.msgId > msg.id && api.deleteFile) {
+            await api.deleteFile(filePath)
+            deletedFiles.push(filePath)
+          }
+        } catch (error) {
+          console.warn("[octo:make] revert file restore failed", filePath, error)
+          restoreFailed.add(filePath)
+          showOctoToast({
+            title: "产物回退失败",
+            description: `${filePath} — ${error instanceof Error ? error.message : String(error)}`,
+            variant: "error",
+          })
+        }
+      }
+      for (const filePath of involved) {
+        if (restoreFailed.has(filePath)) continue
+        try {
           await historyController.removeVersionsAfter({ filePath }, cutoff)
           for (const openTab of [...tabStore.tabs()]) {
             if (!openTab.filePath || normalizePath(openTab.filePath) !== filePath) continue
             const buffer = await api.readFileBuffer(openTab.filePath)
             if (!buffer) {
-              showOctoToast({ title: "该页面已随回退删除", description: openTab.title })
+              // 末尾的删除汇总 toast 已覆盖该文件时不再逐 tab 重复提示
+              if (!deletedFiles.includes(filePath)) {
+                showOctoToast({ title: "该页面已随回退删除", description: openTab.title })
+              }
               handleCloseTab(openTab.id)
               continue
             }
             tabStore.updateTabContent(openTab.id, new TextDecoder().decode(buffer))
           }
         } catch (error) {
-          console.warn("[octo:make] revert file restore failed", filePath, error)
-          showOctoToast({
-            title: "产物回退失败",
-            description: `${filePath} — ${error instanceof Error ? error.message : String(error)}`,
-            variant: "error",
-          })
+          console.warn("[octo:make] revert file refresh failed", filePath, error)
         }
       }
       setFilesRefreshKey((k) => k + 1)
@@ -2299,6 +2397,12 @@ const sessionMessagesLoaded = createMemo(() => {
         await historyController.loadVersions(activeTab).catch((error) => {
           console.warn("[octo:make] revert history refresh failed", activeTab.filePath, error)
         })
+      }
+      if (deletedFiles.length > 0) {
+        const names = deletedFiles.map((p) => p.split(/[/\\]/).pop() ?? p)
+        const description =
+          names.length > 5 ? `${names.slice(0, 5).join("、")} 等 ${names.length} 个文件` : names.join("、")
+        showOctoToast({ title: `已删除 ${deletedFiles.length} 个文件`, description })
       }
     }
 
@@ -6806,6 +6910,9 @@ onPreview={(url) => {
                         messageID={userMessages()[0].id}
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
                         active={sessionActive(sync.data.session_status[userMessages()[0].sessionID ?? params.id!])}
+                        mainSessionID={params.id}
+                        childSessionIDs={[...childSessionIDs()]}
+                        hideUserBubble={isHiddenTaskPromptMessage(userMessages()[0], params.id)}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -6847,6 +6954,9 @@ onPreview={(url) => {
                             messageID={msg.id}
                             status={sync.data.session_status[messageSessionID] ?? sessionStatus()}
                             active={sessionActive(sync.data.session_status[messageSessionID])}
+                            mainSessionID={params.id}
+                            childSessionIDs={[...childSessionIDs()]}
+                            hideUserBubble={isHiddenTaskPromptMessage(msg, params.id)}
                             elapsedText={elapsedText()}
                             blockTime={blockTime()}
                             onAbort={halt}
@@ -6891,7 +7001,7 @@ onPreview={(url) => {
                 }}
               />
               <TurnAnchorNav
-                messages={userMessages()}
+                messages={anchorMessages()}
                 sessionID={params.id}
                 viewport={chatViewportEl}
                 content={chatContentEl}

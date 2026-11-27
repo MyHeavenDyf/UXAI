@@ -3,7 +3,7 @@ import type { Provider } from "@/provider/provider"
 import type { MessageV2 } from "./message-v2"
 
 const COMPACTION_THRESHOLD = 0.85
-const DESIGN_AGENTS = new Set(["octo_make", "octo_make_plan", "ict_pattern"])
+const DESIGN_AGENTS = new Set(["octo_make", "octo_make_plan", "ict_pattern", "octo_design", "octo_code"])
 
 export const AUTOMATIC_COMPACTION_ENABLED = true
 export const CONTEXT_OVERFLOW_MESSAGE = "系统的单次处理能力已满。请点击“新建对话”重置上下文。"

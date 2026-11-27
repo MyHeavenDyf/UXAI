@@ -203,13 +203,18 @@ describe("internal video task types", () => {
         extra: { videoMode: "text", videoInputMode: "multi-reference" },
       },
       { capability: "video.generate", prompt: "Text to video", extra: { videoMode: "text" } },
+      {
+        capability: "video.generate",
+        prompt: "Text to video with audio",
+        extra: { videoMode: "text", generateAudio: true },
+      },
     ] satisfies ImageGenerateInput[]
     const tasks = await Promise.all(inputs.map((input) => createInternalGeneration({
       ...input,
       extra: { ...input.extra, userIdx: "video-test-user" },
     })))
 
-    expect(tasks.map((task) => task.model)).toEqual(["i2v_seedance", "multi-i2v_seedance", "t2v_seedance", "t2v_seedance"])
+    expect(tasks.map((task) => task.model)).toEqual(["i2v_seedance", "multi-i2v_seedance", "t2v_seedance", "t2v_seedance", "t2v_seedance"])
     expect(requests).toEqual(expect.arrayContaining([
       expect.objectContaining({
         task_type: "i2v_seedance",
@@ -236,12 +241,20 @@ describe("internal video task types", () => {
         task_type: "t2v_seedance",
         args: expect.objectContaining({ prompt: "Text to video" }),
       }),
+      expect.objectContaining({
+        task_type: "t2v_seedance",
+        args: expect.objectContaining({ prompt: "Text to video with audio", generate_audio: true }),
+      }),
     ]))
     const multiReferenceTextOnlyRequest = requests.find(
       (request) => (request as { args?: { prompt?: string } }).args?.prompt === "Multi reference text only",
     ) as { task_type: string; args: { image_list?: unknown } } | undefined
     expect(multiReferenceTextOnlyRequest?.task_type).toBe("t2v_seedance")
     expect(multiReferenceTextOnlyRequest?.args.image_list).toBeUndefined()
+    const silentVideoRequest = requests.find(
+      (request) => (request as { args?: { prompt?: string } }).args?.prompt === "Text to video",
+    ) as { args: { generate_audio?: unknown } } | undefined
+    expect(silentVideoRequest?.args.generate_audio).toBe(false)
   })
 })
 
