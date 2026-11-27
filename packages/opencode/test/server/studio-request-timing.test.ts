@@ -1,14 +1,53 @@
 import { NodeHttpServer } from "@effect/platform-node"
 import { expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
-import { HttpClient, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http"
+import { createServer } from "node:http"
 import { Hono } from "hono"
 import { StudioTimingMiddleware } from "../../src/server/middleware"
 import { disposeMiddleware } from "../../src/server/routes/instance/httpapi/lifecycle"
-import { startStudioRequestTiming, studioRequestTiming } from "../../src/server/studio-request-timing"
+import {
+  observeStudioHttpServer,
+  startStudioRequestTiming,
+  studioRequestTiming,
+} from "../../src/server/studio-request-timing"
+import { layer as nativeHttpServerLayer } from "../../src/server/httpapi-server.node"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(NodeHttpServer.layerTest)
+
+// Exercise the production listener hooks; layerTest's own listener has no hooks.
+const native = testEffect(
+  HttpServer.layerTestClient.pipe(
+    Layer.provide(FetchHttpClient.layer),
+    Layer.provideMerge(nativeHttpServerLayer({ hostname: "127.0.0.1", port: 0 })),
+  ),
+)
+
+native.live("a stall before request dispatch remains visible when that request itself is fast", () =>
+  Effect.gen(function* () {
+    yield* HttpRouter.add("GET", "/session/test/message", HttpServerResponse.jsonUnsafe([])).pipe(
+      (routes) => HttpRouter.serve(routes, { middleware: disposeMiddleware }),
+      Layer.build,
+    )
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 170)
+    const response = yield* HttpClient.get("/session/test/message")
+    const timing = response.headers["server-timing"]
+    expect(response.status).toBe(200)
+    expect(response.headers["x-studio-timing-version"]).toBe("2")
+    expect(Number.isNaN(Date.parse(response.headers["x-studio-received-at"]))).toBe(false)
+    expect(timing).toContain("http_middleware;dur=")
+    expect(Number(timing.match(/prior_event_loop_lag;dur=(\d+)/)?.[1])).toBeGreaterThanOrEqual(50)
+    expect(yield* response.json).toEqual([])
+  }),
+)
 
 it.live("native HTTP requests expose the same timing object to handlers and clean up after responding", () =>
   Effect.gen(function* () {
@@ -68,4 +107,17 @@ test("a synchronous stall is measured even when the timer has not had a chance t
   }
   expect(studioRequestTiming(source)).toBeUndefined()
   expect(startStudioRequestTiming({}, "GET", "/global/event")).toBeUndefined()
+})
+
+test("the process monitor detects a stall without any active request and can be stopped", () => {
+  const server = createServer()
+  const monitor = observeStudioHttpServer(server)
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 170)
+    expect(monitor.recentLag()).toBeGreaterThanOrEqual(50)
+    expect(server.listenerCount("request")).toBe(1)
+  } finally {
+    monitor.stop()
+  }
+  expect(server.listenerCount("request")).toBe(0)
 })

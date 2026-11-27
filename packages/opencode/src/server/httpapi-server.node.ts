@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect"
 import { createServer } from "node:http"
 import type { Opts } from "./adapter"
 import { Service } from "./httpapi-server"
+import { observeStudioHttpServer } from "./studio-request-timing"
 
 export { Service }
 
@@ -10,6 +11,7 @@ export const name = "node-http-server"
 
 export const layer = (opts: Opts) => {
   const server = createServer()
+  observeStudioHttpServer(server)
   const serverRef = { closeStarted: false, forceStop: false }
   const close = server.close.bind(server)
   // Keep shutdown owned by NodeHttpServer, but honor listener.stop(true) by
