@@ -1,10 +1,70 @@
 import { expect, spyOn, test } from "bun:test"
 import path from "node:path"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 import { mkdir, symlink } from "node:fs/promises"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { collectPortableDependencies } from "@/session/portable-dependencies"
 import { isExcludedPortableFile } from "@/session/portable-exclusions"
 import { tmpdir } from "../fixture/fixture"
+
+test("collects dependencies after large quoted bundle strings under Node without Bun", async () => {
+  await using project = await tmpdir()
+  await Bun.write(path.join(project.path, "index.html"), '<script src="./bundle.js"></script>')
+  const strings = ['"', "'", "`"].map((quote, index) => `const data${index}=${quote}${"\\n".repeat(500_000)}${quote};`).join("")
+  await Bun.write(path.join(project.path, "bundle.js"), `import "./before.js";${strings}/* import './comment.js' */import "./after.js";`)
+  await Bun.write(path.join(project.path, "before.js"), "export const before = true")
+  await Bun.write(path.join(project.path, "after.js"), "export const after = true")
+  const build = await Bun.build({
+    entrypoints: [fileURLToPath(new URL("../../src/session/portable-dependencies.ts", import.meta.url))],
+    target: "node", format: "esm",
+  })
+  expect(build.success).toBe(true)
+  const bundle = path.join(project.path, "collector.mjs")
+  await Bun.write(bundle, build.outputs[0])
+  const result = await promisify(execFile)("node", ["--input-type=module", "--eval", `
+    import assert from "node:assert/strict"
+    import { readFile } from "node:fs/promises"
+    import path from "node:path"
+    import { collectPortableDependencies } from ${JSON.stringify(pathToFileURL(bundle).href)}
+    assert.equal(typeof Bun, "undefined")
+    const root = ${JSON.stringify(project.path)}
+    const files = await collectPortableDependencies({
+      root, files: [path.join(root, "index.html")], trustedRoots: [], read: readFile,
+    })
+    console.log(JSON.stringify(files.map((file) => path.basename(file.file)).sort()))
+  `], { timeout: 20_000 })
+  expect(JSON.parse(result.stdout)).toEqual(["after.js", "before.js", "bundle.js"])
+})
+
+test("keeps an unparseable dependency and continues collecting other resources", async () => {
+  await using project = await tmpdir()
+  const page = path.join(project.path, "index.html")
+  const broken = path.join(project.path, "broken.js")
+  const bytes = new TextEncoder().encode("const broken = true")
+  await Bun.write(page, '<script src="./broken.js"></script><script src="./keep.js"></script>')
+  await Bun.write(broken, bytes)
+  await Bun.write(path.join(project.path, "keep.js"), 'import "./after.js";')
+  await Bun.write(path.join(project.path, "after.js"), "export const after = true")
+  const decoder = new TextDecoder()
+  const decode = decoder.decode.bind(decoder)
+  const parsing = spyOn(TextDecoder.prototype, "decode").mockImplementation((input, options) => {
+    if (input === bytes) throw new RangeError("Maximum call stack size exceeded")
+    return decode(input, options)
+  })
+  const logging = spyOn(console, "warn").mockImplementation(() => {})
+  try {
+    const dependencies = await collectPortableDependencies({
+      root: project.path, files: [page], trustedRoots: [],
+      read: async (file) => file === broken ? bytes : new Uint8Array(await Bun.file(file).arrayBuffer()),
+    })
+    expect(dependencies.map((entry) => path.basename(entry.file)).sort()).toEqual(["after.js", "broken.js", "keep.js"])
+    expect(logging.mock.calls.some((call) => JSON.parse(String(call[1])).reason === "parse-failed")).toBe(true)
+  } finally {
+    parsing.mockRestore()
+    logging.mockRestore()
+  }
+})
 
 test("skips website-root references without guessing disk paths or changing source files", async () => {
   await using project = await tmpdir()

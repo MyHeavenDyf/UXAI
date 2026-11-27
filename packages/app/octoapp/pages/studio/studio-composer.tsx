@@ -508,7 +508,7 @@ export function StudioComposer(props: {
     audioInfoTick()
     if (!audioInfoBtnRef) return {}
     const rect = audioInfoBtnRef.getBoundingClientRect()
-    const bottom = `${window.innerHeight - rect.top + 6}px`
+    const bottom = `${window.innerHeight - rect.top + 8}px`
     if (toolbarOverflow().includes("videoAudio")) {
       return {
         position: "fixed",
@@ -521,6 +521,17 @@ export function StudioComposer(props: {
       bottom,
       right: `${Math.max(8, window.innerWidth - rect.right)}px`,
     }
+  }
+  const audioInfoArrowStyle = (): JSX.CSSProperties => {
+    audioInfoTick()
+    if (!audioInfoBtnRef) return {}
+    const rect = audioInfoBtnRef.getBoundingClientRect()
+    const center = rect.left + rect.width / 2
+    if (toolbarOverflow().includes("videoAudio")) {
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - 278))
+      return { left: `${Math.max(12, Math.min(center - left - 5, 246))}px` }
+    }
+    return { right: `${Math.max(12, Math.min(window.innerWidth - Math.max(8, window.innerWidth - rect.right) - center - 5, 246))}px` }
   }
   const insertAudioPreset = (text: string) => {
     tracker.interaction({ module: "studio", name: "video-audio-preset-insert" })
@@ -1576,7 +1587,7 @@ export function StudioComposer(props: {
                     disabled={isBusy()}
                     onClick={toggleVideoGenerateAudio}
                   >
-                    <span class="studio-composer-audio-label">生成音频</span>
+                    <span class="studio-composer-audio-label">音频生成</span>
                     <span class="studio-composer-audio-track"><span class="studio-composer-audio-knob" /></span>
                     <Show when={props.videoGenerateAudioNew && !props.videoGenerateAudio}>
                       <img class="studio-composer-audio-badge" src={audioNewPng} alt="NEW" />
@@ -1743,7 +1754,7 @@ export function StudioComposer(props: {
                         disabled={isBusy()}
                         onClick={toggleVideoGenerateAudio}
                       >
-                        <span class="studio-composer-audio-label">生成音频</span>
+                        <span class="studio-composer-audio-label">音频生成</span>
                         <Show when={props.videoGenerateAudio}>
                           <span
                             ref={(el) => { audioInfoBtnRef = el }}
@@ -1864,6 +1875,7 @@ export function StudioComposer(props: {
           </Show>
           <Show when={isVideoGeneration() && props.videoGenerateAudio && audioInfoOpen()}>
             <div class="studio-composer-audio-popover" role="dialog" aria-label="生成音频说明" style={audioInfoStyle()} onMouseEnter={showAudioInfo} onMouseLeave={scheduleHideAudioInfo}>
+              <div class="studio-composer-audio-popover-arrow" aria-hidden="true" style={audioInfoArrowStyle()} />
               <div class="studio-composer-audio-hint-row">
                 <img class="studio-composer-audio-popover-icon" src={audioSpeakerPng} alt="" />
                 <span class="studio-composer-audio-popover-text">音频已开启：把想要的声音直接写进描述里，会和画面同步生成</span>
