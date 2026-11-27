@@ -82,6 +82,39 @@ test("file upload emits one successful result even if UI refresh subsequently fa
   expect(captured.events.filter((event) => event.name.endsWith("-result")).map((event) => event.fields.status)).toEqual(["success", "failure"])
 })
 
+test("multi-file picker and drop use one Design toast with the successful file count", async () => {
+  const file = "../components/file-manager/index.tsx"
+  const notices: Array<{ title: string; description: string }> = []
+  const showOctoToast = (notice: (typeof notices)[number]) => { notices.push(notice) }
+  const showToast = (notice: (typeof notices)[number]) => { notices.push(notice) }
+  const captured = telemetry()
+  const uploadSingleFile = handler(file, "uploadSingleFile", {
+    ...captured, props: { sessionId: "original" }, checkExternalFile: (file: File) => file.name !== "rejected",
+    uploadPath: () => "", tryStreamUpload: async () => true, showToast, refresh: async () => {},
+  })
+  const upload = handler<(files: File[]) => Promise<void>>(file, "handleUpload", { uploadSingleFile, showOctoToast })
+  const processFileEntry = handler(file, "processFileEntry", {
+    ...captured, props: { sessionId: "original" }, getFileFromEntry: async (entry: { file: File }) => entry.file,
+    uploadSingleFile,
+  })
+  const drop = handler<(entries: Array<{ isFile: true; file: File }>) => Promise<void>>(file, "processEntries", {
+    processFileEntry, showOctoToast,
+  })
+  const files = [new File([], "first.txt"), new File([], "second.txt")]
+  const rejected = new File([], "rejected")
+
+  await upload(files)
+  await drop([...files, rejected].map((file) => ({ isFile: true, file })))
+  await upload([rejected, rejected])
+  await upload(files.slice(0, 1))
+
+  expect(notices).toMatchObject([
+    { title: "Uploaded", description: "2 个文件" },
+    { title: "Uploaded", description: "2 个文件" },
+    { title: "上传完成", description: "first.txt" },
+  ])
+})
+
 test("delete records API success before UI callbacks and classifies partial and failed batch results", async () => {
   const captured = telemetry()
   const dependencies = {
