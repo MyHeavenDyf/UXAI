@@ -9,7 +9,6 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { createMemo, type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
-import { popularProviders } from "@/hooks/use-providers"
 import { SettingsList } from "./settings-list"
 import { modelListSorting } from "@/utils/provider-sort"
 
@@ -35,7 +34,7 @@ export const SettingsModels: Component = () => {
     items: (_filter) => modelItems(),
     key: (x) => `${x.provider.id}:${x.id}`,
     filterKeys: ["provider.name", "name", "id"],
-    ...modelListSorting(popularProviders),
+    ...modelListSorting(),
   })
 
   return (

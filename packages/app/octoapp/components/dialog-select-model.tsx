@@ -3,7 +3,6 @@ import { Component, ComponentProps, createEffect, createMemo, JSX, on, Show, Val
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { popularProviders } from "@/hooks/use-providers"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -63,7 +62,7 @@ const ModelList: Component<{
       items={models}
       current={model.current()}
       filterKeys={["provider.name", "name", "id"]}
-      {...modelListSorting(popularProviders)}
+      {...modelListSorting()}
       itemWrapper={(item, node) => (
         <Tooltip
           class="w-full"

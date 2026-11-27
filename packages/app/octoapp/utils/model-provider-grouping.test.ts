@@ -18,8 +18,8 @@ test("model pickers preserve settings order after hiding disabled models", () =>
       ]
       const root = createRoot(dispose => ({
         dispose,
-        settings: useFilteredList({ items, key: x => x.id, ...modelListSorting(["popular"]) }),
-        picker: useFilteredList({ items: items.filter(x => x.id !== "hidden"), key: x => x.id, ...modelListSorting(["popular"]) }),
+        settings: useFilteredList({ items, key: x => x.id, ...modelListSorting() }),
+        picker: useFilteredList({ items: items.filter(x => x.id !== "hidden"), key: x => x.id, ...modelListSorting() }),
       }))
       for (let i = 0; i < 8; i++) await Promise.resolve()
       console.log(JSON.stringify({
@@ -33,8 +33,8 @@ test("model pickers preserve settings order after hiding disabled models", () =>
   expect(result.exitCode).toBe(0)
   expect(result.stderr.toString()).toBe("")
   expect(JSON.parse(result.stdout.toString())).toEqual({
-    settings: ["t", "r", "p", "a", "b", "hidden", "z"],
-    picker: ["t", "r", "p", "a", "b", "z"],
+    settings: ["r", "t", "z", "b", "a", "hidden", "p"],
+    picker: ["r", "t", "z", "b", "a", "p"],
   })
 })
 
