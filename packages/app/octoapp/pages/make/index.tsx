@@ -127,6 +127,7 @@ import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController, removePersistedCurrentBySession } from "./subtype-handlers/history-controller"
+import { triggerPageArtifactZip } from "./subtype-handlers/page"
 import {
   getSessionContextMetrics,
   isContextEstimateForMessage,
@@ -1713,9 +1714,12 @@ const sessionMessagesLoaded = createMemo(() => {
         } else {
           console.log(`[${timeStr}] ${timing.inputText}, 总耗时 ${elapsedStr}`)
         }
-        
+
         messageTimingMap.delete(id)
       }
+
+      // 会话一轮回复完成（busy→idle）：生成 page 产物 zip（index.page.html → index.html）
+      void triggerPageArtifactZip(tabStore.tabs(), sdk.directory || "", params.id)
     }
     
     lastBusyState = busy
