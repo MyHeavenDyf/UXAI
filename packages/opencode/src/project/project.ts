@@ -2,6 +2,8 @@ import z from "zod"
 import { and } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { eq } from "drizzle-orm"
+import { createHash } from "node:crypto"
+import path from "node:path"
 import { ProjectTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
 import * as Log from "@opencode-ai/core/util/log"
@@ -201,6 +203,11 @@ export const layer: Layer.Layer<
       // Phase 1: discover git info
       type DiscoveryResult = { id: ProjectID; worktree: string; sandbox: string; vcs: Info["vcs"] }
 
+      // 非 git 目录的 projectID 按目录路径哈希派生,每个目录有独立的记忆/项目空间
+      // (与 Claude Code 一致:project root 按路径区分,不是全塞一个 global 桶)
+      const dirProjectId = (dir: string) =>
+        ProjectID.make(createHash("sha256").update(path.resolve(dir)).digest("hex").slice(0, 40))
+
       const data: DiscoveryResult = yield* Effect.gen(function* () {
         const dotgitMatches = yield* fs.up({ targets: [".git"], start: directory }).pipe(Effect.orDie)
         const dotgit = dotgitMatches[0]
@@ -208,7 +215,7 @@ export const layer: Layer.Layer<
         if (!dotgit) {
           log.info("fromDirectory:no-git", { directory })
           return {
-            id: ProjectID.global,
+            id: dirProjectId(directory),
             worktree: "/",
             sandbox: "/",
             vcs: fakeVcs,
@@ -222,7 +229,7 @@ export const layer: Layer.Layer<
         if (commonDir.code !== 0) {
           log.info("fromDirectory:git-common-dir-failed", { directory, code: commonDir.code, stderr: commonDir.stderr })
           return {
-            id: id ?? ProjectID.global,
+            id: id ?? dirProjectId(directory),
             worktree: sandbox,
             sandbox,
             vcs: fakeVcs,
@@ -254,7 +261,7 @@ export const layer: Layer.Layer<
 
         if (!id) {
           log.info("fromDirectory:no-id", { directory })
-          return { id: ProjectID.global, worktree: sandbox, sandbox, vcs: "git" as const }
+          return { id: dirProjectId(directory), worktree: sandbox, sandbox, vcs: "git" as const }
         }
 
         const topLevel = yield* git(["rev-parse", "--show-toplevel"], { cwd: sandbox })
@@ -340,6 +347,8 @@ export const layer: Layer.Layer<
           .run(),
       )
 
+      // 历史迁移:老会话的 project_id 可能是 "global"(旧版所有非 git 目录共用一个桶),
+      // 解析出正确的 projectID 后把同目录的会话全部迁移过去
       if (data.id !== ProjectID.global) {
         yield* db((d) =>
           d
