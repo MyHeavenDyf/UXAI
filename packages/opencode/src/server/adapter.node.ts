@@ -3,13 +3,11 @@ import { createAdaptorServer, type ServerType } from "@hono/node-server"
 import { createNodeWebSocket } from "@hono/node-ws"
 import type { Hono } from "hono"
 import type { Adapter, FetchApp, Opts } from "./adapter"
-import { observeStudioHttpServer } from "./studio-request-timing"
 
 async function listen(app: FetchApp, opts: Opts, inject?: (server: ServerType) => void) {
   const start = (port: number) =>
     new Promise<ServerType>((resolve, reject) => {
       const server = createAdaptorServer({ fetch: app.fetch })
-      observeStudioHttpServer(server)
       const events = server as EventEmitter
       inject?.(server)
       const fail = (err: Error) => {

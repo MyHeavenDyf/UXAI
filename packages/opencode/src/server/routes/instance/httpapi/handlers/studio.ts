@@ -55,7 +55,6 @@ import { recommendationRequest } from "@/studio/prompt-recommendation-http"
 import { Provider } from "@/provider/provider"
 import { Config } from "@/config/config"
 import { LLM } from "@/session/llm"
-import { studioRequestTiming } from "@/server/studio-request-timing"
 import {
   ensureStudioSessionThumbnails,
   invalidateStudioMediaThumbnail,
@@ -141,21 +140,18 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       Effect.gen(function* () {
         const instance = yield* InstanceState.context
         const workspace = yield* InstanceState.workspaceID
-        const incoming = yield* HttpServerRequest.HttpServerRequest
-        const request = yield* HttpServerRequest.toWeb(incoming).pipe(Effect.orDie)
+        const request = yield* HttpServerRequest.toWeb(yield* HttpServerRequest.HttpServerRequest).pipe(Effect.orDie)
         const response = yield* Effect.promise(
           async () =>
             await Instance.restore(instance, () =>
               WorkspaceContext.provide({
                 workspaceID: workspace,
                 fn: () =>
-                  recommendationRequest(
-                    request,
-                    action,
-                    params,
-                    { provider, config, llm },
-                    studioRequestTiming(incoming.source),
-                  ),
+                  recommendationRequest(request, action, params, {
+                    provider,
+                    config,
+                    llm,
+                  }),
               }),
             ),
         )

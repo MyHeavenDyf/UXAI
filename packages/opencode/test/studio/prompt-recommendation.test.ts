@@ -16,33 +16,8 @@ import { createPreparation, readRecommendationBody } from "@/studio/prompt-recom
 import { InstanceState } from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
 import { testEffect } from "../lib/effect"
-import { startStudioRequestTiming } from "@/server/studio-request-timing"
-import { recommendationRequest } from "@/studio/prompt-recommendation-http"
 
 const it = testEffect(Layer.empty)
-
-it.instance("creation timing covers initialization, transaction entry, writes and transaction completion", () =>
-  Effect.gen(function* () {
-    const instance = yield* InstanceState.context
-    yield* Effect.promise(() => Instance.restore(instance, async () => {
-      const request = new Request("http://localhost/studio/prompt-recommendations", {
-        method: "POST",
-        body: JSON.stringify({ requestID: crypto.randomUUID() }),
-      })
-      const timing = startStudioRequestTiming(request, request.method, request.url)!
-      try {
-        const response = await recommendationRequest(request, "initialize")
-        expect(response.status).toBe(200)
-        const initialized: { sessionID: string } = await response.json()
-        expect((await getRecommendationState(initialized.sessionID)).recommendation?.status).toBe("armed")
-        const header = timing.headers()["Server-Timing"]
-        expect(header).toMatch(/body_read;dur=.*submission_state_ready;dur=.*transaction_entered;dur=.*messages_written;dur=.*transaction_finished;dur=.*json_encoded;dur=/)
-      } finally {
-        timing.finish(200)
-      }
-    }))
-  }),
-)
 
 it.instance("an armed guide allows editor entries while real expansion states block conflicting work", () =>
   Effect.gen(function* () {
