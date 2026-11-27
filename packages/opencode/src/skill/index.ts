@@ -19,6 +19,7 @@ import { Glob } from "@opencode-ai/core/util/glob"
 import * as Log from "@opencode-ai/core/util/log"
 import * as Stream from "effect/Stream"
 import { Discovery } from "./discovery"
+import { StudioSkillPolicy } from "@/studio/studio-skill-policy"
 
 const log = Log.create({ service: "skill" })
 const CLAUDE_EXTERNAL_DIR = ".claude"
@@ -334,12 +335,16 @@ export const layer = Layer.effect(
     const rg = yield* Ripgrep.Service
     const discovered = yield* InstanceState.make(
       Effect.fn("Skill.discovery")(function* (ctx) {
+        if (StudioSkillPolicy.disabled(ctx.directory, global.octoConfig)) {
+          return { matches: [], dirs: [], typeMap: {}, agentConfig: {} } satisfies DiscoveryState
+        }
         return yield* discoverSkills(config, discovery, fsys, global, ctx.directory, ctx.worktree)
       }),
     ).pipe(Effect.orDie)
     const state = yield* InstanceState.make(
-      Effect.fn("Skill.state")(function* () {
+      Effect.fn("Skill.state")(function* (ctx) {
         const s: State = { skills: {}, skillDirMap: {}, dirs: new Set() }
+        if (StudioSkillPolicy.disabled(ctx.directory, global.octoConfig)) return s
         yield* loadSkills(s, yield* InstanceState.get(discovered), bus)
         return s
       }),
