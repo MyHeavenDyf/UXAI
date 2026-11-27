@@ -2614,7 +2614,8 @@ it.live(
   30_000,
 )
 
-// 工具渐进式披露(OCTO_TOOL_SEARCH):octo_make 配了 defer: ["bash", "fetch"],
+// 工具渐进式披露(OCTO_TOOL_SEARCH):flag on 时除交互协议核心工具(invalid/
+// question/task/plan_exit/skill)外全部内置工具与 MCP 工具进 defer 桶,全局生效。
 // 以下测试走完整两步链路。与同文件 loop 测试同范式,依赖 TestLLMServer。
 
 const withToolSearch = <A, E, R>(self: Effect.Effect<A, E, R>) =>
@@ -2631,7 +2632,7 @@ const withToolSearch = <A, E, R>(self: Effect.Effect<A, E, R>) =>
   })
 
 it.live(
-  "tool search defers listed tools and announces the deferred pool",
+  "tool search defers all non-core tools and announces the deferred pool",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {
@@ -2660,11 +2661,18 @@ it.live(
             const names = ((request["tools"] ?? []) as any[]).map((entry) =>
               String(entry?.function?.name ?? entry?.name ?? ""),
             )
+            // 全局 defer:工作类工具一律进桶(不再有 per-agent 白名单)
             expect(names).not.toContain("bash")
             expect(names).not.toContain("webfetch")
+            expect(names).not.toContain("read")
+            expect(names).not.toContain("write")
+            // invalid 也留在 tools map(失败调用的重映射目标)但 activeTools 从不下发,
+            // 模型侧可见的直传工具只剩交互协议层
+            expect(names).not.toContain("invalid")
+            expect(names).toContain("question")
+            expect(names).toContain("task")
             expect(names).toContain("search_tools")
             expect(names).toContain("execute_tool")
-            expect(names).toContain("read")
 
             const system = JSON.stringify(
               ((request["messages"] ?? []) as any[]).find((message) => message?.role === "system"),
@@ -2672,6 +2680,7 @@ it.live(
             expect(system).toContain("<available-deferred-tools>")
             expect(system).toContain("- bash")
             expect(system).toContain("- webfetch")
+            expect(system).toContain("- read")
           }),
         )
       }),
@@ -2823,6 +2832,12 @@ itMcp.live(
               String(entry?.function?.name ?? entry?.name ?? ""),
             )
             expect(names).not.toContain("testfixture_probe")
+            // 全局 defer:非核心内置工具对其他 agent 同样进桶(build 无 defer 配置);
+            // invalid 留在 tools map 但不下发(activeTools 过滤)
+            expect(names).not.toContain("bash")
+            expect(names).not.toContain("invalid")
+            expect(names).toContain("question")
+            expect(names).toContain("task")
             expect(names).toContain("search_tools")
             expect(names).toContain("execute_tool")
 
@@ -2857,7 +2872,7 @@ itMcp.live(
 )
 
 // 保留名冲突降级:MCP key 撞上元工具名 search_tools → 本次请求整体回到 flag-off 形态:
-// defer 列表失效(bash 直传)、元工具不创建、公告不注入,撞名 MCP 工具本身走既有直传分支
+// 全局 defer 失效(bash 直传)、元工具不创建、公告不注入,撞名 MCP 工具本身走既有直传分支
 // (其 wire description 与元工具的可区分:元工具 description 引用 <available-deferred-tools>)。
 itMcpCollide.live(
   "tool search degrades when an MCP tool collides with a reserved meta-tool name",
@@ -2889,7 +2904,7 @@ itMcpCollide.live(
             const tools = (request["tools"] ?? []) as any[]
             const nameOf = (entry: any) => String(entry?.function?.name ?? entry?.name ?? "")
             const names = tools.map(nameOf)
-            // defer 关闭:octo_make defer 列表里的 bash 直接出现在 tools 数组
+            // 全局 defer 被降级回直传:工作类工具直接出现在 tools 数组
             expect(names).toContain("bash")
             // 元工具未创建(execute_tool 无 MCP 撞名,出现即元工具泄漏)
             expect(names).not.toContain("execute_tool")

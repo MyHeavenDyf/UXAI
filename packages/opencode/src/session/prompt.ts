@@ -479,10 +479,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const run = yield* runner()
       const promptOps = yield* ops()
 
-      // 渐进式披露(Flag.OPENCODE_TOOL_SEARCH):agent.defer 列出的内置工具与全部 MCP 工具
+      // 渐进式披露(Flag.OPENCODE_TOOL_SEARCH):除交互协议核心工具(invalid/question/
+      // task/plan_exit/skill,见 CORE_DIRECT_TOOLS)外的全部内置工具与全部 MCP 工具
       // 不进 API tools 数组,改由 search_tools/execute_tool 元工具按需发现与执行,长描述
-      // 从每轮固定成本变为用则支付。被 Permission deny 或用户按消息关闭的工具在进桶前
-      // 剔除,元工具无法触达,不存在绕过权限的路径。
+      // 从每轮固定成本变为用则支付,对所有 agent 全局生效。被 Permission deny 或用户
+      // 按消息关闭的工具在进桶前剔除,元工具无法触达,不存在绕过权限的路径。
       const toolSearch = Flag.OPENCODE_TOOL_SEARCH
       const deferred: Record<string, ToolSearch.DeferredTool> = {}
       // execute_tool 委托执行时,借 options 携带元工具的原始入参({tool_name, params})。
@@ -569,11 +570,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         toolCount: Object.keys(mcpTools).length,
         tools: Object.keys(mcpTools).join(","),
       })
+      // 全局 defer:flag on 时除 CORE_DIRECT_TOOLS(交互协议工具)与保留名外的全部
+      // 内置工具进桶。defer 集合从 registry 实际可见清单派生,天然继承模型级工具
+      // 过滤(gpt 的 apply_patch/edit/write 互斥、insight 专属工具的 agent 过滤)。
       const deferBuiltin = toolSearch && !metaBlocked
         ? new Set(
-            (input.agent.defer ?? []).filter(
-              (id) => id !== "invalid" && !ToolSearch.RESERVED_METATOOL_NAMES.has(id),
-            ),
+            items
+              .map((item) => item.id)
+              .filter(
+                (id) => !ToolSearch.CORE_DIRECT_TOOLS.has(id) && !ToolSearch.RESERVED_METATOOL_NAMES.has(id),
+              ),
           )
         : undefined
       const builtinDisabled = deferBuiltin

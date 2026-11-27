@@ -58,6 +58,13 @@ export function formatAnnouncement(names: string[]): string {
 // 降级为直传(不 defer、不建元工具),避免直传工具与元工具同名产生歧义。
 export const RESERVED_METATOOL_NAMES = new Set(["search_tools", "execute_tool"])
 
+// flag on 时保持直传的内置工具:只保留交互协议层 —— 错误自纠(invalid)、用户应答
+// (question)、子代理派发(task,路由架构的脊柱,其描述还携带 describeTask 动态
+// 候选清单)、规划确认(plan_exit)、skill 加载(skill,404B 极小且是 skill 流程的
+// 入口协议)。其余内置工具与全部 MCP 工具一律进 defer 桶,渐进式披露全局生效,
+// 不再依赖 per-agent defer 列表。
+export const CORE_DIRECT_TOOLS = new Set(["invalid", "question", "task", "plan_exit", "skill"])
+
 // 单次 search 结果的总字符预算(约 6K token)。search 结果持久留在 message history
 // 且每轮重放,不设上限时大 MCP 工具集下一次查询可注入几十 KB——恰好制造渐进式披露
 // 要消除的固定成本。预算按整条目累加,超限停止并附省略名单;不沿用 Truncate.Service

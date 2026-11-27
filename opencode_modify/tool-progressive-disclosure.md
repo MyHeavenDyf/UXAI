@@ -220,3 +220,32 @@ metaBlocked = toolSearch && MCP keys 与保留名有交集 → elog.warn 一次
 - **flag on · insight 页（MCP defer）**：自起最小 MCP 测试服务器（zz-mcp-test/echo_tool）→ `execute_tool{tool_name:"zz-mcp-test_echo_tool"}` part 经 packages/ui GenericTool 渲染为「调用了 zz-mcp-test_echo_tool」（修复前显示「调用了 execute_tool」）。**ui 层解包在真实 app 验证通过**。
 - **flag off 回归**：同型 bash prompt → part 直接 `bash:completed`（无元工具），渲染与 flag on 完全一致——`unwrapMetaTool` 对非 execute_tool 返回 undefined 的回落路径零行为变化。
 - 两轮运行 console 无 error/exception。未覆盖 E2E 的点（静态复核 + unwrapMetaTool 单测覆盖）：write-output 产物卡 / task-detect 任务卡 / restore-draft 回退收集（write/edit 未进 defer 列表，无法在不改配置的前提下触发 execute_tool 形态；解包逻辑与已验证路径同构）；SSE `session.next.tool.called` 载荷（processor.ts 中 `value.input` 同一变量流向 part state 与事件，part state 已实证为信封对象，且事件 schema 强制 Record）。
+
+## 十一、全局化改造（2026-11-27 晚，随 dev 合并）
+
+合入 origin/dev（fe0ede7846）带来 octo_make 路由化重构：octo_make 变为需求路由代理（mode: primary），原「设计原型专家」角色拆给新 octo_design，新增完整项目开发的 octo_code。这与 v1 的 per-agent defer 产生**语义冲突**——git 自动合并把 `defer: ["bash", "webfetch"]` 从旧 octo_make 块挂到了新 octo_design 块（共同祖先文本对齐的结果），octo_make 路由本身丢失 defer，三个集成测试失败（bash 直传进 tools 数组）。
+
+**决策（用户明确）**：渐进式披露不再按 agent 灰度——flag on 时对**所有 agent 全局生效**，删除 per-agent defer 列表。
+
+### 实现
+
+- `tool/tool-search.ts` 新增导出 `CORE_DIRECT_TOOLS = {invalid, question, task, plan_exit, skill}`——保持直传的交互协议层：错误自纠、用户应答、子代理派发（task 是路由架构的脊柱，其描述还携带 describeTask 动态候选清单）、规划确认、skill 加载入口（404B 极小）。
+- `session/prompt.ts` 的 `deferBuiltin` 从 `(input.agent.defer ?? [])` 改为 `items.map(id).filter(非核心 && 非保留名)`——**defer 集合从 registry 实际可见清单派生**，天然继承模型级工具过滤（gpt 的 apply_patch/edit/write 互斥、insight 专属工具的 agent 过滤）与既有权限前置剔除（builtinDisabled）。其余链路（MCP defer、metaBlocked 降级、元工具创建、announcement、ENVELOPE）零改动。
+- `agent/agent.ts` 删除 `Info.defer` schema 字段与 octo_design 的 defer 配置——agent 维度不再有 defer 概念。
+- **invalid 的特殊性**：它不进 wire（llm.ts:387 `activeTools` 过滤——invalid 是服务端失败调用的重映射目标，模型侧从不可见），但必须留在 tools map 供执行派发，因此保留在核心直通集**且不进桶**；若进桶，失败调用的 invalid 重映射会找不到执行器。
+- 直传体积对比：flag on 后模型每轮只见 question(667B)/task(2.7KB)/skill(404B)/plan_exit(~590B) + 两个元工具；bash(6.4KB)/todowrite(9KB,全库最大)/read/edit/write/glob/grep/lsp/webfetch/websearch 等约 30KB 描述全部转为按需支付。todowrite 9KB 是单工具最大收益，代价是规划类 agent 首次用 todo 需先 search 一次——属「用则支付」的既定取舍，若实测规划质量退化可把它加进 CORE_DIRECT_TOOLS（一行改动）。
+
+### 测试更新
+
+`test/session/prompt.test.ts` 五个用例适配全局语义：
+- 断言直传集：bash/webfetch/read/write **全部 defer**（旧断言 read 直传已失效），直传只剩 question/task/search/execute；invalid 断言为 not.toContain（不下发 wire，见上）；
+- MCP 用例（agent=build）补 bash 也 defer 的断言（证明全局性，build 无任何 defer 配置）；
+- 两步链路 / 权限 deny / 撞名降级三用例逻辑不变自然通过（降级= deferBuiltin 置 undefined，全部直传）。
+- 验证：`-t "tool search"` 5 用例全过；`test/tool/tool-search.test.ts` 28 过；`test/agent/` 62 过（含 dev 新增 octo-make-prompt.test.ts）；`bun run typecheck` 12/12。
+
+### 已知影响
+
+- 公告变长：defer 全量后 `<available-deferred-tools>` 名单为该 agent 可见的全部工作类工具（约 6-15 行名字），仍是名字级小成本（§十残留项已记录不设上限的取舍）；
+- 全部 MCP + 内置工作工具进桶后，**每个会话首次使用每个新工具多一次 search 往返**（schema 留历史，后续轮次直呼 execute_tool，prompt cache 命中——2026-11-24 真机已验证该模式）；
+- 自定义 agent（用户 agent md）自动获得同等 defer 行为，无需任何配置——即「应用到所有场景」的本意；
+- flag off 回归不变：回滚仍是关 env，代码路径零变化。
