@@ -10,10 +10,10 @@ import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram, IconUndo, IconTrash, IconEdit, IconWarn, IconCopy, IconCheckmark, IconRedo } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
 import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
-import { collectRevertedFiles, buildRevertDraft, revertSkillsFromConfig, revertDocToClipboard, writeRichClipboard, type RevertDraftPart } from "../utils/restore-draft"
+import { collectRevertedFiles, collectWriteEditFiles, buildRevertDraft, revertSkillsFromConfig, revertDocToClipboard, writeRichClipboard, type RevertDraftPart } from "../utils/restore-draft"
 import { ARTIFACT_TYPE_MAP, parseAllArtifactsFromText } from "../utils/artifact-cards"
 import { isHiddenCompactionTurn } from "../utils/visible-message"
-import { autoSaveArtifact, SAVEABLE_ARTIFACT_TYPES } from "../utils/artifact-auto-save"
+import { autoSaveArtifact, getExtension, SAVEABLE_ARTIFACT_TYPES } from "../utils/artifact-auto-save"
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
 import './insight-turn-meta.css'
@@ -542,6 +542,7 @@ export function InsightTurn(props: {
   onArtifactSaved?: (filePath: string) => void
   /** html 类型产物自动落盘成功后回调（自动归档等后台流程的触发点； */
   onHtmlArtifactSaved?: (card: OutputCard, filePath: string, sessionID: string) => void
+  semiconductorPush?: { since: number; send: (sessionID: string, messageID: string) => void }
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1359,6 +1360,39 @@ const stateStatus = state.status as string | undefined
   )
   const displayCards = createMemo(() => [...outputCards(), ...fastuiExtraCards()])
 
+  const [savedNonHtmlArtifactFor, setSavedNonHtmlArtifactFor] = createSignal<string>()
+  let notifiedSkillTurn: string | undefined
+  createEffect(() => {
+    const push = props.semiconductorPush
+    const messageID = props.messageID
+    if (!push || notifiedSkillTurn === messageID || props.sessionID !== props.mainSessionID) return
+    if (props.active || isReplayTurn() || isCompactionTurn() || isAborted() || assistantError()) return
+    const last = assistantMsgs().at(-1)
+    if (!last?.time.completed || last.time.completed < push.since) return
+    if (!last.finish || ["tool-calls", "unknown"].includes(last.finish)) return
+
+    const childTasks = subtasks().flatMap((task) => task.subSessionID ? [task.subSessionID] : [])
+    const childMessages = childTasks.map((id) => msgStore?.[id] ?? [])
+    if (childMessages.some((messages) => messages.length === 0)) return
+    const childParts = childMessages.flatMap((messages) => messages.flatMap((msg) => partStore?.[msg.id] ?? []))
+    const replyParts = [...assistantParts(), ...childParts] as RevertDraftPart[]
+    const skillParts = [...(partStore?.[messageID] ?? []), ...replyParts] as RevertDraftPart[]
+    const usedSkill = skillParts.some((part) => {
+      const name = part.state?.input?.name
+      if (part.type !== "tool" || part.tool !== "skill" || part.state?.status !== "completed" || typeof name !== "string") return false
+      return name === "半导体领域设计规范" || lookupDisplayName(props.skillConfig?.skill, name) === "半导体领域设计规范"
+    })
+    if (!usedSkill) return
+
+    const files = collectWriteEditFiles(replyParts)
+    const isHtml = (file: string) => /\.html?$/i.test(file)
+    if (files.some(isHtml) || outputCards().some((card) => card.type === "html")) return
+    if (childParts.some((part) => part.type === "text" && part.text && parseAllArtifactsFromText(part.text).some((card) => card.type === "html"))) return
+    if (files.length === 0 && savedNonHtmlArtifactFor() !== messageID) return
+    notifiedSkillTurn = messageID
+    push.send(props.sessionID, messageID)
+  })
+
   // 自动保存 artifact 到磁盘（生成时立即触发，不等待用户点击）
   createEffect(() => {
     const cards = outputCards()
@@ -1373,6 +1407,7 @@ const stateStatus = state.status as string | undefined
 
       autoSavedArtifacts.add(key)
 
+      const messageID = props.messageID
       autoSaveArtifact(props.mainSessionID ?? props.sessionID, card, props.projectDir!, workspaceKind()).then((filePath) => {
         // 创建与 skip-existing 都返回路径：经伪 tab 补 init 基线（已有历史则内部跳过），
         // 使产物版本体系不依赖 tab 打开（回退恢复/删除需要）
@@ -1381,6 +1416,9 @@ const stateStatus = state.status as string | undefined
           props.onArtifactSaved?.(filePath)
           // html 产物触发自动归档
           if (card.type === "html") props.onHtmlArtifactSaved?.(card, filePath, props.sessionID)
+          if (props.semiconductorPush && props.messageID === messageID && getExtension(card.type) !== ".html") {
+            setSavedNonHtmlArtifactFor(messageID)
+          }
         }
         props.onFilesRefresh?.()
       }).catch(err => {

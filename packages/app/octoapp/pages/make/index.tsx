@@ -159,6 +159,8 @@ const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 // 自动归档：已上传产物去重（key = card.id，localStorage 持久化——InsightTurn 重挂载/
 // 刷新/切 session 后 auto-save effect 会重跑，防止同一产物重复上传）
 const autoArchiveReported = createReportedSet("octo:make:auto-archived")
+const semiconductorPushReported = createReportedSet("octo:make:semiconductor-push-reported")
+const semiconductorPushInFlight = new Set<string>()
 
 export default function MakePage() {
   const layout = useLayout()
@@ -196,6 +198,7 @@ export default function MakePage() {
 let lastMakeDir: string | undefined
 
 function MakeContent() {
+  const semiconductorPush = { since: Date.now(), send: handleSemiconductorFilesSaved }
   const [lastOpenedPopover, setLastOpenedPopover] = createSignal<"addon" | "model">()
   useSharedSessionImportContext("design")
   const params = useParams<{ id?: string }>()
@@ -2640,6 +2643,37 @@ const sessionMessagesLoaded = createMemo(() => {
     } else {
       showOctoToast({ title: "自动同步云端失败", description: result.message })
     }
+  }
+
+  function handleSemiconductorFilesSaved(sessionID: string, messageID: string) {
+    if (!settings.general.cloudSyncPush() || !isAssetLibraryLoggedIn()) return
+    const key = `${sessionID}:${messageID}`
+    if (semiconductorPushReported.has(key) || semiconductorPushInFlight.has(key)) return
+    semiconductorPushInFlight.add(key)
+    const sessionTitle = sessionDisplayTitle(archiveRootSid(sessionID))
+    const content = "半导体领域设计规范：推送测试"
+    const title = "半导体领域设计规范"
+    const mode = workspaceKind() === "code" ? "code" : "normal"
+    void (async () => {
+      try {
+        // 归档服务需要 ZIP 的根入口，只上传测试页，产物文件留在工作区。
+        const zipBlob = await createIndexHtmlZip({
+          htmlContent: `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${title}</title><body>${content}</body></html>`,
+          htmlFilePath: "",
+        })
+        const result = await uploadZipPackage({ name: `${title}.zip`, zipBlob, sessionTitle, content })
+        if (!result.success || result.id === undefined) {
+          showOctoToast({ title: "自动同步云端失败", description: result.message })
+          return
+        }
+        semiconductorPushReported.add(key)
+        startArchivePoll({ id: result.id, name: title, mode, startedAt: Date.now() }, handleArchiveTerminal)
+      } catch (error) {
+        showOctoToast({ title: "自动同步云端失败", description: error instanceof Error ? error.message : String(error) })
+      } finally {
+        semiconductorPushInFlight.delete(key)
+      }
+    })()
   }
 
   /** html 产物自动落盘后回调（insight-turn onHtmlArtifactSaved）：
@@ -6939,6 +6973,7 @@ onPreview={(url) => {
                         onRegenerateMessage={() => handleRegenerateMessage(userMessages()[0])}
                         onArtifactSaved={recordArtifactInit}
                         onHtmlArtifactSaved={handleHtmlArtifactSaved}
+                        semiconductorPush={semiconductorPush}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -6983,6 +7018,7 @@ onPreview={(url) => {
                             onRegenerateMessage={() => handleRegenerateMessage(msg)}
                             onArtifactSaved={recordArtifactInit}
                             onHtmlArtifactSaved={handleHtmlArtifactSaved}
+                            semiconductorPush={semiconductorPush}
                           />
                         )
                       }}

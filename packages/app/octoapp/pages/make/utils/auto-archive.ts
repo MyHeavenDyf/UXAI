@@ -78,9 +78,10 @@ export async function uploadZipPackage(options: {
   zipBlob: Blob
   /** 会话标题（解析 + 回退后的展示名），供 WeLink 推送模板字段 */
   sessionTitle: string
-  /** 上传页面原名（磁盘文件名，含 .html 扩展），供 WeLink 推送 content 字段 */
-  pageName: string
-}): Promise<AutoArchiveResult> {
+} & (
+  | { pageName: string; content?: never }
+  | { content: string; pageName?: never }
+)): Promise<AutoArchiveResult> {
   if (!isAssetLibraryLoggedIn()) return { success: false, message: "未登录" }
   const uuid = currentUserId()
   if (!uuid) return { success: false, message: "用户信息缺失" }
@@ -91,7 +92,7 @@ export async function uploadZipPackage(options: {
   form.append("uuid", uuid)
   form.append("zipPackage", options.zipBlob, sanitizeAssetFileName(options.name))
   form.append("title", welinkTitle(options.sessionTitle))
-  form.append("content", welinkContent(options.sessionTitle, options.pageName))
+  form.append("content", options.pageName === undefined ? options.content : welinkContent(options.sessionTitle, options.pageName))
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPLOAD_PACKAGE_TIMEOUT_MS)
