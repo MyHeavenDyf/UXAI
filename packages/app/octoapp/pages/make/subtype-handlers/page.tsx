@@ -10,6 +10,7 @@ import type { JSX } from 'solid-js'
 import JSZip from 'jszip'
 import { createHistoryStore, fnv1aHash, relativePathToId, resolveRelativePath, getExt, VERSION_MANIFEST_FILE } from '../utils/history-store'
 import { iconColors } from '../components/model-edit-items/icon-data/icon-colors'
+import { getDesktopApi } from '../lib/electron-api'
 
 const [isDarkTheme, setDarkTheme] = createSignal(false)
 
@@ -157,6 +158,15 @@ const HISTORY_SKIP_DIRS = ['.history', 'node_modules', '.git', 'dist', 'build']
 /** 单版本记录的文件数上限（防御异常庞大的产物目录） */
 const HISTORY_MAX_FILES = 200
 
+/** page 产物 zip 内存缓存（key = sessionId, value = Blob）。
+ *  generatePageArtifactZip 写入，getPageArtifactZip 读取。
+ *  按 sessionId 隔离，多会话不混淆。 */
+const pageArtifactZipCache = new Map<string, Blob>()
+/** 等待 zip 生成的 Promise 解析器队列（key = sessionId）。
+ *  getPageArtifactZip 每次调用都把 resolver 推入对应 session 的队列，
+ *  generatePageArtifactZip 完成后 resolve 对应 session 的等待者。 */
+const pageArtifactZipWaiters = new Map<string, Array<(blob: Blob | null) => void>>()
+
 /** 动态发现预览根目录下的源码文件（相对路径，'./' 前缀）。
  *  page 产物目录结构由模型生成、不固定，无法像 gts 那样用固定清单，按扩展名白名单全量发现。
  *  listDirectory 已递归 walk，返回 path 相对所列目录。 */
@@ -215,6 +225,111 @@ async function packOutputDir(ctx: SubtypeHandlerContext, outputDir: string): Pro
     zip.file(relPath, new Uint8Array(buf))
   }
   return zip.generateAsync({ type: 'blob' })
+}
+
+/** 生成 page 产物 zip：打包 index.page.html 同目录下所有文件产物，
+ *  入口文件 index.page.html 重命名为 index.html，结果按 sessionId 缓存在内存中。
+ *  在会话回复完成（busy→idle）时由 triggerPageArtifactZip 调用。
+ *  完成后会 resolve 对应 sessionId 的所有等待中的 getPageArtifactZip Promise。 */
+async function generatePageArtifactZip(filePath: string, sessionId: string): Promise<Blob | null> {
+  try {
+    const api = getDesktopApi()
+    if (!api?.listDirectory || !api?.readFileBuffer) {
+      resolveWaiters(sessionId, null)
+      return null
+    }
+
+    const previewRoot = filePath.replace(/[/\\][^/\\]+$/, '')
+    const entryFileName = filePath.split(/[/\\]/).pop() ?? ''
+
+    const entries = await api.listDirectory(previewRoot)
+    const files = (entries ?? [])
+      .filter(e => e.type === 'file')
+      .filter(e => {
+        const p = e.path.replace(/\\/g, '/')
+        return !(p === '.history' || p.startsWith('.history/'))
+      })
+    if (files.length === 0) {
+      resolveWaiters(sessionId, null)
+      return null
+    }
+
+    const zip = new JSZip()
+    for (const entry of files) {
+      const buf = await api.readFileBuffer(`${previewRoot}/${entry.path}`)
+      if (!buf) continue
+      const relPath = entry.path.replace(/\\/g, '/')
+      const zipPath = relPath === entryFileName ? 'index.html' : relPath
+      zip.file(zipPath, new Uint8Array(buf))
+    }
+
+    const zipBlob = await zip.generateAsync({ type: 'blob', mimeType: 'application/zip' })
+    pageArtifactZipCache.set(sessionId, zipBlob)
+    resolveWaiters(sessionId, zipBlob)
+    return zipBlob
+  } catch (err) {
+    console.warn('[page-zip] generatePageArtifactZip 异常:', err)
+    resolveWaiters(sessionId, null)
+    return null
+  }
+}
+
+/** 在 session 一轮回复完成（busy→idle）时调用。
+ *  优先用已打开的 page tab 的 filePath；找不到则从 session outputs 目录递归查找 index.page.html。
+ *  找到后生成产物 zip 并 resolve 所有等待中的 getPageArtifactZip Promise。 */
+export async function triggerPageArtifactZip(
+  tabs: Array<{ subtype?: string; filePath?: string; absoluteFilePath?: string }>,
+  sdkDirectory: string,
+  sessionId?: string,
+): Promise<void> {
+  if (!sessionId) return
+  // 1. 优先从已打开的 tab 找 page 产物
+  const pageTab = tabs.find(t => t.subtype === 'page' && (t.filePath || t.absoluteFilePath))
+  const pageFilePath = pageTab?.filePath || pageTab?.absoluteFilePath
+  if (pageFilePath) {
+    await generatePageArtifactZip(pageFilePath, sessionId)
+    return
+  }
+  // 2. tab 未打开时，从 session outputs 目录递归查找 index.page.html
+  if (!sdkDirectory) {
+    resolveWaiters(sessionId, null)
+    return
+  }
+  const api = getDesktopApi()
+  if (!api?.listDirectory) {
+    resolveWaiters(sessionId, null)
+    return
+  }
+  const sep = sdkDirectory.includes("\\") ? "\\" : "/"
+  const outputsDir = [sdkDirectory, ".octo", sessionId, "outputs"].join(sep)
+  const result = await api.listDirectory(outputsDir)
+  const pageFile = (result ?? []).find(e => e.type === 'file' && e.path.replace(/\\/g, '/').endsWith('index.page.html'))
+  if (pageFile) {
+    await generatePageArtifactZip(`${outputsDir}/${pageFile.path}`, sessionId)
+  } else {
+    resolveWaiters(sessionId, null)
+  }
+}
+
+/** 把生成结果 resolve 给对应 sessionId 的所有等待中的调用方 */
+function resolveWaiters(sessionId: string | undefined, blob: Blob | null): void {
+  if (!sessionId) return
+  const waiters = pageArtifactZipWaiters.get(sessionId)
+  if (!waiters || waiters.length === 0) return
+  pageArtifactZipWaiters.delete(sessionId)
+  waiters.forEach(fn => fn(blob))
+}
+
+/** 异步读取 page 产物 zip 内容（index.page.zip）。
+ *  按 sessionId 隔离，多会话不混淆。
+ *  每次调用都返回一个 pending Promise，在对应 sessionId 的会话回复完成时 resolve。
+ *  @param sessionId 当前会话 ID */
+export function getPageArtifactZip(sessionId: string): Promise<Blob | null> {
+  return new Promise<Blob | null>(resolve => {
+    const list = pageArtifactZipWaiters.get(sessionId) ?? []
+    list.push(resolve)
+    pageArtifactZipWaiters.set(sessionId, list)
+  })
 }
 
 function downloadZipBlob(blob: Blob, filename: string, ctx: SubtypeHandlerContext): Promise<void> {
