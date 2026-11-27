@@ -189,22 +189,14 @@ export const layer: Layer.Layer<
 
     const scope = yield* Scope.Scope
 
-    const readCachedProjectId = Effect.fnUntraced(function* (dir: string) {
-      return yield* fs.readFileString(pathSvc.join(dir, "opencode")).pipe(
-        Effect.map((x) => x.trim()),
-        Effect.map((x) => ProjectID.make(x)),
-        Effect.catch(() => Effect.void),
-      )
-    })
-
     const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {
       log.info("fromDirectory", { directory })
 
       // Phase 1: discover git info
       type DiscoveryResult = { id: ProjectID; worktree: string; sandbox: string; vcs: Info["vcs"] }
 
-      // 非 git 目录的 projectID 按目录路径哈希派生,每个目录有独立的记忆/项目空间
-      // (与 Claude Code 一致:project root 按路径区分,不是全塞一个 global 桶)
+      // projectID = 目录路径哈希(与 Claude Code 一致):git 只用来找 worktree 根路径
+      // 让子目录共享,身份本身永远是路径派生,git 不装/不是仓库/命令失败都不影响隔离
       const dirProjectId = (dir: string) =>
         ProjectID.make(createHash("sha256").update(path.resolve(dir)).digest("hex").slice(0, 40))
 
@@ -223,13 +215,12 @@ export const layer: Layer.Layer<
         }
 
         let sandbox = pathSvc.dirname(dotgit)
-        let id = yield* readCachedProjectId(dotgit)
 
         const commonDir = yield* git(["rev-parse", "--git-common-dir"], { cwd: sandbox })
         if (commonDir.code !== 0) {
           log.info("fromDirectory:git-common-dir-failed", { directory, code: commonDir.code, stderr: commonDir.stderr })
           return {
-            id: id ?? dirProjectId(directory),
+            id: dirProjectId(sandbox),
             worktree: sandbox,
             sandbox,
             vcs: fakeVcs,
@@ -240,35 +231,11 @@ export const layer: Layer.Layer<
         const isBareRepo = bareCheck.code === 0 && bareCheck.text.trim() === "true"
         const worktree = common === sandbox ? sandbox : isBareRepo ? common : pathSvc.dirname(common)
 
-        if (id == null) {
-          id = yield* readCachedProjectId(common)
-        }
-
-        if (!id) {
-          const revList = yield* git(["rev-list", "--max-parents=0", "HEAD"], { cwd: sandbox })
-          const roots = revList.text
-            .split("\n")
-            .filter(Boolean)
-            .map((x) => x.trim())
-            .toSorted()
-
-          id = roots[0] ? ProjectID.make(roots[0]) : undefined
-          log.info("fromDirectory:rev-list", { directory, rootsCount: roots.length, id })
-          if (id) {
-            yield* fs.writeFileString(pathSvc.join(common, "opencode"), id).pipe(Effect.ignore)
-          }
-        }
-
-        if (!id) {
-          log.info("fromDirectory:no-id", { directory })
-          return { id: dirProjectId(directory), worktree: sandbox, sandbox, vcs: "git" as const }
-        }
-
         const topLevel = yield* git(["rev-parse", "--show-toplevel"], { cwd: sandbox })
         if (topLevel.code !== 0) {
           log.info("fromDirectory:toplevel-failed", { directory, code: topLevel.code, stderr: topLevel.stderr })
           return {
-            id,
+            id: dirProjectId(worktree),
             worktree: sandbox,
             sandbox,
             vcs: fakeVcs,
@@ -276,6 +243,8 @@ export const layer: Layer.Layer<
         }
         sandbox = resolveGitPath(sandbox, topLevel.text.trim())
 
+        // ID 基于 git worktree 主根(同仓库所有 worktree/子目录共享,与 Claude Code 一致)
+        const id = dirProjectId(worktree)
         log.info("fromDirectory:discovered", { directory, id, worktree, sandbox })
         return { id, sandbox, worktree, vcs: "git" as const }
       })

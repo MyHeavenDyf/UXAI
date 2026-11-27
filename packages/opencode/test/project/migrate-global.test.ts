@@ -28,6 +28,14 @@ function uid() {
 
 function seed(opts: { id: SessionID; dir: string; project: ProjectID }) {
   const now = Date.now()
+  // FK: session.project_id 必须存在于 project 表,先 upsert
+  Database.use((db) =>
+    db
+      .insert(ProjectTable)
+      .values({ id: opts.project, worktree: opts.dir, sandboxes: [] })
+      .onConflictDoNothing()
+      .run(),
+  )
   Database.use((db) =>
     db
       .insert(SessionTable)
@@ -63,26 +71,24 @@ function ensureGlobal() {
 
 describe("migrateFromGlobal", () => {
   test("migrates global sessions on first project creation", async () => {
-    // 1. Start with git init but no commits — creates "global" project row
+    // 路径哈希方案:同一目录始终同一个 projectID(不因 git commit 出现而变),
+    // 老 global 会话在首次解析时被迁移到正确的路径哈希 ID
     await using tmp = await tmpdir()
     await $`git init`.cwd(tmp.path).quiet()
     await $`git config user.name "Test"`.cwd(tmp.path).quiet()
     await $`git config user.email "test@opencode.test"`.cwd(tmp.path).quiet()
     await $`git config commit.gpgsign false`.cwd(tmp.path).quiet()
     const { project: pre } = await run((svc) => svc.fromDirectory(tmp.path))
-    expect(pre.id).toBe(ProjectID.global)
+    expect(pre.id).not.toBe(ProjectID.global)
 
-    // 2. Seed a session under "global" with matching directory
+    // 2. Seed a session under "global" with matching directory (旧版遗留)
     const id = uid()
     seed({ id, dir: tmp.path, project: ProjectID.global })
 
-    // 3. Make a commit so the project gets a real ID
-    await $`git commit --allow-empty -m "root"`.cwd(tmp.path).quiet()
-
     const { project: real } = await run((svc) => svc.fromDirectory(tmp.path))
-    expect(real.id).not.toBe(ProjectID.global)
+    expect(real.id).toBe(pre.id) // 同目录 ID 稳定
 
-    // 4. The session should have been migrated to the real project ID
+    // 3. The session should have been migrated to the correct path-hash ID
     const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
     expect(row).toBeDefined()
     expect(row!.project_id).toBe(real.id)

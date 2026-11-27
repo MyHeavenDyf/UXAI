@@ -78,12 +78,9 @@ describe("Project.fromDirectory", () => {
     const { project } = await run((svc) => svc.fromDirectory(tmp.path))
 
     expect(project).toBeDefined()
-    expect(project.id).toBe(ProjectID.global)
+    expect(project.id).not.toBe(ProjectID.global)
     expect(project.vcs).toBe("git")
     expect(project.worktree).toBe(tmp.path)
-
-    const opencodeFile = path.join(tmp.path, ".git", "opencode")
-    expect(await Bun.file(opencodeFile).exists()).toBe(false)
   })
 
   test("should handle git repository with commits", async () => {
@@ -95,15 +92,19 @@ describe("Project.fromDirectory", () => {
     expect(project.id).not.toBe(ProjectID.global)
     expect(project.vcs).toBe("git")
     expect(project.worktree).toBe(tmp.path)
-
-    const opencodeFile = path.join(tmp.path, ".git", "opencode")
-    expect(await Bun.file(opencodeFile).exists()).toBe(true)
   })
 
-  test("returns global for non-git directory", async () => {
+  test("non-git directory gets its own path-hash project ID", async () => {
     await using tmp = await tmpdir()
     const { project } = await run((svc) => svc.fromDirectory(tmp.path))
-    expect(project.id).toBe(ProjectID.global)
+    expect(project.id).not.toBe(ProjectID.global)
+    // 同一目录重复解析应稳定
+    const { project: again } = await run((svc) => svc.fromDirectory(tmp.path))
+    expect(again.id).toBe(project.id)
+    // 不同目录应不同
+    await using tmp2 = await tmpdir()
+    const { project: other } = await run((svc) => svc.fromDirectory(tmp2.path))
+    expect(other.id).not.toBe(project.id)
   })
 
   test("derives stable project ID from root commit", async () => {
@@ -122,7 +123,7 @@ describe("Project.fromDirectory git failure paths", () => {
     // rev-list fails because HEAD doesn't exist yet — this is the natural scenario
     const { project } = await run((svc) => svc.fromDirectory(tmp.path))
     expect(project.vcs).toBe("git")
-    expect(project.id).toBe(ProjectID.global)
+    expect(project.id).not.toBe(ProjectID.global)
     expect(project.worktree).toBe(tmp.path)
   })
 
@@ -189,11 +190,6 @@ describe("Project.fromDirectory with worktrees", () => {
       const { project: wt } = await run((svc) => svc.fromDirectory(worktreePath))
 
       expect(wt.id).toBe(main.id)
-
-      // Cache should live in the common .git dir, not the worktree's .git file
-      const cache = path.join(tmp.path, ".git", "opencode")
-      const exists = await Bun.file(cache).exists()
-      expect(exists).toBe(true)
     } finally {
       await $`git worktree remove ${worktreePath}`
         .cwd(tmp.path)
@@ -202,10 +198,9 @@ describe("Project.fromDirectory with worktrees", () => {
     }
   })
 
-  test("separate clones of the same repo should share project ID", async () => {
+  test("separate clones have distinct project IDs (path-based identity)", async () => {
     await using tmp = await tmpdir({ git: true })
 
-    // Create a bare remote, push, then clone into a second directory
     const bare = tmp.path + "-bare"
     const clone = tmp.path + "-clone"
     try {
@@ -215,7 +210,7 @@ describe("Project.fromDirectory with worktrees", () => {
       const { project: a } = await run((svc) => svc.fromDirectory(tmp.path))
       const { project: b } = await run((svc) => svc.fromDirectory(clone))
 
-      expect(b.id).toBe(a.id)
+      expect(b.id).not.toBe(a.id)
     } finally {
       await $`rm -rf ${bare} ${clone}`.quiet().nothrow()
     }
@@ -534,12 +529,6 @@ describe("Project.fromDirectory with bare repos", () => {
 
       expect(project.id).not.toBe(ProjectID.global)
       expect(project.worktree).toBe(barePath)
-
-      const correctCache = path.join(barePath, "opencode")
-      const wrongCache = path.join(parentDir, ".git", "opencode")
-
-      expect(await Bun.file(correctCache).exists()).toBe(true)
-      expect(await Bun.file(wrongCache).exists()).toBe(false)
     } finally {
       await $`rm -rf ${barePath} ${worktreePath}`.quiet().nothrow()
     }
@@ -566,13 +555,8 @@ describe("Project.fromDirectory with bare repos", () => {
 
       expect(projA.id).not.toBe(projB.id)
 
-      const cacheA = path.join(bareA, "opencode")
-      const cacheB = path.join(bareB, "opencode")
-      const wrongCache = path.join(parentDir, ".git", "opencode")
 
-      expect(await Bun.file(cacheA).exists()).toBe(true)
-      expect(await Bun.file(cacheB).exists()).toBe(true)
-      expect(await Bun.file(wrongCache).exists()).toBe(false)
+      // 路径哈希方案不再写 .git/opencode 缓存文件
     } finally {
       await $`rm -rf ${bareA} ${bareB} ${worktreeA} ${worktreeB}`.quiet().nothrow()
     }
@@ -593,9 +577,6 @@ describe("Project.fromDirectory with bare repos", () => {
 
       expect(project.id).not.toBe(ProjectID.global)
       expect(project.worktree).toBe(barePath)
-
-      const correctCache = path.join(barePath, "opencode")
-      expect(await Bun.file(correctCache).exists()).toBe(true)
     } finally {
       await $`rm -rf ${barePath} ${worktreePath}`.quiet().nothrow()
     }
