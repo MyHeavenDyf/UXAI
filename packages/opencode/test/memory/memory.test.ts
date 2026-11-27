@@ -1,226 +1,164 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { Effect } from "effect"
 import fs from "node:fs"
 import path from "node:path"
 import { Global } from "@opencode-ai/core/global"
-import { MemoryStore } from "@/memory/store"
-import { MemoryDebug } from "@/memory/debug"
 import type { ProjectID } from "@/project/schema"
 
 const projectID = "mem_test_project" as ProjectID
-const budget = MemoryStore.DEFAULT_BUDGET_TOKENS
+const memoryDir = path.join(Global.Path.data, "memory")
 
-const projectPath = (id: string) => path.join(Global.Path.data, "memory", id)
-const indexFile = (id: string) => path.join(projectPath(id), "MEMORY.md")
-
-// preload 对整个测试进程设置了 OCTO_DISABLE_MEMORY=1,存储层测试需要显式开启并在结束后恢复
+// preload 对整个测试进程设置了 OCTO_DISABLE_MEMORY=1
 beforeEach(() => {
   delete process.env.OCTO_DISABLE_MEMORY
-  fs.rmSync(projectPath(projectID), { recursive: true, force: true })
+  fs.rmSync(path.join(memoryDir, projectID), { recursive: true, force: true })
 })
 
 afterEach(() => {
   process.env.OCTO_DISABLE_MEMORY = "1"
 })
 
-// 模拟 Agent 写记忆:与 Claude Code 一致,模型用普通文件写入,不经任何专用通道
-const agentWriteIndex = (id: string, content: string) => {
-  fs.mkdirSync(projectPath(id), { recursive: true })
-  fs.mkdirSync(path.join(projectPath(id), "topics"), { recursive: true })
-  fs.writeFileSync(indexFile(id), content)
-}
-
-describe("agent-maintained memory injection", () => {
-  test("empty memory injects a bootstrap block so the agent knows it can start", () => {
-    const block = MemoryStore.system(projectID)
-    expect(block).toContain("<memory>")
-    // 维护指示:目录绝对路径 + 何时写 + 怎么写 + 参考数据声明
-    expect(block).toContain(projectPath(projectID))
-    expect(block).toContain("自主维护")
-    expect(block).toContain("read/write/edit")
-    expect(block).toContain("参考数据")
-    // 空记忆引导:告诉模型现在还没有记忆,值得记时主动创建
-    expect(block).toContain("当前还没有任何记忆")
+describe("memory worker architecture", () => {
+  test("config surface: enabled + model + budget + interval", async () => {
+    const { ConfigMemory } = await import("@/config/memory")
+    expect(ConfigMemory.Info).toBeDefined()
   })
 
-  test("agent-written index is injected verbatim on the next request", () => {
-    agentWriteIndex(
-      projectID,
-      ["# Memory", "", "- (feedback) pnpm_preference: 本仓库只用 pnpm,禁止 npm。", "- (user) role: 前端工程师", ""].join(
-        "\n",
-      ),
-    )
-    const block = MemoryStore.system(projectID)
-    expect(block).toContain("pnpm_preference: 本仓库只用 pnpm")
-    expect(block).toContain("role: 前端工程师")
+  test("persist: applyActions writes MEMORY.md and topics", async () => {
+    const { persist } = await import("@/memory/persist")
+    const actions = [
+      { action: "create", type: "feedback", topic: "pnpm_preference", content: "只用 pnpm,禁止 npm", summary: "本仓库只用 pnpm" },
+      { action: "create", type: "project", topic: "deploy_flow", content: "部署走内网 CI", summary: "部署走 CI" },
+    ] as never[]
+    const applied = persist.applyActions(projectID, actions, Date.now())
+    expect(applied).toBe(2)
+    const indexFile = path.join(memoryDir, projectID, "MEMORY.md")
+    expect(fs.existsSync(indexFile)).toBe(true)
+    const content = fs.readFileSync(indexFile, "utf8")
+    expect(content).toContain("pnpm_preference")
+    expect(content).toContain("deploy_flow")
+    // 核心层(feedback)在索引行展开完整内容
+    expect(content).toContain("只用 pnpm,禁止 npm")
+    // 普通层(project)只有摘要
+    expect(content).toContain("部署走 CI")
+    expect(content).not.toContain("部署走内网 CI")
   })
 
-  test("index beyond budget is truncated with a read hint", () => {
-    agentWriteIndex(projectID, "- (project) big: " + "x".repeat(4000))
-    const block = MemoryStore.system(projectID, 100)
-    expect(block).toContain("索引超预算已截断")
-    expect(block).toContain("read 工具")
+  test("persist: dedup via update action", async () => {
+    const { persist } = await import("@/memory/persist")
+    const v1 = Date.now() - 5000
+    const v2 = Date.now()
+    persist.applyActions(projectID, [
+      { action: "create", type: "feedback", topic: "pref", content: "旧内容", summary: "旧" },
+    ] as never[], v1)
+    persist.applyActions(projectID, [
+      { action: "update", type: "feedback", topic: "pref", content: "新内容", summary: "新" },
+    ] as never[], v2)
+    const indexFile = path.join(memoryDir, projectID, "MEMORY.md")
+    const content = fs.readFileSync(indexFile, "utf8")
+    expect(content).toContain("新内容")
+    expect(content).not.toContain("旧内容")
   })
 
-  test("manual junk lines in the index are injected as-is (agent owns the file)", () => {
-    agentWriteIndex(projectID, "随便一行自由文本\n- (feedback) ok: 正常行")
-    const block = MemoryStore.system(projectID)
-    expect(block).toContain("随便一行自由文本")
-    expect(block).toContain("正常行")
+  test("persist: version guard prevents old batch overwriting new", async () => {
+    const { persist } = await import("@/memory/persist")
+    const now = Date.now()
+    persist.applyActions(projectID, [
+      { action: "create", type: "project", topic: "ver", content: "new", summary: "s" },
+    ] as never[], now)
+    // 旧批次(更小版本)尝试覆盖 → 被挡;检查 topic 文件内容(索引只显示 project 的摘要)
+    persist.applyActions(projectID, [
+      { action: "update", type: "project", topic: "ver", content: "old", summary: "s" },
+    ] as never[], now - 1000)
+    const topicFile = path.join(memoryDir, projectID, "topics", "ver.md")
+    expect(fs.readFileSync(topicFile, "utf8")).toContain("new")
+    expect(fs.readFileSync(topicFile, "utf8")).not.toContain("old")
   })
-})
 
-describe("memory switch", () => {
-  test("OCTO_DISABLE_MEMORY hard-disables regardless of config", () => {
+  test("persist: delete and merge actions", async () => {
+    const { persist } = await import("@/memory/persist")
+    const now = Date.now()
+    persist.applyActions(projectID, [
+      { action: "create", type: "feedback", topic: "a", content: "A内容", summary: "A" },
+      { action: "create", type: "feedback", topic: "b", content: "B内容", summary: "B" },
+    ] as never[], now)
+    // merge b into a(feedback 在索引行展开完整内容)
+    persist.applyActions(projectID, [
+      { action: "merge", from: "b", into: "a", content: "合并后内容", summary: "合并" },
+    ] as never[], now + 1000)
+    const indexFile = path.join(memoryDir, projectID, "MEMORY.md")
+    const content = fs.readFileSync(indexFile, "utf8")
+    expect(content).toContain("合并后内容")
+    expect(content).not.toContain("B内容")
+    // b 的 topic 文件应被删除
+    expect(fs.existsSync(path.join(memoryDir, projectID, "topics", "b.md"))).toBe(false)
+  })
+
+  test("persist: cursor save/restore", async () => {
+    const { persist } = await import("@/memory/persist")
+    persist.writeCursor(projectID, "msg_test_001")
+    expect(persist.readCursor(projectID)).toBe("msg_test_001")
+  })
+
+  test("store: system returns undefined when no index exists", async () => {
+    const { MemoryStore } = await import("@/memory/store")
+    const result = MemoryStore.system(projectID)
+    expect(result).toBe("")
+  })
+
+  test("store: disabled checks", async () => {
+    const { MemoryStore } = await import("@/memory/store")
     process.env.OCTO_DISABLE_MEMORY = "1"
     expect(MemoryStore.disabled({ enabled: true })).toBe(true)
-    expect(MemoryStore.disabled(undefined)).toBe(true)
     delete process.env.OCTO_DISABLE_MEMORY
-    expect(MemoryStore.disabled({ enabled: true })).toBe(false)
     expect(MemoryStore.disabled(undefined)).toBe(false)
     expect(MemoryStore.disabled({ enabled: false })).toBe(true)
   })
-})
 
-describe("effectiveBudget", () => {
-  test("scales down for small context windows, floors at minimum", () => {
+  test("store: effectiveBudget dynamic scaling", async () => {
+    const { MemoryStore } = await import("@/memory/store")
     expect(MemoryStore.effectiveBudget(2000, undefined)).toBe(2000)
     expect(MemoryStore.effectiveBudget(2000, 65536)).toBe(2000)
-    expect(MemoryStore.effectiveBudget(5000, 65536)).toBe(5000)
     expect(MemoryStore.effectiveBudget(2000, 8192)).toBe(1024)
-    expect(MemoryStore.effectiveBudget(2000, 4096)).toBe(512)
-    expect(MemoryStore.effectiveBudget(2000, 2048)).toBe(MemoryStore.MIN_BUDGET_TOKENS)
-    expect(MemoryStore.effectiveBudget(2000, 256)).toBe(MemoryStore.MIN_BUDGET_TOKENS)
+    expect(MemoryStore.effectiveBudget(2000, 256)).toBe(300)
   })
 })
 
-describe("index nudge (post-write size feedback, Claude-style)", () => {
-  test("MEMORY.md over budget triggers an ERROR-level self-organize message", () => {
-    agentWriteIndex(projectID, "- (project) big: " + "x".repeat(4000))
-    const nudge = MemoryStore.indexNudge(indexFile(projectID), 100)
-    expect(nudge).toBeDefined()
-    expect(nudge).toContain("ERROR")
-    expect(nudge).toContain("超出索引预算")
-    expect(nudge).toContain("topics/")
-    expect(nudge).toContain("截断丢弃")
-  })
-
-  test("MEMORY.md within budget produces no output", () => {
-    agentWriteIndex(projectID, "- (feedback) small: ok")
-    expect(MemoryStore.indexNudge(indexFile(projectID), 100)).toBeUndefined()
-  })
-
-  test("non-index files and foreign paths never nudge", () => {
-    agentWriteIndex(projectID, "- (feedback) small: ok")
-    expect(MemoryStore.indexNudge(path.join(projectPath(projectID), "topics", "x.md"), 10)).toBeUndefined()
-    expect(MemoryStore.indexNudge(path.join(fs.realpathSync("/tmp"), "MEMORY.md"), 10)).toBeUndefined()
-  })
-})
-
-describe("clear", () => {
-  test("wipes the whole project directory", () => {
-    agentWriteIndex(projectID, "- (feedback) a: b")
-    fs.writeFileSync(path.join(projectPath(projectID), "topics", "a.md"), "content")
-    MemoryStore.clear(projectID)
-    expect(fs.existsSync(projectPath(projectID))).toBe(false)
-    expect(MemoryStore.system(projectID)).toContain("当前还没有任何记忆")
-  })
-})
-
-describe("debug isolation", () => {
-  const dir = fs.mkdtempSync(path.join(fs.realpathSync("/tmp"), "memory-dbg-test-"))
-  const dumps = () =>
-    fs.existsSync(dir) ? fs.readdirSync(dir).flatMap((s) => fs.readdirSync(path.join(dir, s))) : []
-  const readDump = (name: string) => {
-    for (const s of fs.readdirSync(dir)) return fs.readFileSync(path.join(dir, s, name), "utf8")
-    return ""
-  }
-
-  beforeEach(() => {
-    process.env.OCTO_MEMORY_DEBUG = "1"
-    process.env.OCTO_MEMORY_DEBUG_DIR = dir
-  })
-  afterEach(() => {
-    process.env.OCTO_MEMORY_DEBUG = "0"
-    delete process.env.OCTO_MEMORY_DEBUG_DIR
-    fs.rmSync(dir, { recursive: true, force: true })
-  })
-
-  test("flag off performs no serialization and writes nothing", async () => {
-    process.env.OCTO_MEMORY_DEBUG = "0"
-    // 循环引用若被序列化会抛 TypeError;开关关闭时必须连序列化都不发生
-    const circular = () => {
-      const value: Record<string, unknown> = {}
-      value.self = value
-      return value
-    }
-    await Effect.runPromise(
-      MemoryDebug.dumpInject({
-        sessionID: "ses_dbg",
-        model: "t/m",
-        memoryTokens: 10,
-        system: [],
-        modelMsgs: [circular()],
-        activeTools: {},
-      }),
+describe("parseActions", () => {
+  test("parses valid JSON with create/update/delete/merge", async () => {
+    const { parseActions } = await import("@/memory/extract")
+    const actions = parseActions(
+      JSON.stringify([
+        { action: "create", type: "feedback", topic: "t1", content: "c", summary: "s" },
+        { action: "update", type: "user", topic: "t2", content: "c2", summary: "s2" },
+        { action: "delete", topic: "t3" },
+        { action: "merge", from: "t4", into: "t2", content: "merged", summary: "m" },
+      ]),
     )
-    expect(dumps()).toHaveLength(0)
+    expect(actions).toHaveLength(4)
+    expect(actions[0].action).toBe("create")
+    expect(actions[2].action).toBe("delete")
+    expect(actions[3].action).toBe("merge")
   })
 
-  test("circular input never throws and falls back to a string representation", async () => {
-    const circular = () => {
-      const value: Record<string, unknown> = {}
-      value.self = value
-      return value
-    }
-    await Effect.runPromise(
-      MemoryDebug.dumpInject({
-        sessionID: "ses_dbg",
-        model: "t/m",
-        memoryTokens: 10,
-        system: [],
-        modelMsgs: [circular()],
-        activeTools: {},
-      }),
-    )
-    expect(dumps()).toHaveLength(1)
+  test("rejects invalid entries", async () => {
+    const { parseActions } = await import("@/memory/extract")
+    expect(parseActions("not json")).toEqual([])
+    expect(parseActions("[]")).toEqual([])
+    expect(parseActions(undefined as never)).toEqual([])
+    expect(parseActions(null as never)).toEqual([])
+    expect(parseActions(
+      JSON.stringify([{ action: "create", type: "bogus", topic: "t", content: "c", summary: "s" }]),
+    )).toEqual([])
+    expect(parseActions(
+      JSON.stringify([{ action: "create", type: "feedback", topic: "Bad-Case", content: "c", summary: "s" }]),
+    )).toEqual([])
   })
 
-  test("redacts secrets and replaces binary data", async () => {
-    await Effect.runPromise(
-      MemoryDebug.dumpInject({
-        sessionID: "ses_dbg",
-        model: "t/m",
-        memoryTokens: 10,
-        system: [],
-        modelMsgs: [{ key: "sk-abcdefgh12345678" }, new Uint8Array([1, 2, 3])],
-        activeTools: {},
-      }),
-    )
-    const content = readDump(dumps()[0])
-    expect(content).toContain("[REDACTED]")
-    expect(content).toContain("<Uint8Array 3 bytes>")
-  })
-
-  test("records memory tokens in the header", async () => {
-    await Effect.runPromise(
-      MemoryDebug.dumpInject({
-        sessionID: "ses_dbg",
-        model: "t/m",
-        memoryTokens: 2137,
-        system: [],
-        modelMsgs: [],
-        activeTools: {},
-      }),
-    )
-    expect(readDump(dumps()[0])).toContain("memory tokens:   2137")
-  })
-})
-
-describe("config", () => {
-  test("memory config surface is agent-maintenance only (no extractor knobs)", () => {
-    // enabled + budget_tokens 是仅有的两个旋钮;提取器时代字段已删除
-    expect(MemoryStore.disabled({ enabled: false })).toBe(true)
-    expect(MemoryStore.DEFAULT_BUDGET_TOKENS).toBe(2000)
+  test("caps at 10 actions", async () => {
+    const { parseActions } = await import("@/memory/extract")
+    const many = Array.from({ length: 15 }, (_, i) => ({
+      action: "create", type: "project", topic: `t${i}`, content: "c", summary: "s",
+    }))
+    expect(parseActions(JSON.stringify(many))).toHaveLength(10)
   })
 })

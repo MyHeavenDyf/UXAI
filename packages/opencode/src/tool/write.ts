@@ -11,8 +11,6 @@ import { FileWatcher } from "../file/watcher"
 import { Format } from "../format"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { InstanceState } from "@/effect/instance-state"
-import { Config } from "@/config/config"
-import { MemoryStore } from "@/memory/store"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { assertNotProtectedPath } from "./protected-path"
@@ -34,7 +32,6 @@ export const WriteTool = Tool.define(
     const fs = yield* AppFileSystem.Service
     const bus = yield* Bus.Service
     const format = yield* Format.Service
-    const config = yield* Config.Service
 
     return {
       description: DESCRIPTION,
@@ -47,7 +44,7 @@ export const WriteTool = Tool.define(
             : path.join(instance.directory, params.filePath)
           yield* assertNotProtectedPath(filepath)
           // 记忆目录是 Agent 自主维护的系统路径,不弹外部目录授权(与 Claude Code 一致)
-          if (!MemoryStore.isMemoryPath(filepath)) yield* assertExternalDirectoryEffect(ctx, filepath)
+          yield* assertExternalDirectoryEffect(ctx, filepath)
 
           const exists = yield* fs.existsSafe(filepath)
           const source = exists ? yield* Bom.readFile(fs, filepath) : { bom: false, text: "" }
@@ -57,18 +54,15 @@ export const WriteTool = Tool.define(
           const contentNew = next.text
 
           const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
-          // 记忆目录写入不弹编辑授权:Agent 维护自己的记忆是正常工作流,逐次审批
-          // 会把"自主记忆"退化成"每次都要用户确认要不要记住"——与 Claude Code 不符
-          if (!MemoryStore.isMemoryPath(filepath))
-            yield* ctx.ask({
-              permission: "edit",
-              patterns: [path.relative(instance.worktree, filepath)],
-              always: ["*"],
-              metadata: {
-                filepath,
-                diff,
-              },
-            })
+          yield* ctx.ask({
+            permission: "edit",
+            patterns: [path.relative(instance.worktree, filepath)],
+            always: ["*"],
+            metadata: {
+              filepath,
+              diff,
+            },
+          })
 
           yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
           if (yield* format.file(filepath)) {
@@ -81,9 +75,6 @@ export const WriteTool = Tool.define(
           })
 
           let output = "Wrote file successfully."
-          // 记忆索引写后提醒:MEMORY.md 超预算时驱动模型自我精简(与 Claude Code 一致)
-          const memoryNudge = MemoryStore.indexNudge(filepath, (yield* config.get()).memory?.budget_tokens)
-          if (memoryNudge) output += `\n\n${memoryNudge}`
           yield* lsp.touchFile(filepath, "document")
           const diagnostics = yield* lsp.diagnostics()
           const normalizedFilepath = AppFileSystem.normalizePath(filepath)

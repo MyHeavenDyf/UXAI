@@ -14,8 +14,6 @@ import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
 import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
-import { Config } from "@/config/config"
-import { MemoryStore } from "@/memory/store"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { assertNotProtectedPath } from "./protected-path"
@@ -65,7 +63,6 @@ export const EditTool = Tool.define(
     const afs = yield* AppFileSystem.Service
     const format = yield* Format.Service
     const bus = yield* Bus.Service
-    const config = yield* Config.Service
 
     return {
       description: DESCRIPTION,
@@ -86,7 +83,7 @@ export const EditTool = Tool.define(
             : path.join(instance.directory, params.filePath)
           yield* assertNotProtectedPath(filePath)
           // 记忆目录是 Agent 自主维护的系统路径,不弹外部目录授权(与 Claude Code 一致)
-          if (!MemoryStore.isMemoryPath(filePath)) yield* assertExternalDirectoryEffect(ctx, filePath)
+          yield* assertExternalDirectoryEffect(ctx, filePath)
 
           let diff = ""
           let contentOld = ""
@@ -101,9 +98,7 @@ export const EditTool = Tool.define(
                 contentOld = source.text
                 contentNew = next.text
                 diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-                // 记忆目录写入不弹编辑授权(与 write 工具一致)
-                if (!MemoryStore.isMemoryPath(filePath))
-                  yield* ctx.ask({
+                yield* ctx.ask({
                     permission: "edit",
                     patterns: [path.relative(instance.worktree, filePath)],
                     always: ["*"],
@@ -146,9 +141,7 @@ export const EditTool = Tool.define(
                   normalizeLineEndings(contentNew),
                 ),
               )
-              // 记忆目录写入不弹编辑授权(与 write 工具一致)
-              if (!MemoryStore.isMemoryPath(filePath))
-                yield* ctx.ask({
+              yield* ctx.ask({
                   permission: "edit",
                   patterns: [path.relative(instance.worktree, filePath)],
                   always: ["*"],
@@ -200,9 +193,6 @@ export const EditTool = Tool.define(
           })
 
           let output = "Edit applied successfully."
-          // 记忆索引写后提醒:MEMORY.md 超预算时驱动模型自我精简(与 Claude Code 一致)
-          const memoryNudge = MemoryStore.indexNudge(filePath, (yield* config.get()).memory?.budget_tokens)
-          if (memoryNudge) output += `\n\n${memoryNudge}`
           yield* lsp.touchFile(filePath, "document")
           const diagnostics = yield* lsp.diagnostics()
           const normalizedFilePath = AppFileSystem.normalizePath(filePath)
