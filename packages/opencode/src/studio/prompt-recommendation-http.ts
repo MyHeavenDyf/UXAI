@@ -10,6 +10,7 @@ import {
 import { acquireBudget, createPreparation, MAX_BODY, readRecommendationBody } from "./prompt-recommendation-budget"
 import { RecommendationError, safeError } from "./prompt-recommendation-schema"
 import type { ExpansionServices } from "./prompt-expansion"
+import { studioRequestTiming } from "@/server/studio-request-timing"
 
 // Both HTTP stacks use this adapter before their automatic JSON decoders.
 export async function recommendationRequest(
@@ -17,7 +18,9 @@ export async function recommendationRequest(
   action: "initialize" | "submit" | "state" | "cancel" | "dismiss",
   target?: { sessionID: string; assistantMessageID?: string; guidePartID?: string },
   services?: ExpansionServices,
+  timing = studioRequestTiming(request),
 ) {
+  timing?.mark("recommendation_handler")
   const startedAt = Date.now()
   const context: Record<string, string | number | boolean | undefined> = {
     action,
@@ -61,8 +64,13 @@ export async function recommendationRequest(
         void reader.cancel().catch(() => {})
       })
       Object.assign(context, recommendationLogIDs(value), { stage: action })
+      timing?.mark("body_read")
       preparation.check()
-      if (action === "initialize") return Response.json(await initializeRecommendation(value, preparation))
+      if (action === "initialize") {
+        const response = Response.json(await initializeRecommendation(value, preparation, timing))
+        timing?.mark("json_encoded")
+        return response
+      }
       configureModelsApiHeaders(Object.fromEntries(request.headers.entries()))
       return Response.json(await submitExpansion(value, services, preparation), { status: 202 })
     } catch (error) {

@@ -15,8 +15,21 @@ import * as ServerBackend from "./backend"
 import { isAllowedCorsOrigin, type CorsOptions } from "./cors"
 import { isPtyConnectPath, PTY_CONNECT_TICKET_QUERY } from "./shared/pty-ticket"
 import { isPublicUIPath } from "./shared/public-ui"
+import { startStudioRequestTiming } from "./studio-request-timing"
 
 const log = Log.create({ service: "server" })
+
+export const StudioTimingMiddleware: MiddlewareHandler = async (c, next) => {
+  const timing = startStudioRequestTiming(c.req.raw, c.req.method, c.req.url)
+  try {
+    await next()
+    if (!timing) return
+    timing.mark("response_ready")
+    Object.entries(timing.headers()).forEach(([name, value]) => c.header(name, value))
+  } finally {
+    timing?.finish(c.error ? 500 : c.res.status)
+  }
+}
 
 export const ErrorMiddleware: ErrorHandler = (err, c) => {
   log.error("failed", {

@@ -11,7 +11,7 @@ import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { OpenApi } from "effect/unstable/httpapi"
 import * as HttpApiServer from "#httpapi-server"
 import { MDNS } from "./mdns"
-import { AuthMiddleware, CompressionMiddleware, CorsMiddleware, ErrorMiddleware, LoggerMiddleware } from "./middleware"
+import { AuthMiddleware, CompressionMiddleware, CorsMiddleware, ErrorMiddleware, LoggerMiddleware, StudioTimingMiddleware } from "./middleware"
 import { FenceMiddleware } from "./fence"
 import { initProjectors } from "./projectors"
 import { InstanceRoutes } from "./routes/instance"
@@ -109,6 +109,7 @@ function createHono(opts: CorsOptions, selection: ServerBackend.Selection = Serv
   const backendAttributes = ServerBackend.attributes(selection)
   const app = new Hono()
     .onError(ErrorMiddleware)
+    .use(StudioTimingMiddleware)
     .use(CorsMiddleware(opts))
     .use(LoggerMiddleware(backendAttributes))
     .use(AuthMiddleware)

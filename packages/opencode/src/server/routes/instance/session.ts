@@ -31,6 +31,7 @@ import { zod, zodObject } from "@/util/effect-zod"
 import { Bus } from "@/bus"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { jsonRequest, runRequest } from "./trace"
+import { studioRequestTiming } from "@/server/studio-request-timing"
 
 const log = Log.create({ service: "server" })
 
@@ -857,6 +858,8 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const query = c.req.valid("query")
         const sessionID = c.req.valid("param").sessionID
+        const timing = studioRequestTiming(c.req.raw)
+        timing?.mark("messages_handler")
         if (query.limit === undefined || query.limit === 0) {
           const messages = await runRequest(
             "SessionRoutes.messages",
@@ -864,9 +867,11 @@ export const SessionRoutes = lazy(() =>
             Effect.gen(function* () {
               const session = yield* Session.Service
               yield* session.get(sessionID)
+              timing?.mark("session_checked")
               return yield* session.messages({ sessionID })
             }),
           )
+          timing?.mark("messages_read")
           return c.json(messages)
         }
 
@@ -875,6 +880,7 @@ export const SessionRoutes = lazy(() =>
           limit: query.limit,
           before: query.before,
         })
+        timing?.mark("messages_read")
         if (page.cursor) {
           const url = new URL(c.req.url)
           url.searchParams.set("limit", query.limit.toString())

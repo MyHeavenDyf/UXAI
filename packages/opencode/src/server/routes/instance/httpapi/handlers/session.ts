@@ -54,6 +54,7 @@ import {
 } from "../groups/session"
 import * as SessionError from "./session-errors"
 import { ApiBadRequestError, notFound } from "../errors"
+import { studioRequestTiming } from "@/server/studio-request-timing"
 
 const log = Log.create({ service: "session-httpapi" })
 
@@ -181,6 +182,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       query: typeof MessagesQuery.Type
     }) {
+      const request = yield* HttpServerRequest.HttpServerRequest
+      const timing = studioRequestTiming(request.source)
+      timing?.mark("messages_handler")
       if (ctx.query.before && ctx.query.limit === undefined) return yield* new HttpApiError.BadRequest({})
       if (ctx.query.before) {
         const before = ctx.query.before
@@ -190,8 +194,11 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         })
       }
       yield* SessionError.mapStorageNotFound(session.get(ctx.params.sessionID))
+      timing?.mark("session_checked")
       if (ctx.query.limit === undefined || ctx.query.limit === 0) {
-        return yield* session.messages({ sessionID: ctx.params.sessionID })
+        const items = yield* session.messages({ sessionID: ctx.params.sessionID })
+        timing?.mark("messages_read")
+        return items
       }
 
       const page = MessageV2.page({
@@ -199,9 +206,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         limit: ctx.query.limit,
         before: ctx.query.before,
       })
+      timing?.mark("messages_read")
       if (!page.cursor) return page.items
 
-      const request = yield* HttpServerRequest.HttpServerRequest
       // toURL() honors the Host + x-forwarded-proto headers, so the Link
       // header echoes the real origin instead of a hard-coded localhost.
       const url = Option.getOrElse(HttpServerRequest.toURL(request), () => new URL(request.url, "http://localhost"))

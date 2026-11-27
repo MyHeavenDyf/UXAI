@@ -2,7 +2,8 @@ import { WorkspaceRef } from "@/effect/instance-ref"
 import { InstanceStore } from "@/project/instance-store"
 import * as Log from "@opencode-ai/core/util/log"
 import { Effect, Layer } from "effect"
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { studioRequestTiming } from "@/server/studio-request-timing"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import { WorkspaceRouteContext } from "./workspace-routing"
 
@@ -29,18 +30,24 @@ function decode(input: string): string {
 function provideInstanceContext<E>(
   effect: Effect.Effect<HttpServerResponse.HttpServerResponse, E>,
   store: InstanceStore.Interface,
-): Effect.Effect<HttpServerResponse.HttpServerResponse, E, WorkspaceRouteContext> {
+): Effect.Effect<HttpServerResponse.HttpServerResponse, E, WorkspaceRouteContext | HttpServerRequest.HttpServerRequest> {
   return Effect.gen(function* () {
     const route = yield* WorkspaceRouteContext
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const timing = studioRequestTiming(request.source)
     const directory = decode(route.directory)
     log.info("provideInstanceContext", {
       rawDirectory: route.directory,
       decodedDirectory: directory,
       workspaceID: route.workspaceID,
     })
+    timing?.mark("instance_loading")
     return yield* store.provide(
       { directory },
-      effect.pipe(Effect.provideService(WorkspaceRef, route.workspaceID)),
+      Effect.gen(function* () {
+        timing?.mark("instance_ready")
+        return yield* effect
+      }).pipe(Effect.provideService(WorkspaceRef, route.workspaceID)),
     )
   })
 }

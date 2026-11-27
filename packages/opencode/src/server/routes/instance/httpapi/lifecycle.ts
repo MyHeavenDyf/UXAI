@@ -1,8 +1,9 @@
 import { EffectBridge } from "@/effect/bridge"
 import type { InstanceContext } from "@/project/instance"
 import { InstanceStore } from "@/project/instance-store"
-import { Effect } from "effect"
-import { HttpEffect, HttpMiddleware, HttpServerRequest } from "effect/unstable/http"
+import { Effect, Exit } from "effect"
+import { HttpEffect, HttpMiddleware, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { startStudioRequestTiming } from "@/server/studio-request-timing"
 
 type MarkedInstance = {
   ctx: InstanceContext
@@ -42,8 +43,21 @@ export const markInstanceForReload = (ctx: InstanceContext, next: InstanceStore.
 
 export const disposeMiddleware: HttpMiddleware.HttpMiddleware = (effect) =>
   Effect.gen(function* () {
-    const response = yield* effect
     const request = yield* HttpServerRequest.HttpServerRequest
+    const timing = startStudioRequestTiming(request.source, request.method, request.url)
+    if (timing) {
+      // Outer server middleware resumes after the native response is sent.
+      // Attach headers in the pre-response hook, before that send happens.
+      yield* HttpEffect.appendPreResponseHandler((_request, response) => Effect.sync(() => {
+        timing.mark("response_ready")
+        const timed = HttpServerResponse.setHeaders(response, timing.headers())
+        timing.finish(response.status)
+        return timed
+      }))
+    }
+    const response = yield* effect.pipe(
+      Effect.onExit((exit) => Effect.sync(() => timing?.finish(Exit.isSuccess(exit) ? exit.value.status : 500))),
+    )
     const marked = disposeAfterResponse.get(request.source)
     if (!marked) return response
     disposeAfterResponse.delete(request.source)

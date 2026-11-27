@@ -22,6 +22,7 @@ import { assertNoGeneration, studioSubmissionState } from "./prompt-recommendati
 import { acquireBudget, createPreparation, type PreparationBudget } from "./prompt-recommendation-budget"
 import { expandPrompt, selectExpansionModel, type ExpansionServices } from "./prompt-expansion"
 import { createExpansionPreview, closeExpansionPreview } from "./prompt-expansion-preview"
+import type { StudioRequestTiming } from "@/server/studio-request-timing"
 import {
   GUIDE_TEXT,
   guideSchema,
@@ -275,7 +276,11 @@ export async function getRecommendationState(sessionID: string, guidePartID?: st
   return snapshot(sessionID, guidePartID, latest ?? null)
 }
 
-export async function initializeRecommendation(value: unknown, preparationBudget?: PreparationBudget) {
+export async function initializeRecommendation(
+  value: unknown,
+  preparationBudget?: PreparationBudget,
+  timing?: StudioRequestTiming,
+) {
   const budget = preparationBudget ?? createPreparation()
   try {
     budget.check()
@@ -289,10 +294,13 @@ export async function initializeRecommendation(value: unknown, preparationBudget
     const input = parsed.data
     const stableID = PartID.make(`prt_${digest([scope(), input.requestID])}`)
     if (input.sessionID) await getRecommendationState(input.sessionID)
+    timing?.mark("input_checked")
     const submissions = await studioSubmissionState()
+    timing?.mark("submission_state_ready")
     budget.check()
-    return Database.transaction(
+    const result = Database.transaction(
       () => {
+        timing?.mark("transaction_entered")
         const existing = part(stableID)
         if (existing) {
           session(existing.sessionID)
@@ -335,6 +343,7 @@ export async function initializeRecommendation(value: unknown, preparationBudget
           })
           insertCategory(id, "octo_studio")
         }
+        timing?.mark("session_written")
         const empty = !Database.use((db) =>
           db.select({ id: MessageTable.id }).from(MessageTable).where(eq(MessageTable.session_id, id)).get(),
         )
@@ -346,6 +355,7 @@ export async function initializeRecommendation(value: unknown, preparationBudget
           if (!count) SyncEvent.run(Session.Event.Updated, { sessionID: id, info: { title: "丰富提示词" } })
         }
         const pair = messages(id, input.showGuide === false ? "" : "点击AI推荐", true)
+        timing?.mark("messages_written")
         writePart({
           id: stableID,
           sessionID: id,
@@ -364,10 +374,16 @@ export async function initializeRecommendation(value: unknown, preparationBudget
             } satisfies Guide,
           },
         })
-        return accepted(id, stableID)
+        timing?.mark("guide_written")
+        const result = accepted(id, stableID)
+        timing?.mark("snapshot_ready")
+        return result
       },
       { behavior: "immediate" },
     )
+    // Includes COMMIT and the deferred SyncEvent publication callbacks.
+    timing?.mark("transaction_finished")
+    return result
   } catch (error) {
     budget.check()
     throw error
