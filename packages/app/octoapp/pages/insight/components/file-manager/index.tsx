@@ -3,7 +3,7 @@
 //   面包屑 + 文件夹导航 + 批量下载/删除 + 上传(文件夹/文件) + 5 项行操作菜单。
 // §10.2:单击文件行直接 openTab(不再开右侧预览面板第四栏——那一栏及其自带的一套渲染分支已删),
 //   打开后的渲染分流由 extToOutputType 这一唯一入口决定,与对话产物卡片同源。
-// 数据源走 .octo/<sessionId>/{uploads,outputs}/(uploads 支持子文件夹导航);delete/archive
+// 数据源走 .octo/<sessionId>/{uploads,outputs}/，两类都支持子文件夹导航。delete/archive
 // 复用 artifact 分组同款端点(按绝对 path),upload/upload-folder 走 insight 专属端点。
 // insight 自包含:不 import make 目录下的组件;图标用 design-files-icons(拷贝自 make)。
 // 颜色/圆角统一走 --octo-* 主题变量。
@@ -184,7 +184,7 @@ function FileManagerInner(props: {
 
   // 切会话 / 切路径 → 重置并刷新。sessionId 变化时清掉路径/筛选/两段文件,避免残留。
   createEffect(on(
-    [() => props.sessionId, () => store().currentPath],
+    [() => props.sessionId, () => store().currentPath, () => store().currentCategory],
     ([sid, path], prev) => {
       if (prev && prev[0] !== sid) {
         // 切会话:清筛选/两段文件;若之前不在顶层,重置 currentPath 会再次触发本 effect(path 依赖),
@@ -193,35 +193,39 @@ function FileManagerInner(props: {
         batch(() => {
           fileStore.setCurrentPath("")
           fileStore.clearKindFilter()
-          fileStore.setGeneratedFiles([])
-          fileStore.setUploadedFiles([])
         })
         if (wasInSubFolder) return
       }
+      batch(() => {
+        fileStore.setGeneratedFiles([])
+        fileStore.setUploadedFiles([])
+      })
       void refresh()
     },
   ))
 
+  let refreshVersion = 0
   const refresh = async () => {
+    const version = ++refreshVersion
+    const sessionId = props.sessionId
+    const subPath = store().currentPath
+    const category = store().currentCategory
     fileStore.setLoading(true)
     try {
-      if (fileStore.isTopLevel()) {
-        const [outputs, uploads] = await Promise.all([
-          fetchInsightFiles(sdk.url, sdk.directory, props.sessionId, "outputs"),
-          fetchInsightFiles(sdk.url, sdk.directory, props.sessionId, "uploads"),
-        ])
+      const [outputs, uploads] = await Promise.all([
+        !subPath || category === "outputs" ? fetchInsightFiles(sdk.url, sdk.directory, sessionId, "outputs", { subPath }) : [],
+        !subPath || category === "uploads" ? fetchInsightFiles(sdk.url, sdk.directory, sessionId, "uploads", { subPath }) : [],
+      ])
+      if (version !== refreshVersion) return
+      batch(() => {
         fileStore.setGeneratedFiles(outputs.map(toInsightFile))
         fileStore.setUploadedFiles(uploads.map(toInsightFile))
-      } else {
-        const uploads = await fetchInsightFiles(sdk.url, sdk.directory, props.sessionId, "uploads", { subPath: store().currentPath })
-        fileStore.setUploadedFiles(uploads.map(toInsightFile))
-        fileStore.setGeneratedFiles([])
-      }
-      fileStore.setError(null)
+        fileStore.setError(null)
+      })
     } catch (err) {
-      fileStore.setError(err instanceof Error ? err.message : String(err))
+      if (version === refreshVersion) fileStore.setError(err instanceof Error ? err.message : String(err))
     } finally {
-      fileStore.setLoading(false)
+      if (version === refreshVersion) fileStore.setLoading(false)
     }
   }
 
@@ -230,6 +234,9 @@ function FileManagerInner(props: {
   createEffect(on(() => props.refreshKey, () => { void refresh() }, { defer: true }))
 
   // ── 上传 ────────────────────────────────────────────────────────
+  function uploadPath() {
+    return store().currentCategory === "uploads" ? store().currentPath : ""
+  }
   // 大文件完整性:桌面端走 tryStreamUpload(主进程 fs.copyFile 流式拷贝,与 make design-files-panel 同款),
   // 不把整文件读成 base64 塞进 JSON body。仅在拿不到真实本地路径(剪贴板内存 blob)/ 非桌面端时,
   // 才回退到下面的 base64 over HTTP。
@@ -344,7 +351,7 @@ function FileManagerInner(props: {
       finish("failure", { reason: "validation", rejectedCount: 1, successCount: 0 })
       return
     }
-    const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
+    const currentPath = uploadPath()
     try {
       const streamed = await tryStreamUpload(file, currentPath)
       if (!streamed) {
@@ -384,7 +391,7 @@ function FileManagerInner(props: {
       showToast({ title: "上传失败", description: "无法识别文件夹名", variant: "error" })
       return
     }
-    const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
+    const currentPath = uploadPath()
     const entries = Array.from(files).filter(checkExternalFile).map((file) => ({
       file,
       relativePath: file.webkitRelativePath.slice(folderName.length + 1),
@@ -479,7 +486,7 @@ function FileManagerInner(props: {
     const finish = beginInsightOperation("files-upload", { sessionId: props.sessionId, kind: "folder", method: "drop" })
     const folderName = dirEntry.name
     const entries: { file: File; relativePath: string }[] = []
-    const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
+    const currentPath = uploadPath()
     async function collectFiles(entry: FileSystemEntry) {
       if (entry.isFile) {
         const file = await getFileFromEntry(entry as FileSystemFileEntry)
@@ -815,7 +822,6 @@ function FileManagerInner(props: {
                     onDelete={handleDelete}
                     onArchive={handleArchiveFile}
                     onOpenInExplorer={handleOpenInExplorer}
-                    onNavigateFolder={(f) => fileStore.navigateToFolder(f)}
                   />
                 </div>
               </Show>
@@ -848,7 +854,6 @@ function FileTable(props: {
   onDelete: (file: InsightFile) => void
   onArchive?: (file: InsightFile) => void
   onOpenInExplorer: (file: InsightFile) => void
-  onNavigateFolder: (folder: InsightFile) => void
 }): JSX.Element {
   const store = () => props.fileStore.store
   let selectAllRef!: HTMLInputElement
@@ -887,25 +892,25 @@ function FileTable(props: {
         </tr>
       </thead>
       <tbody>
-        {/* 顶层:生成文件 + 上传文件 两段;非顶层(进文件夹):仅上传文件,不分段 */}
+        {/* 顶层按生成和上传分段，子文件夹只显示当前分类。 */}
         <Show when={props.fileStore.isTopLevel()}>
           <SectionHeaderRow title="生成文件" collapsed={store().collapsedGenerated} onToggle={() => {
             props.fileStore.toggleGeneratedSection()
             trackInsight("files-section-toggle", { section: "generated", action: store().collapsedGenerated ? "close" : "open" })
           }} />
           <Show when={!store().collapsedGenerated}>
-            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} />
+            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={(folder) => props.fileStore.navigateToFolder(folder, "outputs")} />
           </Show>
           <SectionHeaderRow title="上传文件" collapsed={store().collapsedUploaded} onToggle={() => {
             props.fileStore.toggleUploadedSection()
             trackInsight("files-section-toggle", { section: "uploaded", action: store().collapsedUploaded ? "close" : "open" })
           }} />
           <Show when={!store().collapsedUploaded}>
-            <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
+            <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={(folder) => props.fileStore.navigateToFolder(folder, "uploads")} />
           </Show>
         </Show>
         <Show when={!props.fileStore.isTopLevel()}>
-          <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
+          <GroupedRows computed={props.fileStore.currentFiles()} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={(folder) => props.fileStore.navigateToFolder(folder, store().currentCategory)} />
         </Show>
       </tbody>
     </table>

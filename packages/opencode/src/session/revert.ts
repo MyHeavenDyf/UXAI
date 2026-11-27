@@ -47,13 +47,13 @@ export const layer = Layer.effect(
       const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
 
       let rev: Session.Info["revert"]
-      const patches: Snapshot.Patch[] = []
+      const patchParts: Array<{ id: MessageID; part: Snapshot.Patch }> = []
       for (const msg of all) {
         if (msg.info.role === "user") lastUser = msg.info
         const remaining = []
         for (const part of msg.parts) {
           if (rev) {
-            if (part.type === "patch") patches.push(part)
+            if (part.type === "patch") patchParts.push({ id: msg.info.id, part })
             continue
           }
 
@@ -71,6 +71,23 @@ export const layer = Layer.effect(
       }
 
       if (!rev) return session
+
+      // 子任务子会话(task 派发)的文件写入 patch 记在子会话消息里,只收集主会话的
+      // 话回退不会恢复/删除子任务落盘文件(git 项目)。与 cleanup 同口径取
+      // id >= messageID 的子会话 patch,按消息 id 与主会话 patch 时序合并——
+      // snapshot.revert 对同一文件取数组中首次出现的快照,时序排序保证是
+      // 回退点后最早一次写入前的状态(即回退点时的文件内容)。
+      for (const child of yield* sessions.children(input.sessionID)) {
+        const childMsgs = yield* sessions.messages({ sessionID: child.id })
+        for (const msg of childMsgs) {
+          if (msg.info.id < rev.messageID) continue
+          for (const part of msg.parts) {
+            if (part.type === "patch") patchParts.push({ id: msg.info.id, part })
+          }
+        }
+      }
+      patchParts.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      const patches = patchParts.map((item) => item.part)
 
       rev.snapshot = session.revert?.snapshot ?? (yield* snap.track())
       if (session.revert?.snapshot) yield* snap.restore(session.revert.snapshot)
@@ -126,6 +143,22 @@ export const layer = Layer.effect(
           sessionID,
           messageID: msg.info.id,
         })
+      }
+      // 子任务子会话(task 派发)同样按回退点清理:id >= messageID 的消息移除。
+      // 只清主会话的话,回退后发新消息清掉 revert 指针时,被回退轮次派发的
+      // 子会话 turn 会重新出现在前端合并消息流里(幽灵 turn)。
+      for (const child of yield* sessions.children(sessionID)) {
+        const childMsgs = yield* sessions.messages({ sessionID: child.id })
+        const hasEarlier = childMsgs.some((msg) => msg.info.id < messageID)
+        for (const msg of childMsgs) {
+          if (msg.info.id < messageID) continue
+          yield* sync.run(MessageV2.Event.Removed, {
+            sessionID: child.id,
+            messageID: msg.info.id,
+          })
+        }
+        // 整个子会话都落在回退点之后(回退轮次新派发的):会话本身一并删除
+        if (!hasEarlier) yield* sessions.remove(child.id).pipe(Effect.ignore)
       }
       if (session.revert.partID && target) {
         const partID = session.revert.partID

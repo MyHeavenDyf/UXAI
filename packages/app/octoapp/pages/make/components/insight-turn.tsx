@@ -526,6 +526,12 @@ export function InsightTurn(props: {
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
   skillConfig?: import("./skill-config-types").SkillConfig
+  /** 主会话 id:task 子会话 turn 的 autoSave 归属主会话产物目录(.octo/<mainSid>/outputs) */
+  mainSessionID?: string
+  /** 隐藏用户气泡:task 子会话的 user 消息是路由派发的 task prompt,不是用户输入 */
+  hideUserBubble?: boolean
+  /** 主会话下的子任务子会话 id 集合:回退面板的产物清单要预告子任务落盘文件(仅主 turn 使用) */
+  childSessionIDs?: string[]
   canRevert?: boolean
   showRevert?: boolean
   showRegenerate?: boolean
@@ -534,6 +540,8 @@ export function InsightTurn(props: {
   onRevertToMessage?: () => Promise<void> | void
   onRegenerateMessage?: () => Promise<void> | void
   onArtifactSaved?: (filePath: string) => void
+  /** html 类型产物自动落盘成功后回调（自动归档等后台流程的触发点； */
+  onHtmlArtifactSaved?: (card: OutputCard, filePath: string, sessionID: string) => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -547,7 +555,10 @@ export function InsightTurn(props: {
 
   const userText = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
-    
+
+    // 自动压缩续跑注入(overflow 回放 / "Continue..." 提示):非用户输入,不渲染气泡
+    if (isHiddenCompactionTurn(parts)) return ""
+
     // 优先查找带有 metadata.displayText 的 text part（用于 @mention 显示）
     const displayTextPart = parts.find(
       (p) => p.type === "text" && (p as { metadata?: { displayText?: string } }).metadata?.displayText
@@ -644,7 +655,8 @@ export function InsightTurn(props: {
   })
 
   // 手动 /compact 压缩 turn:用户消息带 compaction part(后端手动路径附带 synthetic text part 回显输入)。
-  // 自动压缩消息无 text part,不会进入 userMessages,不会渲染到这里。
+  // 自动压缩的 compaction 消息无 text part,不进入 userMessages;压缩后的续跑注入消息
+  // (compaction_continue/replay,有 text part)会进入,但 userText 判定后不渲染气泡。
   const isCompactionTurn = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
     return parts.some((p) => p.type === "compaction")
@@ -775,7 +787,9 @@ export function InsightTurn(props: {
       : `${Math.floor(secs / 60)} 分 ${secs % 60} 秒`
 
     let agent = lastMsg.agent
-    if (agent === 'octo_ai' || agent === 'octo_make' || agent === 'octo_make_plan') agent = 'Octo_Design'
+    if (agent === 'octo_ai' || agent === 'octo_make' || agent === 'octo_make_plan' || agent === 'octo_design') agent = 'Octo_Design'
+    if (agent === 'octo_code') agent = 'Octo_Code'
+    if (agent === 'plan') agent = 'Octo_Plan'
     const agentLabel = agent ? agent[0]?.toUpperCase() + agent.slice(1) : ""
     const modelLabel = (() => {
       const match = data.store.provider?.all?.find((p) => p.id === lastMsg.providerID)
@@ -1137,6 +1151,15 @@ const stateStatus = state.status as string | undefined
     return hasSeenCount() > 0 ? lastSeenCards() : []
   })
 
+  // 子会话 turn 内联渲染时自带 WaitingPill/流式卡片，本 turn（路由/主会话）再显示
+  // WaitingPill 会出现两块「生成中」指示。msgStore 尚无子会话消息（sync 未完成或
+  // 失败）时保留本 turn 指示，保证任何时刻都有状态反馈。
+  const childTurnActive = createMemo(() =>
+    subtasks().some(
+      (t) => t.status === "running" && t.subSessionID && (msgStore?.[t.subSessionID]?.length ?? 0) > 0,
+    ),
+  )
+
   // ── NEW: produced files ──
   const producedFiles = createMemo(() => {
     const calls = toolCalls()
@@ -1149,7 +1172,7 @@ const stateStatus = state.status as string | undefined
       .filter((f, i, arr) => arr.findIndex((x) => x.path === f.path) === i)
   })
 
-  // 回退面板的产物列表：此消息之后（含后续轮次）write/edit 工具写入的文件 + <artifact> 标签落盘的产物，
+  // 回退面板的产物列表：此消息之后（含后续轮次与子任务子会话）write/edit 工具写入的文件 + <artifact> 标签落盘的产物，
   const revertArtifacts = createMemo((): Array<{ path: string; created: boolean }> => {
     if (!props.onRevertToMessage) return []
     const messages = msgStore?.[props.sessionID] ?? []
@@ -1163,11 +1186,24 @@ const stateStatus = state.status as string | undefined
     for (let i = 0; i < idx; i++) {
       beforeParts.push(...((partStore?.[live[i].id] ?? []) as RevertDraftPart[]))
     }
-    const existedBefore = new Set(collectRevertedFiles(beforeParts, opts).map((p) => p.replace(/\\/g, "/")))
     const parts: RevertDraftPart[] = []
     for (let i = idx + 1; i < live.length; i++) {
       parts.push(...((partStore?.[live[i].id] ?? []) as RevertDraftPart[]))
     }
+    // 主会话 turn：回退同样作用于子任务子会话（executeRevert 同口径），
+    // 子会话消息 id 与主会话 ULID 时序可比，回退点前后的落盘文件分别计入证据与待回退清单
+    if (props.mainSessionID && props.sessionID === props.mainSessionID && props.childSessionIDs?.length) {
+      for (const childId of props.childSessionIDs) {
+        const childMsgs = msgStore?.[childId] ?? []
+        const liveChild = revertID ? childMsgs.filter((m) => m.id < revertID) : childMsgs
+        for (const m of liveChild) {
+          const childParts = (partStore?.[m.id] ?? []) as RevertDraftPart[]
+          if (m.id > props.messageID) parts.push(...childParts)
+          else beforeParts.push(...childParts)
+        }
+      }
+    }
+    const existedBefore = new Set(collectRevertedFiles(beforeParts, opts).map((p) => p.replace(/\\/g, "/")))
     return collectRevertedFiles(parts, opts)
       .filter((path) => /\.html?$/i.test(path.replace(/\\/g, "/")))
       .map((path) => ({
@@ -1337,12 +1373,15 @@ const stateStatus = state.status as string | undefined
 
       autoSavedArtifacts.add(key)
 
-        
-      autoSaveArtifact(props.sessionID, card, props.projectDir!, workspaceKind()).then((filePath) => {
+      autoSaveArtifact(props.mainSessionID ?? props.sessionID, card, props.projectDir!, workspaceKind()).then((filePath) => {
         // 创建与 skip-existing 都返回路径：经伪 tab 补 init 基线（已有历史则内部跳过），
         // 使产物版本体系不依赖 tab 打开（回退恢复/删除需要）
         if (filePath === undefined) autoSavedArtifacts.delete(key)
-        if (filePath) props.onArtifactSaved?.(filePath)
+        if (filePath) {
+          props.onArtifactSaved?.(filePath)
+          // html 产物触发自动归档
+          if (card.type === "html") props.onHtmlArtifactSaved?.(card, filePath, props.sessionID)
+        }
         props.onFilesRefresh?.()
       }).catch(err => {
         autoSavedArtifacts.delete(key)
@@ -1378,8 +1417,8 @@ const stateStatus = state.status as string | undefined
           <MessageDivider label="上下文已自动压缩，继续生成" />
         </div>
       </Show>
-      {/* 用户消息气泡（右侧对齐）+ hover 回退图标 / 确认面板 */}
-      <Show when={!isReplayTurn() && (userText() || userAttachments().length > 0)}>
+      {/* 用户消息气泡（右侧对齐）+ hover 回退图标 / 确认面板 — task 子会话的 task prompt 不是用户输入,不显示气泡 */}
+      <Show when={!isReplayTurn() && !props.hideUserBubble && (userText() || userAttachments().length > 0)}>
         <div class="octo-revert-zone px-3">
         <div class="flex flex-col items-end gap-4">
           <Show when={userAttachments().length > 0}>
@@ -1651,6 +1690,10 @@ const stateStatus = state.status as string | undefined
           }
           const expanded = () => subtaskExpandState[task.subSessionID] ?? true
           const hasContent = task.textParts.length > 0 || task.artifactOutputs.length > 0
+          // 子会话消息已同步并内联渲染时,产物/文本由子会话 turn 完整展示,卡片只留头部防重复;
+          // 子会话 sync 失败时 msgStore 为空,自动降级回本卡片内的展示
+          const childInline = () => (msgStore?.[task.subSessionID]?.length ?? 0) > 0
+          const showExpandable = () => hasContent && !childInline()
           return (
             <div class="mx-3" style={{ "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "var(--octo-surface-page)" }}>
               {/* Header */}
@@ -1660,10 +1703,12 @@ const stateStatus = state.status as string | undefined
                 class="w-full px-2.5 py-1.5 flex items-center gap-2 text-xs text-left"
                 style={{ background: "transparent" }}
               >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-                  style={{ transform: expanded() ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", color: "var(--octo-text-disabled)" }}>
-                  <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" />
-                </svg>
+                <Show when={showExpandable()}>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                    style={{ transform: expanded() ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", color: "var(--octo-text-disabled)" }}>
+                    <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" />
+                  </svg>
+                </Show>
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ color: "var(--octo-brand, #3b82f6)" }}>
                   <path d="M2 3h10M2 7h10M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
                 </svg>
@@ -1689,14 +1734,15 @@ const stateStatus = state.status as string | undefined
                     错误
                   </span>
                 </Show>
-                <Show when={task.artifactOutputs.length > 0}>
+                {/* childInline 时产物由子会话 turn 完整展示,卡片头不再显示输出计数 */}
+                <Show when={task.artifactOutputs.length > 0 && !childInline()}>
                   <span class="text-[11px]" style={{ color: "var(--octo-text-disabled)" }}>
                     {task.artifactOutputs.length} 输出
                   </span>
                 </Show>
               </button>
               {/* Expandable content */}
-              <Show when={expanded() && hasContent}>
+              <Show when={expanded() && showExpandable()}>
                 <div style={{ "border-top": "1px solid var(--octo-border-default)" }}>
                   {/* Sub-agent text responses */}
                   <Show when={task.textParts.length > 0}>
@@ -1883,8 +1929,8 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 生成中状态指示 */}
-      <Show when={showGenerating()}>
+      {/* 生成中状态指示（子会话 turn 已内联渲染时隐藏，避免双「生成中」） */}
+      <Show when={showGenerating() && !childTurnActive()}>
         <WaitingPill
           parts={assistantParts()}
           partStore={partStore}

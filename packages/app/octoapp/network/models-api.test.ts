@@ -8,6 +8,17 @@ import {
 } from "./models-api"
 
 describe("modelsApiProviders", () => {
+  test("preserves provider sorting metadata without changing other options", () => {
+    const result = modelsApiProviders({
+      ranked: { name: "Ranked", sortOrder: 0, requires_api_key: true, models: {} },
+      missing: { name: "Missing", models: {} },
+      invalid: { name: "Invalid", sortOrder: Number.NaN, models: {} },
+    })
+    expect(result[0].options).toEqual({ sortOrder: 0, requires_api_key: true, api_key_configured: false })
+    expect(result[1].options.sortOrder).toBeUndefined()
+    expect(result[2].options.sortOrder).toBeUndefined()
+  })
+
   test("requires an explicitly configured API key only when requested by the catalog", () => {
     const result = modelsApiProviders({
       paid: { id: "paid", name: "Paid", requires_api_key: true, models: {} },

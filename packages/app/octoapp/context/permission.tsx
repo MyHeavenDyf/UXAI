@@ -170,6 +170,19 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     })
     onCleanup(unsubscribe)
 
+    // 上面的事件监听器只覆盖 SSE 实时路径;断连/冻结期间丢失的 asked 事件
+    // 只能靠 bootstrap/重连的 permission.list 补拉恢复,这里对补拉结果补发应答。
+    // respondOnce 的 responded map 与事件路径去重,双通道只发一次。
+    onCleanup(
+      globalSync.onPermissionsLoaded((directory, permissions) => {
+        for (const perm of permissions) {
+          if (!perm?.id || !perm.sessionID) continue
+          if (!shouldAutoRespond(perm, directory)) continue
+          respondOnce(perm, directory)
+        }
+      }),
+    )
+
     function enableDirectory(directory: string) {
       const key = directoryAcceptKey(directory)
       setStore(

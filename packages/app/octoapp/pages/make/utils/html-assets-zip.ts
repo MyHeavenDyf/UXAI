@@ -17,7 +17,9 @@ import { getDesktopApi } from "../lib/electron-api"
 import {
   collectReferencedFiles,
   dirname,
+  basename,
   findCommonAncestor,
+  joinPath,
   relativeTo,
 } from "./references"
 import { observedUrlsToAbsPaths } from "./resource-tracker"
@@ -124,6 +126,68 @@ export async function createHtmlAssetsZip(options: CreateHtmlAssetsZipOptions): 
       if (buf) zip.file(entryPath, new Uint8Array(buf))
     } catch (err) {
       console.warn(`[HtmlAssetsZip] Failed to read referenced file:`, abs, err)
+    }
+  }
+
+  return await zip.generateAsync({ type: "blob" })
+}
+
+export interface CreateIndexHtmlZipOptions {
+  /** 入口 HTML 内容（调用方权威内容——自动归档在产物生成完成时触发，不读盘，规避同名旧文件） */
+  htmlContent: string
+  htmlFilePath: string
+  /** 来自 resource-tracker 的 local:// URL 列表（实际加载过的资源）；自动流程无 iframe 传空 */
+  observedUrls?: string[]
+  /** 可选的文件快照读取器；未提供时沿用桌面端读取及容错行为。 */
+  readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+}
+
+/**
+ * C2D 风格扁平 ZIP：index.html 固定在根目录 + htmlDir 内引用资源按相对路径摆放。
+ *
+ * 视图约定入口 HTML 必须在 ZIP 根，
+ * htmlDir 内名为 index.html 的引用文件被丢弃（避免与入口撞名）。
+ *
+ */
+export async function createIndexHtmlZip(options: CreateIndexHtmlZipOptions): Promise<Blob> {
+  const zip = new JSZip()
+  const api = getDesktopApi()
+  const readFileBuffer =
+    options.readFileBuffer ?? (api?.readFileBuffer ? (path: string) => api.readFileBuffer!(path) : undefined)
+
+  zip.file("index.html", options.htmlContent)
+
+  if (!options.htmlFilePath || !readFileBuffer) return await zip.generateAsync({ type: "blob" })
+
+  const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
+  const htmlBase = basename(options.htmlFilePath)
+
+  const staticAbsPaths = await collectReferencedFiles({
+    rootContent: options.htmlContent,
+    rootType: "html",
+    rootAbsPath: options.htmlFilePath,
+    readFileBuffer,
+  })
+  const observedAbsPaths = observedUrlsToAbsPaths(options.observedUrls || [])
+
+  // 仅保留 htmlDir 内引用（跨父级丢弃）；排除入口自身与名为 index.html 的撞名文件
+  const referencedRel = new Set<string>()
+  for (const abs of [...staticAbsPaths, ...observedAbsPaths]) {
+    const norm = abs.replace(/\\/g, "/")
+    const lower = norm.toLowerCase()
+    if (lower === htmlDir.toLowerCase()) continue
+    if (!lower.startsWith(htmlDir.toLowerCase() + "/")) continue
+    const rel = norm.slice(htmlDir.length + 1)
+    if (rel && rel !== htmlBase && rel !== "index.html") referencedRel.add(rel)
+  }
+
+  for (const relPath of referencedRel) {
+    try {
+      const absolutePath = joinPath(htmlDir, relPath)
+      const buffer = await readFileBuffer(absolutePath)
+      if (buffer) zip.file(relPath, new Uint8Array(buffer))
+    } catch (err) {
+      console.warn(`[IndexHtmlZip] Failed to read referenced file:`, relPath, err)
     }
   }
 

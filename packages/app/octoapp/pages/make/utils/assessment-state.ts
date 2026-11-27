@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js"
+﻿import { createSignal } from "solid-js"
 import type { WorkspaceKind } from "@/context/server"
 import { getDesktopApi } from "../lib/electron-api"
 import { showOctoToast } from "../components/octo-toast"
@@ -71,6 +71,8 @@ export type PendingAssessment = {
   filePath: string
   /** 评估时选中的二级菜单技能名 */
   skillName: string
+  /** 发起评估的会话（状态文件按此会话落盘；旧持久化数据缺省回退当前会话） */
+  sessionId: string
   reviewData: AssessmentReviewItem[]
 }
 
@@ -96,9 +98,23 @@ export function selectAssessmentSkill(fileKey: string, skillName: string) {
 
 // ── 路径推导（依赖 make 页注入的上下文）───────────────────────────────
 
-let assessCtx: { projectDir: string; sessionId: string; workspaceKind: WorkspaceKind } | null = null
+let assessCtx: {
+  projectDir: string
+  sessionId: string
+  workspaceKind: WorkspaceKind
+  /** 回合结束判据（make 页用 app 级 sync 构造闭包——路由/页面卸载后依然有效）：
+   *  会话状态为 idle 且存在"创建晚于 sentAt 且 time.completed 已置"的 assistant 消息
+   *  （completed 即对话记录 hover 用量时间的数据源）。与门防两类误判：
+   *  发送竞态（回合刚开始，无 completed 回复）与中途压缩（可能插入已完成回复但会话仍 busy） */
+  checkTurnEnded: (sessionId: string, sentAt: number) => boolean
+} | null = null
 
-export function setAssessmentContext(ctx: { projectDir: string; sessionId: string; workspaceKind: WorkspaceKind }) {
+export function setAssessmentContext(ctx: {
+  projectDir: string
+  sessionId: string
+  workspaceKind: WorkspaceKind
+  checkTurnEnded: (sessionId: string, sentAt: number) => boolean
+}) {
   assessCtx = ctx
 }
 
@@ -118,10 +134,12 @@ export function computeAssessmentReviewPath(filePath: string, skillName: string)
 
 /** 状态文件（前端写/读/删）：
  *  normal = .octo/<sid>/assessment/<safe>.json；code = .octo/assessment/<safe>.json（项目级，同标注的跨会话约定）
- *  safe = 评估文件相对项目根路径（兜底文件名），分隔符替换为 _ */
-export function computeAssessmentStatePath(fileKey: string): string | null {
+ *  safe = 评估文件相对项目根路径（兜底文件名），分隔符替换为 _。
+ *  sessionId 可显式传入（回合的发起会话——延后/跨视图采集时状态文件仍落在原会话目录）；缺省用当前上下文会话 */
+export function computeAssessmentStatePath(fileKey: string, sessionId?: string): string | null {
   if (!assessCtx) return null
-  const { projectDir, sessionId, workspaceKind } = assessCtx
+  const { projectDir, workspaceKind } = assessCtx
+  const sid = sessionId || assessCtx.sessionId
   const sep = sepOf(projectDir)
   const normFile = fileKey.replace(/\\/g, "/")
   const normDir = projectDir.replace(/\\/g, "/")
@@ -130,7 +148,7 @@ export function computeAssessmentStatePath(fileKey: string): string | null {
     : (normFile.split("/").pop() ?? normFile)
   const dir = workspaceKind === "code"
     ? [projectDir, ".octo", "assessment"].join(sep)
-    : [projectDir, ".octo", sessionId, "assessment"].join(sep)
+    : [projectDir, ".octo", sid, "assessment"].join(sep)
   return [dir, `${rel.replace(/[\\/]/g, "_")}.json`].join(sep)
 }
 
@@ -139,7 +157,7 @@ export function computeAssessmentStatePath(fileKey: string): string | null {
 type PersistedAssessment = PendingAssessment & { savedAt: number }
 
 async function persistPending(data: PendingAssessment) {
-  const path = computeAssessmentStatePath(data.fileKey)
+  const path = computeAssessmentStatePath(data.fileKey, data.sessionId)
   const api = getDesktopApi()
   if (!path || !api?.writeFileBuffer) return
   try {
@@ -160,14 +178,14 @@ export async function loadPersistedAssessment(fileKey: string): Promise<PendingA
     const parsed = JSON.parse(new TextDecoder().decode(buf)) as Partial<PersistedAssessment>
     const reviewData = parseReviewItems(parsed.reviewData)
     if (!parsed.fileKey || !parsed.filePath || !parsed.skillName || !reviewData) return null
-    return { fileKey: parsed.fileKey, filePath: parsed.filePath, skillName: parsed.skillName, reviewData }
+    return { fileKey: parsed.fileKey, filePath: parsed.filePath, skillName: parsed.skillName, sessionId: parsed.sessionId ?? "", reviewData }
   } catch {
     return null
   }
 }
 
-async function clearPersistedAssessment(fileKey: string) {
-  const path = computeAssessmentStatePath(fileKey)
+async function clearPersistedAssessment(fileKey: string, sessionId?: string) {
+  const path = computeAssessmentStatePath(fileKey, sessionId)
   const api = getDesktopApi()
   if (!path || !api?.deleteFile) return
   try {
@@ -210,80 +228,126 @@ export function exitPendingAssessment() {
     delete next[data.fileKey]
     return next
   })
-  void clearPersistedAssessment(data.fileKey)
+  void clearPersistedAssessment(data.fileKey, data.sessionId)
 }
 
-// ── 评审数据采集（busy→idle 钩子调用）─────────────────────────────────
 
-const [assessmentTurn, setAssessmentTurn] = createSignal<{ fileKey: string; filePath: string; skillName: string; sentAt: number } | null>(null)
+// ── 评审数据采集（模块级轮询器 + busy→idle 边沿加速器）────────────────
 
-/** sendAssessment 发送前记录本回合，供回合结束后按 (文件, 技能) 拼 annotations.json 路径 */
+type AssessmentTurn = { fileKey: string; filePath: string; skillName: string; sessionId: string; sentAt: number }
+
+const [assessmentTurn, setAssessmentTurn] = createSignal<AssessmentTurn | null>(null)
+
+const POLL_INTERVAL_MS = 5000
+const POLL_LIFETIME_MS = 24 * 60 * 60 * 1000
+let pollTimer: ReturnType<typeof setTimeout> | undefined
+
+function stopPoll() {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = undefined
+  }
+}
+
+/** 链式调度：tick 完成后才排下一棒*/
+function schedulePoll() {
+  stopPoll()
+  pollTimer = setTimeout(() => {
+    pollTimer = undefined
+    void runHarvestTick().then(() => {
+      if (assessmentTurn() && !pollTimer) schedulePoll()
+    })
+  }, POLL_INTERVAL_MS)
+}
+
+/** sendAssessment 发送前记录本回合（sessionId 取自上下文 = 发起会话）并启动轮询 */
 export function recordAssessmentTurn(opts: { fileKey: string; filePath: string; skillName: string }) {
-  setAssessmentTurn({ ...opts, sentAt: Date.now() })
+  setAssessmentTurn({ ...opts, sessionId: assessCtx?.sessionId ?? "", sentAt: Date.now() })
+  schedulePoll()
 }
 
-/** 发送失败（ack 失败）时清除回合标记，避免下次 busy→idle 误采集 */
+/** 发送失败（ack 真实失败）时清除回合标记并停止轮询 */
 export function clearAssessmentTurn() {
   setAssessmentTurn(null)
+  stopPoll()
+}
+
+/** busy→idle 边沿加速器入口：立即执行一次 tick（页内常见场景即时采集）。
+ *  假边沿（回合中途 effectiveBusy 瞬变）被 checkTurnEnded 门控无害过滤，轮询不受影响 */
+export function harvestAssessmentReview(): void {
+  void runHarvestTick()
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-
-export async function harvestAssessmentReview(busyNow: () => boolean): Promise<void> {
+/** 单次采集 tick（标记身份守卫防并发重复消费）*/
+let tickInFlight = false
+async function runHarvestTick(): Promise<void> {
+  if (tickInFlight) return
   const turn = assessmentTurn()
-  if (!turn) return
-  const reviewPath = computeAssessmentReviewPath(turn.filePath, turn.skillName)
-  const api = getDesktopApi()
-  if (!reviewPath || !api?.readFileBuffer) return
-  // 采集结果打点：有没有生成评审数据 + 成功时的条数（skill 区分 DMG预审；age = 回合耗时）。
-  const track = (fields: Record<string, unknown>) =>
-    tracker.interaction({ module: "design", name: "assessment-harvest", extend: JSON.stringify({ skill: turn.skillName, age: Date.now() - turn.sentAt, ...fields }) })
-  const stillCurrent = () => assessmentTurn() === turn
-  let raw: unknown
+  if (!turn) {
+    stopPoll()
+    return
+  }
+  tickInFlight = true
   try {
-
-    let buf = await api.readFileBuffer(reviewPath)
-    for (let i = 0; i < 3 && !buf; i++) {
-      await sleep(800)
-      if (busyNow()) return
-      buf = await api.readFileBuffer(reviewPath)
+    const expired = Date.now() - turn.sentAt > POLL_LIFETIME_MS
+    if (!expired && !assessCtx?.checkTurnEnded(turn.sessionId, turn.sentAt)) return
+    const reviewPath = computeAssessmentReviewPath(turn.filePath, turn.skillName)
+    const api = getDesktopApi()
+    if (!reviewPath || !api?.readFileBuffer) return
+    // 采集结果打点：有没有生成评审数据 + 成功时的条数（skill 区分 DMG预审；age = 距发送的毫秒数）。
+    const track = (fields: Record<string, unknown>) =>
+      tracker.interaction({ module: "design", name: "assessment-harvest", extend: JSON.stringify({ skill: turn.skillName, age: Date.now() - turn.sentAt, ...fields }) })
+    const finish = (effect: () => void) => {
+      if (assessmentTurn() !== turn) return
+      setAssessmentTurn(null)
+      stopPoll()
+      effect()
     }
-    if (!buf) {
-      const dir = reviewPath.replace(/[\\/][^\\/]+$/, "")
-      if (await api.dirExists?.(dir)) {
-        if (!stillCurrent()) return
-        setAssessmentTurn(null)
-        showOctoToast({ title: "评审数据文件缺失", description: "请将评审数据文件命名为 annotations.json", variant: "error" })
-        track({ ok: false, reason: "file-missing-in-folder" })
+    let raw: unknown
+    try {
+      let buf = await api.readFileBuffer(reviewPath)
+      for (let i = 0; i < 3 && !buf; i++) {
+        await sleep(800)
+        buf = await api.readFileBuffer(reviewPath)
+      }
+      if (!buf) {
+        // 回合已结束仍无文件：文件夹在 = 命名错误；不在 = 技能未产出（DMG/中止/回合失败）或 24h 病态路径
+        const dir = reviewPath.replace(/[\\/][^\\/]+$/, "")
+        if (await api.dirExists?.(dir)) {
+          finish(() => {
+            showOctoToast({ title: "评审数据文件缺失", description: "请将评审数据文件命名为 annotations.json", variant: "error", persistent: true })
+            track({ ok: false, reason: "file-missing-in-folder" })
+          })
+        } else {
+          finish(() => track({ ok: false, reason: expired ? "expired" : "file-missing" }))
+        }
         return
       }
-      if (busyNow()) return
-      if (!stillCurrent()) return
-      setAssessmentTurn(null)
-      track({ ok: false, reason: "file-missing" })
+      raw = JSON.parse(new TextDecoder().decode(buf))
+    } catch (err) {
+      finish(() => {
+        console.warn("[assessment] 读取 annotations.json 失败", reviewPath, err)
+        showOctoToast({ title: "评审数据读取失败", description: "annotations.json 不是合法的 JSON", variant: "error", persistent: true })
+        track({ ok: false, reason: "json-parse" })
+      })
       return
     }
-    raw = JSON.parse(new TextDecoder().decode(buf))
-  } catch (err) {
-    if (!stillCurrent()) return
-    setAssessmentTurn(null)
-    console.warn("[assessment] 读取 annotations.json 失败", reviewPath, err)
-    showOctoToast({ title: "评审数据读取失败", description: "annotations.json 不是合法的 JSON", variant: "error" })
-    track({ ok: false, reason: "json-parse" })
-    return
+    const reviewData = parseReviewItems(raw)
+    if (!reviewData) {
+      finish(() => {
+        console.warn("[assessment] annotations.json 结构非法", reviewPath)
+        showOctoToast({ title: "评审数据格式异常", description: "annotations.json 结构不符合评审数据契约", variant: "error", persistent: true })
+        track({ ok: false, reason: "invalid-structure" })
+      })
+      return
+    }
+    finish(() => {
+      track({ ok: true, count: reviewData.length })
+      enterPending({ fileKey: turn.fileKey, filePath: turn.filePath, skillName: turn.skillName, sessionId: turn.sessionId, reviewData })
+    })
+  } finally {
+    tickInFlight = false
   }
-  const reviewData = parseReviewItems(raw)
-  if (!reviewData) {
-    if (!stillCurrent()) return
-    setAssessmentTurn(null)
-    console.warn("[assessment] annotations.json 结构非法", reviewPath)
-    showOctoToast({ title: "评审数据格式异常", description: "annotations.json 结构不符合评审数据契约", variant: "error" })
-    track({ ok: false, reason: "invalid-structure" })
-    return
-  }
-  if (!stillCurrent()) return
-  setAssessmentTurn(null)
-  track({ ok: true, count: reviewData.length })
-  enterPending({ fileKey: turn.fileKey, filePath: turn.filePath, skillName: turn.skillName, reviewData })
 }

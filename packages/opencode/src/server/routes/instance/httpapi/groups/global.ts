@@ -46,6 +46,9 @@ export const GlobalPaths = {
 export const GlobalApi = HttpApi.make("global").add(
   HttpApiGroup.make("global")
     .add(
+      HttpApiEndpoint.get("updateReadiness", "/global/update-readiness", {
+        success: Schema.Struct({ ready: Schema.Boolean, reason: Schema.optional(Schema.String) }),
+      }),
       HttpApiEndpoint.get("health", GlobalPaths.health, {
         success: described(GlobalHealth, "Health information"),
       }).annotateMerge(

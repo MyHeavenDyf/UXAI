@@ -71,6 +71,7 @@ import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
 import { normalizeReleaseNotes } from "./normalize-release-notes"
+import { checkUpdateReadiness } from "./update-readiness"
 import { createMenu } from "./menu"
 import { setUploadsDir, startPreviewServer } from "./preview-server"
 import {
@@ -542,6 +543,7 @@ registerIpcHandlers({
   loadingWindowComplete: () => loadingComplete.resolve(),
   runUpdater: async (alertOnFail) => checkForUpdates(alertOnFail),
   checkUpdate: async () => checkUpdate(),
+  checkUpdateReadiness: () => updateReadiness(),
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
   // jk-j60099994-replace-with-index-2-start
@@ -753,6 +755,7 @@ function setupAutoUpdater() {
 
 let availableUpdateVersion: string | undefined
 let availableUpdateReleaseNotes: string | undefined
+let availableUpdateForceUpdate = false
 let downloadedUpdateVersion: string | undefined
 
 async function downloadUpdate(version: string) {
@@ -763,12 +766,6 @@ async function downloadUpdate(version: string) {
 
 async function checkUpdate(download = false) {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
-  if (downloadedUpdateVersion) {
-    logger.log("returning cached downloaded update", {
-      version: downloadedUpdateVersion,
-    })
-    return { updateAvailable: true, version: downloadedUpdateVersion, releaseNotes: availableUpdateReleaseNotes }
-  }
   logger.log("checking for updates", {
     currentVersion: app.getVersion(),
     channel: autoUpdater.channel,
@@ -778,12 +775,14 @@ async function checkUpdate(download = false) {
   try {
     const result = await autoUpdater.checkForUpdates()
     const updateInfo = result?.updateInfo
+    const forceUpdate = updateInfo !== undefined && "forceUpdate" in updateInfo && updateInfo.forceUpdate === true
     const releaseNotes = normalizeReleaseNotes(updateInfo?.releaseNotes)
     logger.log("update metadata fetched", {
       releaseVersion: updateInfo?.version ?? null,
       releaseDate: updateInfo?.releaseDate ?? null,
       releaseName: updateInfo?.releaseName ?? null,
       releaseNotes: releaseNotes ?? null,
+      forceUpdate,
       files: updateInfo?.files?.map((file) => file.url) ?? [],
     })
     const version = result?.updateInfo?.version
@@ -801,19 +800,26 @@ async function checkUpdate(download = false) {
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
+    if (downloadedUpdateVersion !== version) downloadedUpdateVersion = undefined
     availableUpdateVersion = version
     availableUpdateReleaseNotes = releaseNotes
+    availableUpdateForceUpdate = forceUpdate
     if (download) {
       await downloadUpdate(version)
     }
-    return { updateAvailable: true, version, releaseNotes }
+    return { updateAvailable: true, version, releaseNotes, forceUpdate }
   } catch (error) {
     logger.error("update check failed", error)
+    if (downloadedUpdateVersion) {
+      return { updateAvailable: true, version: downloadedUpdateVersion, releaseNotes: availableUpdateReleaseNotes, forceUpdate: availableUpdateForceUpdate }
+    }
     return { updateAvailable: false, failed: true }
   }
 }
 
 async function installUpdate() {
+  const before = await updateReadiness()
+  if (!before.ready) throw new Error(before.reason)
   if (!downloadedUpdateVersion && availableUpdateVersion) {
     logger.log("downloading update before install", { version: availableUpdateVersion })
     await downloadUpdate(availableUpdateVersion)
@@ -827,8 +833,18 @@ async function installUpdate() {
   logger.log("installing downloaded update", {
     version: downloadedUpdateVersion,
   })
+  const after = await updateReadiness()
+  if (!after.ready) throw new Error(after.reason)
   await killSidecar()
   autoUpdater.quitAndInstall(true, true)
+}
+
+function updateReadiness() {
+  return checkUpdateReadiness(sidecarSpawnConfig ? {
+    url: `http://${sidecarSpawnConfig.hostname}:${sidecarSpawnConfig.port}`,
+    username: "opencode",
+    password: sidecarSpawnConfig.password,
+  } : undefined)
 }
 
 async function checkForUpdates(alertOnFail: boolean) {
@@ -870,7 +886,13 @@ async function checkForUpdates(alertOnFail: boolean) {
     restartNow: response.response === 0,
   })
   if (response.response === 0) {
-    await installUpdate()
+    await installUpdate().catch(async (error: unknown) => {
+      await dialog.showMessageBox({
+        type: "warning",
+        title: "暂时无法更新",
+        message: error instanceof Error ? error.message : "请稍后重试更新。",
+      })
+    })
   }
 }
 

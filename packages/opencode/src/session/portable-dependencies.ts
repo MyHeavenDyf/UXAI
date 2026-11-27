@@ -2,6 +2,7 @@ import path from "node:path"
 import { lstat, realpath } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { isExcludedPortableFile } from "./portable-exclusions"
+import { portableMarkdownReferences } from "./portable-insight-files"
 
 const textFile = /\.(?:html?|css|[cm]?js|jsx|tsx?|svg)$/i
 const entryFile = /\.(?:html?|svg|jsx|tsx)$/i
@@ -167,6 +168,8 @@ function cssReferences(text: string) {
 }
 
 function references(text: string, file: string) {
+  if (/\.md$/i.test(file))
+    return { base: undefined, refs: portableMarkdownReferences(text), documentRefs: [] as string[], optional: new Set<string>() }
   if (/\.css$/i.test(file))
     return { base: undefined, refs: cssReferences(text), documentRefs: [] as string[], optional: new Set<string>() }
   if (/\.(?:[cm]?js|jsx|tsx?)$/i.test(file)) {
@@ -225,12 +228,15 @@ function inside(root: string, file: string) {
 export async function collectPortableDependencies(input: {
   root: string
   files: string[]
+  /** Inspect owned documents for shared dependencies without exporting them twice. */
+  entries?: string[]
+  markdown?: boolean
   /** Kept for caller compatibility; real dependency targets are no longer restricted to these roots. */
   trustedRoots: string[]
   read: (file: string) => Promise<Uint8Array>
   blacklist?: readonly string[]
 }) {
-  if (!input.files.length) return []
+  if (!(input.entries ?? input.files).length) return []
   const known = new Set(input.files)
   const found = new Map<string, string>()
   const visited = new Set<string>()
@@ -254,14 +260,14 @@ export async function collectPortableDependencies(input: {
     )
   }
   const pending = new Map<string, { file: string; source: string; document?: string }>(
-    input.files
+    (input.entries ?? input.files)
       .filter(
         (file) =>
-          entryFile.test(file) &&
-          !path
+          (entryFile.test(file) || (input.markdown && /\.md$/i.test(file))) &&
+          (input.entries !== undefined || !path
             .relative(input.root, file)
             .split(path.sep)
-            .some((part) => part.startsWith(".")),
+            .some((part) => part.startsWith("."))),
       )
       .map((file) => [key(file), { file, source: file }]),
   )
@@ -357,8 +363,9 @@ export async function collectPortableDependencies(input: {
             }
             continue
           }
+          const textual = textFile.test(resolved.file) || (input.markdown && /\.md$/i.test(resolved.file))
           if (!known.has(resolved.file)) {
-            if (!textFile.test(resolved.file)) {
+            if (!textual) {
               const readable = await input.read(resolved.source).then(
                 () => true,
                 (error) => {
@@ -370,7 +377,7 @@ export async function collectPortableDependencies(input: {
             }
             found.set(resolved.file, resolved.source)
           }
-          if (textFile.test(resolved.file) && !visited.has(key(resolved.file, page))) {
+          if (textual && !visited.has(key(resolved.file, page))) {
             pending.set(key(resolved.file, page), { ...resolved, document: page })
           }
         }

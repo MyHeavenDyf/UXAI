@@ -14,6 +14,7 @@ import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
 import { StudioVideoRiskDialog } from "@/pages/studio/studio-video-risk-dialog"
 import { Portal } from "solid-js/web"
+import { compareProviderSortOrder, modelProviderGrouping } from "@/utils/provider-sort"
 
 type ModelState = ReturnType<typeof useLocal>["model"]
 
@@ -56,15 +57,17 @@ const ModelList: Component<{
     <List
       class={`flex-1 min-h-0 [&_[data-slot=list-scroll]]:flex-1 [&_[data-slot=list-scroll]]:min-h-0 ${props.class ?? ""}`}
       search={props.search ?? { placeholder: language.t("dialog.model.search.placeholder"), autofocus: true, action: props.action }}
-      groupHeader={props.groupHeader}
+      groupHeader={props.groupHeader ?? modelProviderGrouping.groupHeader}
       emptyMessage={language.t("dialog.model.empty")}
       key={(x) => `${x.provider.id}:${x.id}`}
       items={models}
       current={model.current()}
       filterKeys={["provider.name", "name", "id"]}
       sortBy={(a, b) => a.name.localeCompare(b.name)}
-      groupBy={(x) => x.provider.name}
+      groupBy={modelProviderGrouping.groupBy}
       sortGroupsBy={(a, b) => {
+        const order = compareProviderSortOrder(a.items[0].provider, b.items[0].provider)
+        if (order) return order
         const aProvider = a.items[0].provider.id
         const bProvider = b.items[0].provider.id
         if (popularProviders.includes(aProvider) && !popularProviders.includes(bProvider)) return -1

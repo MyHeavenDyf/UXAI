@@ -162,7 +162,7 @@ export async function fetchInsightFiles(
   const subPath = options?.subPath
   const recursive = options?.recursive
   const params = new URLSearchParams({ sessionId, category })
-  if (category === "uploads" && subPath && subPath.trim() !== "") params.set("path", subPath)
+  if (subPath && subPath.trim() !== "") params.set("path", subPath)
   if (recursive) params.set("recursive", "true")
   const res = await fetch(`${sdkUrl}/insight/files?${params.toString()}`, {
     headers: { ...directoryHeader(sdkDirectory) },

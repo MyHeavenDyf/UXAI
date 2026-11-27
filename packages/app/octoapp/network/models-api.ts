@@ -33,6 +33,7 @@ type ApiModel = {
 type ApiProvider = {
   id?: string
   name?: string
+  sortOrder?: number
   api?: string
   npm?: string
   env?: string[]
@@ -370,6 +371,7 @@ export function modelsApiProviders(api: ApiModels | undefined): Provider[] {
       source: "remote" as const,
       env: Array.isArray(item.env) ? item.env.filter((value): value is string => typeof value === "string") : [],
       options: {
+        ...(typeof item.sortOrder === "number" && Number.isFinite(item.sortOrder) ? { sortOrder: item.sortOrder } : {}),
         ...(item.api?.trim() ? { baseURL: item.api.trim() } : {}),
         ...(item.requires_api_key === true ? { requires_api_key: true, api_key_configured: false } : {}),
       },
