@@ -85,7 +85,8 @@ export const EditTool = Tool.define(
             ? params.filePath
             : path.join(instance.directory, params.filePath)
           yield* assertNotProtectedPath(filePath)
-          yield* assertExternalDirectoryEffect(ctx, filePath)
+          // 记忆目录是 Agent 自主维护的系统路径,不弹外部目录授权(与 Claude Code 一致)
+          if (!MemoryStore.isMemoryPath(filePath)) yield* assertExternalDirectoryEffect(ctx, filePath)
 
           let diff = ""
           let contentOld = ""
@@ -100,15 +101,17 @@ export const EditTool = Tool.define(
                 contentOld = source.text
                 contentNew = next.text
                 diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-                yield* ctx.ask({
-                  permission: "edit",
-                  patterns: [path.relative(instance.worktree, filePath)],
-                  always: ["*"],
-                  metadata: {
-                    filepath: filePath,
-                    diff,
-                  },
-                })
+                // 记忆目录写入不弹编辑授权(与 write 工具一致)
+                if (!MemoryStore.isMemoryPath(filePath))
+                  yield* ctx.ask({
+                    permission: "edit",
+                    patterns: [path.relative(instance.worktree, filePath)],
+                    always: ["*"],
+                    metadata: {
+                      filepath: filePath,
+                      diff,
+                    },
+                  })
                 yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
                 if (yield* format.file(filePath)) {
                   contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
@@ -143,15 +146,17 @@ export const EditTool = Tool.define(
                   normalizeLineEndings(contentNew),
                 ),
               )
-              yield* ctx.ask({
-                permission: "edit",
-                patterns: [path.relative(instance.worktree, filePath)],
-                always: ["*"],
-                metadata: {
-                  filepath: filePath,
-                  diff,
-                },
-              })
+              // 记忆目录写入不弹编辑授权(与 write 工具一致)
+              if (!MemoryStore.isMemoryPath(filePath))
+                yield* ctx.ask({
+                  permission: "edit",
+                  patterns: [path.relative(instance.worktree, filePath)],
+                  always: ["*"],
+                  metadata: {
+                    filepath: filePath,
+                    diff,
+                  },
+                })
 
               yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
               if (yield* format.file(filePath)) {

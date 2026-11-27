@@ -86,6 +86,12 @@ export function indexNudge(filepath: string, budget?: number): string | undefine
   return `ERROR: MEMORY.md 当前约 ${tokens} tokens,超出索引预算 ${limit}。超出部分在下次请求注入时会被截断丢弃。请立即精简索引:细节下沉到 topics/<topic>.md,合并或删除过时行。`
 }
 
+// 判断路径是否在记忆目录内——write/edit 工具据此跳过外部目录授权与编辑授权,
+// 让 Agent 写记忆完全静默(与 Claude Code 一致:自己的记忆目录不需要用户逐次审批)
+export function isMemoryPath(filepath: string): boolean {
+  return contains(root(), path.resolve(filepath))
+}
+
 // 路径包含判断(memory 目录是普通绝对路径,不走 AppFileSystem 依赖)
 function contains(parent: string, child: string) {
   const rel = path.relative(path.resolve(parent), path.resolve(child))

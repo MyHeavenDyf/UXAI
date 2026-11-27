@@ -46,7 +46,8 @@ export const WriteTool = Tool.define(
             ? params.filePath
             : path.join(instance.directory, params.filePath)
           yield* assertNotProtectedPath(filepath)
-          yield* assertExternalDirectoryEffect(ctx, filepath)
+          // 记忆目录是 Agent 自主维护的系统路径,不弹外部目录授权(与 Claude Code 一致)
+          if (!MemoryStore.isMemoryPath(filepath)) yield* assertExternalDirectoryEffect(ctx, filepath)
 
           const exists = yield* fs.existsSafe(filepath)
           const source = exists ? yield* Bom.readFile(fs, filepath) : { bom: false, text: "" }
@@ -56,15 +57,18 @@ export const WriteTool = Tool.define(
           const contentNew = next.text
 
           const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
-          yield* ctx.ask({
-            permission: "edit",
-            patterns: [path.relative(instance.worktree, filepath)],
-            always: ["*"],
-            metadata: {
-              filepath,
-              diff,
-            },
-          })
+          // 记忆目录写入不弹编辑授权:Agent 维护自己的记忆是正常工作流,逐次审批
+          // 会把"自主记忆"退化成"每次都要用户确认要不要记住"——与 Claude Code 不符
+          if (!MemoryStore.isMemoryPath(filepath))
+            yield* ctx.ask({
+              permission: "edit",
+              patterns: [path.relative(instance.worktree, filepath)],
+              always: ["*"],
+              metadata: {
+                filepath,
+                diff,
+              },
+            })
 
           yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
           if (yield* format.file(filepath)) {
