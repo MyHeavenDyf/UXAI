@@ -11,6 +11,7 @@ import { Format } from "../../src/format"
 import { Truncate } from "@/tool/truncate"
 import { Tool } from "@/tool/tool"
 import { Agent } from "../../src/agent/agent"
+import { Config } from "../../src/config/config"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { disposeAllInstances, provideTmpdirInstance, TestInstance } from "../fixture/fixture"
@@ -38,6 +39,7 @@ const it = testEffect(
     Bus.layer,
     Format.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
+    Config.defaultLayer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
   ),

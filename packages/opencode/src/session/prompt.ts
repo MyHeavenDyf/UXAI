@@ -73,6 +73,8 @@ import { SessionTable } from "./session.sql"
 import { AUTOMATIC_COMPACTION_ENABLED, usable as usableContext } from "./overflow"
 import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
 import { Token } from "@/util/token"
+import { MemoryDebug } from "@/memory/debug"
+import { MemoryStore } from "@/memory/store"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -718,6 +720,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       model: Provider.Model
       processor: Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall">
       onStructuredOutput: (output: unknown) => void
+      // 估算/压缩调试等干跑路径:不落 auto-memory 注入埋点
+      dryRun?: boolean
     }) {
       const lastUserMsg = input.messages.findLast((message) => message.info.role === "user")
       const tools = yield* resolveTools({
@@ -746,13 +750,31 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
 
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: input.messages })
+      const memCfg = (yield* config.get()).memory
+      // 跨会话记忆注入:主 agent 顶层会话才注入(统一开关 + hidden/subagent/子会话跳过)。
+      // 与 Claude Code 一致——记忆由 Agent 在对话中自主维护,注入块携带维护指示,
+      // 开启状态下始终注入(空记忆注入引导块,否则模型永远不会开始建记忆);
+      // 索引预算按模型上下文动态收缩(不超过窗口 1/8,下限 300 tokens)。
+      const memory =
+        !MemoryStore.disabled(memCfg) &&
+        input.agent.hidden !== true &&
+        input.agent.mode !== "subagent" &&
+        !input.session.parentID
+          ? MemoryStore.system(
+              input.session.projectID,
+              MemoryStore.effectiveBudget(
+                memCfg?.budget_tokens ?? MemoryStore.DEFAULT_BUDGET_TOKENS,
+                input.model.limit?.context,
+              ),
+            )
+          : ""
       const [skills, env, instructions, modelMsgs] = yield* Effect.all([
         sys.skills(input.agent).pipe(Effect.catch(() => Effect.succeed(undefined))),
         sys.environment(input.model),
         instruction.system().pipe(Effect.orDie),
         MessageV2.toModelMessagesEffect(input.messages, input.model),
       ])
-      const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+      const system = [...env, ...instructions, ...(memory ? [memory] : []), ...(skills ? [skills] : [])]
       const userMcpSummary = Object.keys((yield* config.get()).mcp ?? {})
         .filter((name) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(name))
         .flatMap((name) => {
@@ -775,6 +797,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         )
       }
       if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+      if (memory !== "" && !input.dryRun)
+        yield* MemoryDebug.dumpInject({
+          sessionID: input.session.id,
+          model: `${input.model.providerID}/${input.model.id}`,
+          memoryTokens: Token.estimate(memory),
+          system,
+          modelMsgs,
+          activeTools,
+        })
       return { activeTools, format, modelMsgs, studioImageGeneration, system }
     })
 
@@ -804,6 +835,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           completeToolCall: () => Effect.succeed(undefined),
         },
         onStructuredOutput: () => {},
+        dryRun: true,
       })
       const system = Token.estimateValue(request.system)
       const tools = Token.estimateValue(request.activeTools)
@@ -849,6 +881,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             completeToolCall: () => Effect.succeed(undefined),
           },
           onStructuredOutput: () => {},
+          dryRun: true,
         })
         yield* CompactionDebug.dump({
           sessionID: input.sessionID,

@@ -1,9 +1,11 @@
 import z from "zod"
-import { and } from "drizzle-orm"
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm"
 import { Database } from "@/storage/db"
-import { eq } from "drizzle-orm"
+import { createHash } from "node:crypto"
+import path from "node:path"
 import { ProjectTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
+import { WorkspaceTable } from "../control-plane/workspace.sql"
 import * as Log from "@opencode-ai/core/util/log"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { BusEvent } from "@/bus/bus-event"
@@ -187,19 +189,16 @@ export const layer: Layer.Layer<
 
     const scope = yield* Scope.Scope
 
-    const readCachedProjectId = Effect.fnUntraced(function* (dir: string) {
-      return yield* fs.readFileString(pathSvc.join(dir, "opencode")).pipe(
-        Effect.map((x) => x.trim()),
-        Effect.map((x) => ProjectID.make(x)),
-        Effect.catch(() => Effect.void),
-      )
-    })
-
     const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {
       log.info("fromDirectory", { directory })
 
       // Phase 1: discover git info
       type DiscoveryResult = { id: ProjectID; worktree: string; sandbox: string; vcs: Info["vcs"] }
+
+      // projectID = 目录路径哈希(与 Claude Code 一致):git 只用来找 worktree 根路径
+      // 让子目录共享,身份本身永远是路径派生,git 不装/不是仓库/命令失败都不影响隔离
+      const dirProjectId = (dir: string) =>
+        ProjectID.make(createHash("sha256").update(path.resolve(dir)).digest("hex").slice(0, 40))
 
       const data: DiscoveryResult = yield* Effect.gen(function* () {
         const dotgitMatches = yield* fs.up({ targets: [".git"], start: directory }).pipe(Effect.orDie)
@@ -208,7 +207,7 @@ export const layer: Layer.Layer<
         if (!dotgit) {
           log.info("fromDirectory:no-git", { directory })
           return {
-            id: ProjectID.global,
+            id: dirProjectId(directory),
             worktree: "/",
             sandbox: "/",
             vcs: fakeVcs,
@@ -216,13 +215,12 @@ export const layer: Layer.Layer<
         }
 
         let sandbox = pathSvc.dirname(dotgit)
-        let id = yield* readCachedProjectId(dotgit)
 
         const commonDir = yield* git(["rev-parse", "--git-common-dir"], { cwd: sandbox })
         if (commonDir.code !== 0) {
           log.info("fromDirectory:git-common-dir-failed", { directory, code: commonDir.code, stderr: commonDir.stderr })
           return {
-            id: id ?? ProjectID.global,
+            id: dirProjectId(sandbox),
             worktree: sandbox,
             sandbox,
             vcs: fakeVcs,
@@ -233,35 +231,11 @@ export const layer: Layer.Layer<
         const isBareRepo = bareCheck.code === 0 && bareCheck.text.trim() === "true"
         const worktree = common === sandbox ? sandbox : isBareRepo ? common : pathSvc.dirname(common)
 
-        if (id == null) {
-          id = yield* readCachedProjectId(common)
-        }
-
-        if (!id) {
-          const revList = yield* git(["rev-list", "--max-parents=0", "HEAD"], { cwd: sandbox })
-          const roots = revList.text
-            .split("\n")
-            .filter(Boolean)
-            .map((x) => x.trim())
-            .toSorted()
-
-          id = roots[0] ? ProjectID.make(roots[0]) : undefined
-          log.info("fromDirectory:rev-list", { directory, rootsCount: roots.length, id })
-          if (id) {
-            yield* fs.writeFileString(pathSvc.join(common, "opencode"), id).pipe(Effect.ignore)
-          }
-        }
-
-        if (!id) {
-          log.info("fromDirectory:no-id", { directory })
-          return { id: ProjectID.global, worktree: sandbox, sandbox, vcs: "git" as const }
-        }
-
         const topLevel = yield* git(["rev-parse", "--show-toplevel"], { cwd: sandbox })
         if (topLevel.code !== 0) {
           log.info("fromDirectory:toplevel-failed", { directory, code: topLevel.code, stderr: topLevel.stderr })
           return {
-            id,
+            id: dirProjectId(worktree),
             worktree: sandbox,
             sandbox,
             vcs: fakeVcs,
@@ -269,6 +243,8 @@ export const layer: Layer.Layer<
         }
         sandbox = resolveGitPath(sandbox, topLevel.text.trim())
 
+        // ID 基于 git worktree 主根(同仓库所有 worktree/子目录共享,与 Claude Code 一致)
+        const id = dirProjectId(worktree)
         log.info("fromDirectory:discovered", { directory, id, worktree, sandbox })
         return { id, sandbox, worktree, vcs: "git" as const }
       })
@@ -340,14 +316,94 @@ export const layer: Layer.Layer<
           .run(),
       )
 
+      // 历史迁移:projectID 历经三种旧方案(global 桶 → git 根提交哈希 → 路径哈希),
+      // 旧会话的 project_id 不会随新方案自动重算,会从按项目的会话列表里消失。
+      // 会话表带 directory,以它为迁移键把旧 ID 的会话归位:
+      // - git 仓库:worktree(主根)或 sandbox(当前 worktree 顶层)之下的会话
+      // - 非 git 目录:worktree 是 "/" 哨兵,只精确认领本目录(子目录会话归子目录自己的新 ID)
+      // 只认领 global 桶或"曾拥有本目录的旧 project 行"名下的会话,
+      // 嵌套仓库(worktree 不同)的会话不会被父项目误领;目录精确/严格前缀匹配,
+      // 无关目录绝不认领;project_id != 新 ID 保证幂等。
       if (data.id !== ProjectID.global) {
+        const gitScope = data.worktree !== "/"
+        const under = (prefix: string) =>
+          sql`(${SessionTable.directory} = ${prefix} or substr(${SessionTable.directory}, 1, ${prefix.length + path.sep.length}) = ${prefix + path.sep})`
+        const scope = gitScope
+          ? or(under(data.worktree), under(data.sandbox))
+          : eq(SessionTable.directory, directory)
+
+        // (1) global 桶:旧版非 git(含 git-init 无提交)会话
         yield* db((d) =>
           d
             .update(SessionTable)
             .set({ project_id: data.id })
-            .where(and(eq(SessionTable.project_id, ProjectID.global), eq(SessionTable.directory, data.worktree)))
+            .where(and(eq(SessionTable.project_id, ProjectID.global), scope))
             .run(),
         )
+
+        // (2) 旧 project 行(global 之外)曾拥有本目录,其名下会话一并归位
+        const scopeDir = gitScope ? data.worktree : directory
+        const legacyRows = yield* db((d) =>
+          d
+            .select()
+            .from(ProjectTable)
+            .where(
+              and(
+                ne(ProjectTable.id, data.id),
+                ne(ProjectTable.id, ProjectID.global),
+                gitScope
+                  ? or(eq(ProjectTable.worktree, scopeDir), eq(ProjectTable.worktree, data.sandbox))
+                  : eq(ProjectTable.worktree, scopeDir),
+              ),
+            )
+            .all(),
+        )
+        if (legacyRows.length > 0) {
+          const legacyIDs = legacyRows.map((row) => row.id)
+          yield* db((d) =>
+            d
+              .update(SessionTable)
+              .set({ project_id: data.id })
+              .where(and(inArray(SessionTable.project_id, legacyIDs), scope))
+              .run(),
+          )
+          // (3) 旧 project 行名下的 workspace 关联行改挂新 ID:UI 关联本地文件夹的列表不丢
+          yield* db((d) =>
+            d
+              .update(WorkspaceTable)
+              .set({ project_id: data.id })
+              .where(inArray(WorkspaceTable.project_id, legacyIDs))
+              .run(),
+          )
+          // (4) 项目级字段认领:名称/图标/启动命令/初始化时间只补新行缺失的,
+          // 已设置(含用户新改)的字段一律不动 —— 逐字段 first-wins,幂等
+          const adopted: Record<string, string | number | { start?: string } | null> = {}
+          const hasIcon = !!(result.icon && (result.icon.url || result.icon.override || result.icon.color))
+          let iconAdopted = hasIcon
+          for (const row of legacyRows) {
+            if (!result.name && row.name && adopted.name === undefined) {
+              result.name = row.name
+              adopted.name = row.name
+            }
+            if (!iconAdopted && (row.icon_url || row.icon_url_override || row.icon_color)) {
+              result.icon = { url: row.icon_url ?? undefined, override: row.icon_url_override ?? undefined, color: row.icon_color ?? undefined }
+              adopted.icon_url = row.icon_url
+              adopted.icon_url_override = row.icon_url_override
+              adopted.icon_color = row.icon_color
+              iconAdopted = true
+            }
+            if (!result.commands && row.commands && adopted.commands === undefined) {
+              result.commands = row.commands
+              adopted.commands = row.commands
+            }
+            if (result.time.initialized === undefined && row.time_initialized !== null && adopted.time_initialized === undefined) {
+              result.time = { ...result.time, initialized: row.time_initialized ?? undefined }
+              adopted.time_initialized = row.time_initialized
+            }
+          }
+          if (Object.keys(adopted).length > 0)
+            yield* db((d) => d.update(ProjectTable).set(adopted).where(eq(ProjectTable.id, data.id)).run())
+        }
       }
 
       yield* emitUpdated(result)
