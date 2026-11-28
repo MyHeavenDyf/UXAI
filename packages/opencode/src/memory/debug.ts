@@ -8,7 +8,7 @@ import * as Log from "@opencode-ai/core/util/log"
 
 const log = Log.create({ service: "memory.debug" })
 
-// 埋点开关,测试阶段默认常开(OCTO_MEMORY_DEBUG=0/false 关闭);
+// 埋点开关:暂时关闭,默认不落盘;显式设 OCTO_MEMORY_DEBUG=1/true 打开;
 // 目录可用 OCTO_MEMORY_DEBUG_DIR 覆盖(测试指向临时目录)
 const dumpDir = () => Flag.OCTO_MEMORY_DEBUG_DIR ?? path.join(os.homedir(), ".temp", "auto-memory")
 
