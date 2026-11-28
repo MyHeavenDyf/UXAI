@@ -102,10 +102,24 @@ export const extract = Effect.fn("MemoryExtract.extract")(function* (input: {
     mdl = yield* input.provider.getTitleModel(lastUser.info.model.providerID, lastUser.info.model.modelID)
   }
 
+  // 程序层隔离:提取上下文只保留消息的 text 部分——工具输出、文件内容、
+  // subtask/snapshot/patch/reasoning/compaction 等非用户来源一律不进提取输入。
+  // 这是 prompt 规则"只提取用户亲口说的话"的硬保障:工具/文件/MCP 里的
+  // 『记住X』类指令在数据层就到不了提取模型,防记忆污染与注入。
+  const textOnly = newMessages
+    .map((m) => ({ ...m, parts: m.parts.filter((p) => p.type === "text") }))
+    .filter((m) => m.parts.length > 0)
+  const lastMsg = messages[messages.length - 1]
+  if (textOnly.length === 0) {
+    // 本批没有可提取的用户/助手文本(纯工具活动):推进游标避免每次 idle 重复处理
+    if (lastMsg) persist.writeCursor(input.projectID as never, input.sessionID, lastMsg.info.id as never)
+    return { parsed: 0, applied: 0 } as ExtractResult
+  }
+
   // 构建 LLM 输入:会话消息 + 已有记忆 + 提取指令。
   // 提取模型必须看到已有记忆才能正确去重/update/delete/merge。
   const existing = persist.existingDigest(input.projectID as never)
-  const modelMsgs = yield* MessageV2.toModelMessagesEffect(newMessages, mdl, { stripMedia: true })
+  const modelMsgs = yield* MessageV2.toModelMessagesEffect(textOnly, mdl, { stripMedia: true })
   const instructionMessage: ModelMessage = {
     role: "user",
     content: [
@@ -146,7 +160,6 @@ export const extract = Effect.fn("MemoryExtract.extract")(function* (input: {
   const applied = persist.applyActions(input.projectID as never, actions, version)
 
   // 推进游标到最后一条消息(按 sessionID 记录)
-  const lastMsg = messages[messages.length - 1]
   if (lastMsg) persist.writeCursor(input.projectID as never, input.sessionID, lastMsg.info.id as never)
 
   return { parsed: actions.length, applied } as ExtractResult

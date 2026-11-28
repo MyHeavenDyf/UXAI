@@ -51,6 +51,9 @@ export function start(services: {
 
             log.info("extracting memory", { sessionID, projectID: session.projectID })
 
+            // 完全静默:失败(failure)与缺陷(defect)都不许打断订阅——
+            // extract 内部对非法 memory.model 会 Effect.die,若不接住 defect,
+            // Stream.runForEach 的消费 fiber 会被杀死,worker 从此对所有会话停摆
             const result = yield* extract({
               sessionID,
               projectID: session.projectID,
@@ -59,7 +62,10 @@ export function start(services: {
               llm: services.llm,
               sessions: services.sessions,
               memoryModel: cfg?.model,
-            }).pipe(Effect.catch(() => Effect.succeed({ parsed: 0, applied: 0 })))
+            }).pipe(
+              Effect.catchDefect(() => Effect.succeed({ parsed: 0, applied: 0 })),
+              Effect.catch(() => Effect.succeed({ parsed: 0, applied: 0 })),
+            )
 
             log.info("memory extraction done", { sessionID, parsed: result.parsed, applied: result.applied })
           } catch (error) {

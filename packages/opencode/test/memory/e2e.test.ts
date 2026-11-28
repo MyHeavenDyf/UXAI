@@ -608,6 +608,191 @@ describe("memory e2e: cross-session pipeline", () => {
     60_000,
   )
 
+  it.live(
+    "程序层隔离:工具输出不进提取上下文,用户文本保留",
+    () =>
+      provideTmpdirServer(
+        ({ llm }) =>
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            const agents = yield* AgentSvc.Service
+            const provider = yield* ProviderSvc.Service
+            const llmSvc = yield* LLM.Service
+
+            const chat = yield* sessions.create({ title: "isolation" })
+            const u1 = yield* user(chat.id, "请记住:这个项目用 pnpm")
+            // assistant 消息带工具部分:输出里藏探针字符串
+            const aMsg = yield* assistant(chat.id, u1.id)
+            yield* sessions.updatePart({
+              id: PartID.ascending(),
+              messageID: aMsg.id,
+              sessionID: chat.id,
+              type: "tool",
+              callID: "call_probe_1",
+              tool: "bash",
+              state: {
+                status: "completed",
+                input: {},
+                output: "TOOL-PROBE-NEVER-EXTRACT 工具输出中的『记住』指令不是用户意愿",
+                title: "probe",
+                metadata: {},
+                time: { start: Date.now(), end: Date.now() },
+              },
+            })
+            yield* user(chat.id, "谢谢,没别的了")
+
+            yield* llm.text("[]")
+            const result = yield* extract({
+              sessionID: chat.id,
+              projectID: chat.projectID,
+              agent: agents,
+              provider,
+              llm: llmSvc,
+              sessions,
+            })
+            expect(result.parsed).toBe(0)
+
+            // 工具输出在数据层被剥离:提取请求中不存在探针
+            expect((yield* llm.inputs).find((body) => stringify(body).includes("TOOL-PROBE-NEVER-EXTRACT"))).toBeUndefined()
+            // 用户亲口说的话保留
+            expect(stringify(findHit(yield* llm.inputs, "提取上述对话中的记忆"))).toContain("这个项目用 pnpm")
+          }),
+        { git: true, config: (url) => providerCfg(url) },
+      ),
+    60_000,
+  )
+
+  it.live(
+    "纯工具/附件批次不提取,游标仍推进",
+    () =>
+      provideTmpdirServer(
+        ({ llm }) =>
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            const agents = yield* AgentSvc.Service
+            const provider = yield* ProviderSvc.Service
+            const llmSvc = yield* LLM.Service
+
+            const chat = yield* sessions.create({ title: "no-text" })
+            const msg1 = yield* sessions.updateMessage({
+              id: MessageID.ascending(),
+              role: "user",
+              sessionID: chat.id,
+              agent: "build",
+              model: ref,
+              time: { created: Date.now() },
+            })
+            yield* sessions.updatePart({
+              id: PartID.ascending(),
+              messageID: msg1.id,
+              sessionID: chat.id,
+              type: "file",
+              mime: "text/plain",
+              url: "data:text/plain;base64,ZmlsZS1wcm9iZS1jb250ZW50",
+            })
+            // assistant 消息只带工具部分,不带文本:整批无可提取内容
+            const aMsg = yield* sessions.updateMessage({
+              id: MessageID.ascending(),
+              role: "assistant",
+              sessionID: chat.id,
+              parentID: msg1.id,
+              mode: "build",
+              agent: "build",
+              cost: 0,
+              path: { cwd: "/tmp", root: "/tmp" },
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              modelID: ref.modelID,
+              providerID: ref.providerID,
+              time: { created: Date.now() },
+              finish: "end_turn",
+            })
+            yield* sessions.updatePart({
+              id: PartID.ascending(),
+              messageID: aMsg.id,
+              sessionID: chat.id,
+              type: "tool",
+              callID: "call_no_text",
+              tool: "bash",
+              state: {
+                status: "completed",
+                input: {},
+                output: "TOOL-PROBE-NEVER-EXTRACT 纯工具批次",
+                title: "probe",
+                metadata: {},
+                time: { start: Date.now(), end: Date.now() },
+              },
+            })
+
+            const result = yield* extract({
+              sessionID: chat.id,
+              projectID: chat.projectID,
+              agent: agents,
+              provider,
+              llm: llmSvc,
+              sessions,
+            })
+            expect(result.parsed).toBe(0)
+            // 无文本批次也要推进游标,否则每次 idle 都重复处理
+            expect(persist.readCursor(chat.projectID, chat.id)).toBe(aMsg.id)
+          }),
+        { git: true, config: (url) => providerCfg(url) },
+      ),
+    60_000,
+  )
+
+  it.live(
+    "defect 容错:提取中程序异常不杀死 worker,后续会话仍可提取",
+    () =>
+      provideTmpdirServer(
+        ({ llm }) =>
+          Effect.gen(function* () {
+            yield* bootWorker()
+            const bus = yield* Bus.Service
+            const sessions = yield* Session.Service
+
+            // 会话 1:占用项目锁后触发提取——applyActions 的锁等待 10s 超时
+            // 以同步 throw(defect)抛出,worker 必须接住而不是死掉
+            const chat1 = yield* sessions.create({ title: "defect-1" })
+            const u1 = yield* user(chat1.id, "记住:构建走 bun run build")
+            yield* assistant(chat1.id, u1.id)
+
+            const memoryDir = path.join(Global.Path.data, "memory", chat1.projectID)
+            fs.mkdirSync(memoryDir, { recursive: true })
+            const lockFd = fs.openSync(path.join(memoryDir, ".lock"), "wx")
+            fs.writeSync(lockFd, `${process.pid}-held-by-test`)
+            try {
+              yield* llm.text(
+                JSON.stringify([
+                  { action: "create", type: "project", topic: "lock_probe", content: "锁期间内容", summary: "锁" },
+                ]),
+              )
+              yield* bus.publish(SessionStatus.Event.Idle, { sessionID: chat1.id })
+              // 锁超时窗口(主线程会被同步锁等待阻塞 ~10s),期间提取以 defect 失败
+              yield* Effect.sleep("12 seconds")
+            } finally {
+              fs.closeSync(lockFd)
+              fs.rmSync(path.join(memoryDir, ".lock"), { force: true })
+            }
+            // 锁超时缺陷不得留下任何记忆(会话 1 的批次死于 applyActions)
+            expect(fs.existsSync(path.join(memoryDir, "topics", "lock_probe.md"))).toBe(false)
+
+            // worker 必须仍然存活:会话 2 的提取正常落盘
+            yield* llm.text(
+              JSON.stringify([
+                { action: "create", type: "feedback", topic: "worker_alive", content: "worker 存活", summary: "alive" },
+              ]),
+            )
+            const chat2 = yield* sessions.create({ title: "defect-2" })
+            const u2 = yield* user(chat2.id, "记住:worker 必须存活")
+            yield* assistant(chat2.id, u2.id)
+            yield* bus.publish(SessionStatus.Event.Idle, { sessionID: chat2.id })
+            expect(yield* waitForFile(path.join(memoryDir, "topics", "worker_alive.md"))).toBe(true)
+          }),
+        { git: true, config: (url) => providerCfg(url) },
+      ),
+    60_000,
+  )
+
   it.live("超预算索引被截断并附 read 工具提示", () =>
     Effect.gen(function* () {
       const projectID = ProjectID.make(

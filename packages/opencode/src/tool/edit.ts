@@ -82,7 +82,6 @@ export const EditTool = Tool.define(
             ? params.filePath
             : path.join(instance.directory, params.filePath)
           yield* assertNotProtectedPath(filePath)
-          // 记忆目录是 Agent 自主维护的系统路径,不弹外部目录授权(与 Claude Code 一致)
           yield* assertExternalDirectoryEffect(ctx, filePath)
 
           let diff = ""
