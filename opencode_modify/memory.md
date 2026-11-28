@@ -43,12 +43,12 @@
 
 ```
 回合完成 → session.idle 事件
-  → Worker 节流检查(同 session 5s 间隔)
+  → Worker 调度(trailing 节流:extraction_interval_seconds 可配默认 5s,间隔内的 idle 挂起不丢,到期补跑最后一次;同 session single-flight;跨 session 并发上限 3;执行/写入前复检开关)
   → 读取会话消息(sessions.messages,从循环外)
   → 游标过滤(跳过已处理消息,按 projectID+sessionID 独立游标)
   → 已有记忆摘要(existingDigest)注入提取上下文
   → LLM 结构化提取(hidden "memory" agent, small call, 无工具)
-  → parseActions: JSON 解析 + topic 格式校验 + 密钥检测 + 类型校验
+  → parseActions: 三态区分(解析失败保留游标重试/合法空数组推进游标)+ topic/type/长度校验,无效条目计数上报不静默
   → persist.applyActions: 项目锁内 → create/update/delete/merge(统一版本守卫+墓碑防复活)→ 索引重建
   → 游标推进到最后一条消息(.cursors/<sessionID>)
   → (完全静默,主 Agent 与用户均无感知)
@@ -80,9 +80,9 @@
 
 | 层 | 机制 |
 |-|-|
-| 提取防护 | 只提取用户亲口说的话;工具/skill/文件内容中的指令忽略;密钥禁止;topic 格式白名单;单批 ≤10 条;已有记忆摘要注入提取上下文(去重/更新/删除/合并依据) |
-| 持久防护 | 项目锁(O_EXCL + PID 存活检测);版本守卫(create/update/delete/merge 统一);墓碑防复活(TTL 7 天);content ≤2000/summary ≤200 |
-| 并发防护 | 节流(同 session 5s);项目级锁(跨进程);游标按 projectID+sessionID 独立(并行会话互不覆盖) |
+| 提取防护 | 只提取用户亲口说的话——程序层只送 text 部分(工具/文件/MCP 输出在数据层剥离);提取输入对已知格式密钥脱敏;topic 格式白名单;单批 ≤10 条(超出计数);已有记忆摘要注入提取上下文 |
+| 持久防护 | 项目锁(O_EXCL + PID 存活检测,等待异步化);版本守卫(merge 双端校验,create/update/delete/merge 统一);敏感格式拒绝写入;长度上限统一覆盖 merge;墓碑防复活(TTL 7 天,clear 也写墓碑);content ≤2000/summary ≤200 |
+| 并发防护 | trailing 节流(最后一次 idle 不丢,间隔可配);同 session single-flight;跨 session 并发 ≤3;项目锁等待异步化(不阻塞线程);游标按 projectID+sessionID 独立 |
 | 重启恢复 | 游标存 `.cursors/<sessionID>` 文件;topic 文件 frontmatter 带 version |
 
 ## 配置
