@@ -21,13 +21,15 @@ const edit = (filePath: string, status = "completed"): Part => ({
 })
 const patch = (...files: string[]): Part => ({ type: "patch", files })
 
-function detect(sessions: Input["sessions"], messageID = "msg_1") {
+function detect(sessions: Input["sessions"], messageID = "msg_1", projectSkill?: string) {
   return fastuiDeliveryNotice({
     sessionID: "ses_main",
     messageID,
     workspaceDir,
     sessions,
-    resolveProject: async (_sessionID, path) => path.startsWith(`${projectDir}/`) ? { name: "chart", projectDir } : undefined,
+    resolveProject: async (_sessionID, path) => path.startsWith(`${projectDir}/`)
+      ? { name: "chart", projectDir, skill: projectSkill }
+      : undefined,
   })
 }
 
@@ -38,6 +40,19 @@ test("目标技能在主轮激活时汇总子任务文件，一轮返回一条�
   ]
   expect(await detect(sessions)).toEqual({ key: "ses_main:msg_1", projects: ["chart"] })
   expect(await detect(sessions, "msg_2")).toEqual({ key: "ses_main:msg_2", projects: ["chart"] })
+})
+
+test("续改目标技能创建的工程无需再次调用技能，本轮只形成一条通知", async () => {
+  const sessions = [
+    { sessionID: "ses_main", parts: [edit(file)] },
+    { sessionID: "ses_child", parts: [patch(file, secondFile)] },
+  ]
+  for (const projectSkill of ["chart-vue-creator", "fastui-vue-creator"]) {
+    expect(await detect(sessions, "msg_followup", projectSkill))
+      .toEqual({ key: "ses_main:msg_followup", projects: ["chart"] })
+  }
+  expect(await detect(sessions, "msg_followup", "other-skill")).toBeUndefined()
+  expect(await detect([{ sessionID: "ses_main", parts: [] }], "msg_followup", "chart-vue-creator")).toBeUndefined()
 })
 
 test("脚本初始化模板不通知，随后脚本改动工程源码才形成通知", async () => {

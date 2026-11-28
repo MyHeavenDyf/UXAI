@@ -294,15 +294,16 @@ describe("projectOfFile(SPEC-DES-008 §3.8:指向工程内文件的卡片按工�
     writeFileSync(p, "<template/>")
     return p
   }
-  test("代码工作区工程里的文件:找到工程,产物名就是工程目录名", () => {
+  test("代码工作区工程里的文件:返回工程名和标记记录的技能", () => {
     const dir = codeProject("ws-owner", "dash")
     const r = Host.projectOfFile({ ...codeTarget("ws-owner"), filePath: file(dir) })
-    expect(r).toEqual({ ok: true, name: "dash", projectDir: dir })
+    expect(r).toEqual({ ok: true, name: "dash", projectDir: dir, skill: "fastui-vue-creator" })
   })
   test("普通工作区本对话 outputs 里的工程:找到", () => {
     const s = session("own1", ["alpha"])
-    const r = Host.projectOfFile({ ...target(s), filePath: file(join(s, "outputs", "alpha")) })
-    expect(r.ok && r.name).toBe("alpha")
+    const dir = join(s, "outputs", "alpha")
+    const r = Host.projectOfFile({ ...target(s), filePath: file(dir) })
+    expect(r).toEqual({ ok: true, name: "alpha", projectDir: dir })
   })
   test("文件在另一个对话的 outputs 里:反查对不上同一个工程,不转 —— 宁可不转也不打开错的", () => {
     const other = session("own2", ["alpha"])

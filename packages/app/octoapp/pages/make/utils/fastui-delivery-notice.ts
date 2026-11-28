@@ -16,7 +16,7 @@ type TurnSession = {
   parts: readonly TurnPart[]
 }
 
-type Project = { name: string; projectDir: string }
+type Project = { name: string; projectDir: string; skill?: string }
 
 function usedDeliverySkill(session: TurnSession) {
   return session.parts.some((part) => {
@@ -40,7 +40,7 @@ export async function fastuiDeliveryNotice(input: {
   const pathKey = (path: string) => /^[a-z]:\//i.test(path) ? path.toLowerCase() : path
   const projects = new Map<string, string>()
   for (const session of input.sessions) {
-    if (!activatedInRoot && !usedDeliverySkill(session)) continue
+    const invokedInScope = activatedInRoot || usedDeliverySkill(session)
     const candidates = new Map<string, Array<Set<string>>>()
     for (const part of session.parts) {
       const toolInput = part.state?.input
@@ -74,6 +74,8 @@ export async function fastuiDeliveryNotice(input: {
     for (const [path, sourceSteps] of candidates) {
       const project = await input.resolveProject(session.sessionID, path)
       if (!project) continue
+      // 续改一轮可以直接操作已有工程，不一定会再次加载技能。
+      if (!invokedInScope && (!project.skill || !deliverySkills.has(project.skill))) continue
       const projectDir = pathKey(project.projectDir.replace(/\\/g, "/"))
       if (!pathKey(path).startsWith(`${projectDir}/packages/portal/src/`)) continue
       if (sourceSteps.every((dirs) => dirs.has(projectDir))) continue

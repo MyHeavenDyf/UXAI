@@ -233,7 +233,7 @@ const MAX_OWNER_DEPTH = 32
  * 必须落回同一个目录才算数:`fastui://<产物名>` 点开时走的是 resolveProject,两边对不上
  * (比如文件在另一个对话的 outputs 里)就宁可不转,也不能打开成别的工程。
  */
-export function projectOfFile(target: FastuiTarget & { filePath: string }): { ok: true; name: string; projectDir: string } | { ok: false } {
+export function projectOfFile(target: FastuiTarget & { filePath: string }): { ok: true; name: string; projectDir: string; skill?: string } | { ok: false } {
   const { workspaceDir, filePath } = target
   if (!workspaceDir || !filePath || !isAbsolute(filePath)) return { ok: false }
   let dir = dirname(resolve(filePath))
@@ -241,7 +241,9 @@ export function projectOfFile(target: FastuiTarget & { filePath: string }): { ok
     if (identify(dir)) {
       const name = basename(dir)
       const r = resolveProject({ ...target, name })
-      return r.ok && relative(resolve(r.projectDir), dir) === "" ? { ok: true, name, projectDir: dir } : { ok: false }
+      if (!r.ok || relative(resolve(r.projectDir), dir) !== "") return { ok: false }
+      const skill = r.state.skill
+      return { ok: true, name, projectDir: dir, ...(typeof skill === "string" ? { skill } : {}) }
     }
     const parent = dirname(dir)
     if (parent === dir) break
