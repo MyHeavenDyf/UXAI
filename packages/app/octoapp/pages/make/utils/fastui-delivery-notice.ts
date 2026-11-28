@@ -4,7 +4,11 @@ type TurnPart = {
   type: string
   tool?: string
   files?: string[]
-  state?: { status: string; input?: Record<string, unknown> }
+  state?: {
+    status: string
+    input?: Record<string, unknown>
+    metadata?: { files?: unknown }
+  }
 }
 
 type TurnSession = {
@@ -43,7 +47,14 @@ export async function fastuiDeliveryNotice(input: {
       const toolPath = toolInput?.filePath ?? toolInput?.filepath ?? toolInput?.path
       const wroteFile = part.type === "tool" && part.state?.status === "completed" &&
         /write|edit/i.test(part.tool ?? "") && typeof toolPath === "string"
-      const files = part.type === "patch" ? part.files ?? [] : wroteFile ? [toolPath] : []
+      const files = part.type === "patch" ? [...(part.files ?? [])] : wroteFile ? [toolPath] : []
+      const appliedFiles = part.state?.metadata?.files
+      if (part.type === "tool" && part.tool === "apply_patch" && part.state?.status === "completed" && Array.isArray(appliedFiles)) {
+        for (const file of appliedFiles) {
+          if (typeof file?.filePath === "string") files.push(file.filePath)
+          if (typeof file?.movePath === "string") files.push(file.movePath)
+        }
+      }
       const paths = files.filter((file) => file.trim()).map((file) => {
         const path = file.trim().replace(/\\/g, "/")
         return /^(?:[a-z]:)?\//i.test(path) ? path : `${workspace}/${path}`

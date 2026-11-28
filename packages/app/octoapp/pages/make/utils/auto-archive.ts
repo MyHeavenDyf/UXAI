@@ -11,6 +11,7 @@
 
 import { assetUploadBaseUrl, isAssetLibraryLoggedIn, sanitizeAssetFileName } from "./asset-upload"
 import { checksum } from "@opencode-ai/core/util/encode"
+import { createIndexHtmlZip } from "./html-assets-zip"
 
 export interface AutoArchiveResult {
   success: boolean
@@ -64,7 +65,7 @@ export function welinkContent(sessionTitle: string, pageName: string): string {
  *
  * multipart 表单：uuid = localStorage.userInfo.userId，zipPackage = ZIP 文件流
  * （filename 经 sanitizeAssetFileName 兜底清洁），title/content = WeLink 推送消息
- * （welinkTitle/welinkContent 模板拼接，消息文本不做 sanitize）。
+ * （标题使用 welinkTitle，正文使用 welinkContent 或调用方提供的文案）。
  * 不手动设置 Content-Type——fetch + FormData 由浏览器生成
  * `multipart/form-data; boundary=...`，手动写死（无 boundary）会导致服务端无法解析。
  *
@@ -78,9 +79,10 @@ export async function uploadZipPackage(options: {
   zipBlob: Blob
   /** 会话标题（解析 + 回退后的展示名），供 WeLink 推送模板字段 */
   sessionTitle: string
-  /** 上传页面原名（磁盘文件名，含 .html 扩展），供 WeLink 推送 content 字段 */
-  pageName: string
-}): Promise<AutoArchiveResult> {
+} & (
+  | { pageName: string; content?: never }
+  | { content: string; pageName?: never }
+)): Promise<AutoArchiveResult> {
   if (!isAssetLibraryLoggedIn()) return { success: false, message: "未登录" }
   const uuid = currentUserId()
   if (!uuid) return { success: false, message: "用户信息缺失" }
@@ -91,7 +93,7 @@ export async function uploadZipPackage(options: {
   form.append("uuid", uuid)
   form.append("zipPackage", options.zipBlob, sanitizeAssetFileName(options.name))
   form.append("title", welinkTitle(options.sessionTitle))
-  form.append("content", welinkContent(options.sessionTitle, options.pageName))
+  form.append("content", options.pageName === undefined ? options.content : welinkContent(options.sessionTitle, options.pageName))
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPLOAD_PACKAGE_TIMEOUT_MS)
@@ -124,6 +126,16 @@ export async function uploadZipPackage(options: {
   } finally {
     clearTimeout(timer)
   }
+}
+
+export async function uploadFastuiDeliveryNotification(sessionTitle: string): Promise<AutoArchiveResult> {
+  const content = "代码交付完成（推送测试）"
+  // 沿用归档服务的 HTML 入口契约，ZIP 只包含静态通知页。
+  const zipBlob = await createIndexHtmlZip({
+    htmlContent: `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>代码交付完成</title></head><body>${content}</body></html>`,
+    htmlFilePath: "",
+  })
+  return uploadZipPackage({ name: "code-delivery.zip", zipBlob, sessionTitle, content })
 }
 
 // ── 解压状态轮询 ─────────────────────────────────────────────────────────────

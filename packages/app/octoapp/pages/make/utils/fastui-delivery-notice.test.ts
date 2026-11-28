@@ -47,6 +47,17 @@ test("脚本初始化模板不通知，随后脚本改动工程源码才形成�
     .toEqual({ key: "ses_main:msg_1", projects: ["chart"] })
 })
 
+test("成功的 apply_patch 提供工程变更证据，未执行完的补丁不算", async () => {
+  const parts = (status: string): Part[] => [skill(), {
+    type: "tool",
+    tool: "apply_patch",
+    state: { status, metadata: { files: [{ filePath: file }] } },
+  }]
+  expect(await detect([{ sessionID: "ses_main", parts: parts("completed") }]))
+    .toEqual({ key: "ses_main:msg_1", projects: ["chart"] })
+  expect(await detect([{ sessionID: "ses_main", parts: parts("running") }])).toBeUndefined()
+})
+
 test("仅在子任务调用技能时，兄弟任务的写入不会触发通知", async () => {
   expect(await detect([
     { sessionID: "ses_main", parts: [] },

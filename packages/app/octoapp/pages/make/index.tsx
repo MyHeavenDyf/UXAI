@@ -140,7 +140,7 @@ import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubC
 import { fastuiPreviewUrl, fastuiTargetOf, hasFastuiProject, isLocalPreviewUrl, parseFastuiPreview } from "./utils/fastui-export"
 import { isHiddenCompactionTurn, isHiddenTaskPromptMessage, isVisibleUserMessage } from "./utils/visible-message"
 import { createReportedSet } from "./utils/track-dedup"
-import { uploadZipPackage, codeArchiveDedupKey, startArchivePoll, pauseArchivePolls, resumeArchivePolls, type AutoArchiveResult, type PendingArchivePoll } from "./utils/auto-archive"
+import { uploadZipPackage, uploadFastuiDeliveryNotification, codeArchiveDedupKey, startArchivePoll, pauseArchivePolls, resumeArchivePolls, type AutoArchiveResult, type PendingArchivePoll } from "./utils/auto-archive"
 import { isAssetLibraryLoggedIn } from "./utils/asset-upload"
 import { createIndexHtmlZip } from "./utils/html-assets-zip"
 import { getSubtypeConfig } from "./utils/subtype-config"
@@ -159,6 +159,8 @@ const planTrackReported = createReportedSet("octo:make:design-plan-reported")
 // 自动归档：已上传产物去重（key = card.id，localStorage 持久化——InsightTurn 重挂载/
 // 刷新/切 session 后 auto-save effect 会重跑，防止同一产物重复上传）
 const autoArchiveReported = createReportedSet("octo:make:auto-archived")
+const fastuiNotificationReported = createReportedSet("octo:make:fastui-notification-reported")
+const fastuiNotificationsInFlight = new Set<string>()
 
 export default function MakePage() {
   const layout = useLayout()
@@ -207,6 +209,12 @@ function MakeContent() {
   const ml = useMakeLayout()
   const language = useLanguage()
   const settings = useSettings()
+  const fastuiNotification = {
+    // 只处理打开 Design 后完成的轮次，避免浏览历史对话时补发。
+    since: Date.now(),
+    enabled: () => settings.general.cloudSyncPush(),
+    send: handleFastuiNotification,
+  }
   const dialog = useDialog()
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
@@ -2640,6 +2648,29 @@ const sessionMessagesLoaded = createMemo(() => {
     } else {
       showOctoToast({ title: "自动同步云端失败", description: result.message })
     }
+  }
+
+  function handleFastuiNotification(sessionID: string, key: string) {
+    if (!fastuiNotification.enabled() || fastuiNotificationReported.has(key) || fastuiNotificationsInFlight.has(key)) return
+    fastuiNotificationsInFlight.add(key)
+    const sessionTitle = sessionDisplayTitle(archiveRootSid(sessionID))
+    const mode = workspaceKind() === "code" ? "code" : "normal"
+
+    void (async () => {
+      try {
+        const result = await uploadFastuiDeliveryNotification(sessionTitle)
+        if (!result.success || result.id === undefined) {
+          showOctoToast({ title: "WeLink 推送失败", description: result.message })
+          return
+        }
+        fastuiNotificationReported.add(key)
+        startArchivePoll({ id: result.id, name: "代码交付完成", mode, startedAt: Date.now() }, handleArchiveTerminal)
+      } catch (error) {
+        showOctoToast({ title: "WeLink 推送失败", description: error instanceof Error ? error.message : String(error) })
+      } finally {
+        fastuiNotificationsInFlight.delete(key)
+      }
+    })()
   }
 
   /** html 产物自动落盘后回调（insight-turn onHtmlArtifactSaved）：
@@ -6939,6 +6970,7 @@ onPreview={(url) => {
                         onRegenerateMessage={() => handleRegenerateMessage(userMessages()[0])}
                         onArtifactSaved={recordArtifactInit}
                         onHtmlArtifactSaved={handleHtmlArtifactSaved}
+                        fastuiNotification={fastuiNotification}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -6983,6 +7015,7 @@ onPreview={(url) => {
                             onRegenerateMessage={() => handleRegenerateMessage(msg)}
                             onArtifactSaved={recordArtifactInit}
                             onHtmlArtifactSaved={handleHtmlArtifactSaved}
+                            fastuiNotification={fastuiNotification}
                           />
                         )
                       }}

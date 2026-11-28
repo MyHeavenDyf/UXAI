@@ -31,6 +31,8 @@ import { kindFromMime, mimeFromFilename } from "./attachment-bar"
 import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
 import { lookupDisplayName } from "./skill-config-types"
 import { absoluteLinkPath, fastuiPreviewUrl, fastuiProjectOfFile, parseFastuiPreview } from "../utils/fastui-export"
+import { fastuiDeliveryNotice } from "../utils/fastui-delivery-notice"
+import { getDesktopApi } from "../lib/electron-api"
 
 function renderMentionText(text: string): JSX.Element {
   // 正则终止符用零宽空格 ​(不是普通 \s),这样 chip 名内的普通空格不会被截断。
@@ -542,6 +544,11 @@ export function InsightTurn(props: {
   onArtifactSaved?: (filePath: string) => void
   /** html 类型产物自动落盘成功后回调（自动归档等后台流程的触发点； */
   onHtmlArtifactSaved?: (card: OutputCard, filePath: string, sessionID: string) => void
+  fastuiNotification?: {
+    since: number
+    enabled: () => boolean
+    send: (sessionID: string, key: string) => void
+  }
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1358,6 +1365,53 @@ const stateStatus = state.status as string | undefined
     }),
   )
   const displayCards = createMemo(() => [...outputCards(), ...fastuiExtraCards()])
+
+  createEffect(() => {
+    const notification = props.fastuiNotification
+    const sessionID = props.sessionID
+    const messageID = props.messageID
+    const workspaceDir = props.projectDir
+    if (!notification?.enabled() || !workspaceDir || sessionID !== props.mainSessionID) return
+    if (props.active || isCompactionTurn() || isReplayTurn() || isAborted() || assistantError()) return
+    const last = assistantMsgs().at(-1)
+    if (last?.finish !== "stop" || !last.time.completed || last.time.completed < notification.since) return
+    if (outputCards().some((card) => card.type === "html")) return
+    const findProject = getDesktopApi()?.fastuiProjectOf
+    if (!findProject) return
+
+    const startedAt = msgStore?.[sessionID]?.find((message) => message.id === messageID)?.time.created
+    if (startedAt === undefined) return
+    const childIDs = new Set(subtasks().filter((task) => task.status === "done" && task.subSessionID).map((task) => task.subSessionID))
+    const sessions = [
+      { sessionID, parts: [...(partStore?.[messageID] ?? []), ...assistantParts()] },
+      ...[...childIDs].map((id) => ({
+        sessionID: id,
+        parts: (msgStore?.[id] ?? []).filter((message) => message.time.created >= startedAt)
+          .flatMap((message) => partStore?.[message.id] ?? []),
+      })),
+    ]
+    if (sessions.slice(1).some((child) => child.parts.some((part) =>
+      part.type === "text" && part.text && parseAllArtifactsFromText(part.text).some((card) => card.type === "html"),
+    ))) return
+
+    let current = true
+    onCleanup(() => { current = false })
+    void fastuiDeliveryNotice({
+      sessionID,
+      messageID,
+      workspaceDir,
+      sessions,
+      resolveProject: async (ownerSessionID, filePath) => {
+        const result = await findProject({ workspaceDir, sessionId: ownerSessionID, filePath })
+        if (result.ok) return result
+        if (ownerSessionID === sessionID) return
+        const root = await findProject({ workspaceDir, sessionId: sessionID, filePath })
+        if (root.ok) return root
+      },
+    }).then((notice) => {
+      if (current && notice) notification.send(sessionID, notice.key)
+    }).catch((error) => console.warn("[FastUI] 读取工程交付变更失败", error))
+  })
 
   // 自动保存 artifact 到磁盘（生成时立即触发，不等待用户点击）
   createEffect(() => {
