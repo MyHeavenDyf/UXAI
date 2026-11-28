@@ -23,7 +23,8 @@ export type MemoryRow = {
 
 const LOCK_TIMEOUT_MS = 10_000
 const LOCK_STALE_MS = 30_000
-const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+// 异步等待:同步 Atomics.wait 会阻塞整个线程(锁竞争期间其它 fiber 全部冻结)
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 const root = () => path.join(Global.Path.data, "memory")
 export const projectDir = (projectID: ProjectID) => path.join(root(), projectID)
@@ -40,6 +41,33 @@ const TOPIC_RE = /^[a-z][a-z0-9_]{0,63}$/
 const TYPES = ["user", "feedback", "project", "reference"]
 
 const flatten = (value: string) => value.replace(/\s*\n\s*/g, " ").trim()
+
+// ---------------------------------------------------------------------------
+// 敏感信息:持久层校验(拒绝写入)+ 提取层脱敏(输入前替换)两级防护。
+// STRICT 仅匹配高置信度格式(api key 前缀/凭证赋值),误杀率低,用于拒绝写入;
+// BROAD 额外覆盖超长 base64/hex(宁可误杀不可漏放),仅用于提取输入脱敏。
+// ---------------------------------------------------------------------------
+const STRICT_PATTERNS = [
+  /sk-[A-Za-z0-9_-]{8,}/,
+  /(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/i,
+  /(?:api[_-]?key|access[_-]?key|secret|token|password|passwd)["'\s:=]+[^\s"',;\\]{6,}/i,
+]
+const BROAD_PATTERNS = [
+  ...STRICT_PATTERNS,
+  /(?:api[_-]?key|access[_-]?key|secret|token|password|passwd|authorization)["'\s:=]+[^\s"',;\\]{6,}/i,
+  /\b(?:[A-Za-z0-9+/]{40,}={0,2}|[0-9a-fA-F]{32,})\b/,
+]
+
+export function isSensitive(value: string) {
+  return STRICT_PATTERNS.some((pattern) => pattern.test(value))
+}
+
+export function redactSecrets(value: string) {
+  return BROAD_PATTERNS.reduce(
+    (text, pattern) => text.replace(new RegExp(pattern.source, pattern.flags + "g"), "[REDACTED]"),
+    value,
+  )
+}
 
 function writeFileAtomic(file: string, content: string) {
   const tmp = `${file}.${randomUUID().slice(0, 8)}.tmp`
@@ -62,7 +90,10 @@ function isPidAlive(pid: number) {
   }
 }
 
-function acquireLock(lockPath: string): LockHandle | undefined {
+// 过期接管竞态:检测到死进程/过期锁后 rename 接管,rename 只有一个进程能成功
+// (第二个 rename ENOENT 被 catch,循环重试);归还时 token 归属校验保证不误删
+// 新持有者的锁文件(锁文件存在期间 openSync wx 必然失败,新持有者只能等 rm 之后)。
+async function acquireLock(lockPath: string): Promise<LockHandle | undefined> {
   const token = `${process.pid}-${randomUUID()}`
   const deadline = Date.now() + LOCK_TIMEOUT_MS
   for (;;) {
@@ -86,7 +117,7 @@ function acquireLock(lockPath: string): LockHandle | undefined {
         }
       } catch {}
       if (Date.now() > deadline) return undefined
-      sleep(50)
+      await sleep(50)
     }
   }
 }
@@ -100,9 +131,9 @@ function releaseLock(handle: LockHandle) {
   } catch {}
 }
 
-export function withProjectLock<T>(projectID: ProjectID, fn: () => T): T {
+export async function withProjectLock<T>(projectID: ProjectID, fn: () => T): Promise<T> {
   fs.mkdirSync(projectDir(projectID), { recursive: true })
-  const handle = acquireLock(lockFile(projectID))
+  const handle = await acquireLock(lockFile(projectID))
   if (!handle) throw new Error(`memory lock timeout: ${projectID}`)
   try {
     return fn()
@@ -216,7 +247,7 @@ function bury(tombstones: Tombstones, topic: string, rowVersion: number) {
   tombstones[topic] = Math.max(rowVersion, Date.now())
 }
 
-export function applyActions(projectID: ProjectID, actions: MemoryAction[], version: number): number {
+export async function applyActions(projectID: ProjectID, actions: MemoryAction[], version: number): Promise<number> {
   return withProjectLock(projectID, () => {
     let applied = 0
     const rows = readRows(projectID)
@@ -224,7 +255,7 @@ export function applyActions(projectID: ProjectID, actions: MemoryAction[], vers
     const tombstones = readTombstones(projectID)
 
     for (const action of actions) {
-      // merge 没有 topic 字段,提前处理
+      // merge 没有 topic 字段,提前处理;长度/敏感校验与 create/update 统一
       if (action.action === "merge") {
         const from = (action as { from?: string }).from ?? ""
         const into = (action as { into?: string }).into ?? ""
@@ -233,9 +264,12 @@ export function applyActions(projectID: ProjectID, actions: MemoryAction[], vers
         const target = rowMap.get(into)
         const source = rowMap.get(from)
         if (!target || !source) continue // 源或目标不存在(可能已被删除/合并走)
-        if (target.version > version) continue // 版本守卫:旧批次不得改写新记忆
+        if (target.version > version || source.version > version) continue // 双端版本守卫:旧批次不得改写/吞并新记忆
         const content = (action as { content?: string }).content ?? ""
         const summary = (action as { summary?: string }).summary || target.summary
+        if (!content) continue
+        if (content.length > 2000 || summary.length > 200) continue
+        if (isSensitive(content) || isSensitive(summary)) continue
         writeRow(projectID, { topic: into, type: target.type, content, summary, version })
         fs.rmSync(topicFile(projectID, from))
         bury(tombstones, from, source.version)
@@ -267,6 +301,7 @@ export function applyActions(projectID: ProjectID, actions: MemoryAction[], vers
       if (!TYPES.includes(type)) continue
       if (!content || !summary) continue
       if (content.length > 2000 || summary.length > 200) continue
+      if (isSensitive(content) || isSensitive(summary)) continue // 密钥/凭证格式拒绝写入
 
       // 防复活:已删除的 topic,只有版本更新的批次才能重建
       if ((tombstones[actionTopic] ?? 0) >= version) continue
@@ -358,9 +393,18 @@ export function existingDigest(projectID: ProjectID, maxChars = 4000): string | 
 // 清除
 // ---------------------------------------------------------------------------
 
+// 清空项目记忆:为全部 topic 写墓碑后再删除,清除之后在途/迟到的提取批次
+// (版本早于墓碑)不得把已清除的记忆写回来。
 export function clear(projectID: ProjectID) {
   try {
-    if (fs.existsSync(projectDir(projectID))) fs.rmSync(projectDir(projectID), { recursive: true, force: true })
+    const rows = readRows(projectID)
+    fs.rmSync(projectDir(projectID), { recursive: true, force: true })
+    if (rows.length > 0) {
+      const tombstones: Tombstones = {}
+      for (const row of rows) bury(tombstones, row.topic, row.version)
+      fs.mkdirSync(projectDir(projectID), { recursive: true })
+      writeTombstones(projectID, tombstones)
+    }
   } catch {}
 }
 

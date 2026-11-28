@@ -407,7 +407,7 @@ describe("memory e2e: cross-session pipeline", () => {
             const prompt = yield* SessionPrompt.Service
             const sessions = yield* Session.Service
             const chat = yield* sessions.create({ title: "memory-inject-only" })
-            yield* Effect.sync(() =>
+            yield* Effect.promise(() =>
               persist.applyActions(
                 chat.projectID,
                 [
@@ -453,7 +453,7 @@ describe("memory e2e: cross-session pipeline", () => {
             const prompt = yield* SessionPrompt.Service
             const sessions = yield* Session.Service
             const chat = yield* sessions.create({ title: "memory-disabled" })
-            yield* Effect.sync(() =>
+            yield* Effect.promise(() =>
               persist.applyActions(
                 chat.projectID,
                 [{ action: "create", type: "user", topic: "off_probe", content: "硬关闭时不应被注入", summary: "硬关闭" }],
@@ -793,13 +793,176 @@ describe("memory e2e: cross-session pipeline", () => {
     60_000,
   )
 
+  it.live(
+    "解析失败保留游标,合法空数组推进游标",
+    () =>
+      provideTmpdirServer(
+        ({ llm }) =>
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            const agents = yield* AgentSvc.Service
+            const provider = yield* ProviderSvc.Service
+            const llmSvc = yield* LLM.Service
+
+            const chat = yield* sessions.create({ title: "parse-states" })
+            const u1 = yield* user(chat.id, "记住:构建走 bun run build")
+            const a1 = yield* assistant(chat.id, u1.id)
+
+            const call = () =>
+              extract({
+                sessionID: chat.id,
+                projectID: chat.projectID,
+                agent: agents,
+                provider,
+                llm: llmSvc,
+                sessions,
+              })
+
+            // LLM 输出非 JSON 数组 → 解析失败,游标保留
+            yield* llm.text("抱歉,我无法按要求输出 JSON。")
+            const r1 = yield* call()
+            expect(r1.error).toBe("parse")
+            expect(persist.readCursor(chat.projectID, chat.id)).toBeUndefined()
+
+            // 合法空数组 → 处理完成,游标推进到最后一条消息
+            yield* llm.text("[]")
+            const r2 = yield* call()
+            expect(r2.parsed).toBe(0)
+            expect(r2.error).toBeUndefined()
+            expect(persist.readCursor(chat.projectID, chat.id)).toBe(a1.id)
+          }),
+        { git: true, config: (url) => providerCfg(url) },
+      ),
+    60_000,
+  )
+
+  it.live(
+    "trailing 节流:间隔内的 idle 不丢弃,到期补跑最后一次",
+    () =>
+      provideTmpdirServer(
+        ({ llm }) =>
+          Effect.gen(function* () {
+            yield* bootWorker()
+            const bus = yield* Bus.Service
+            const sessions = yield* Session.Service
+
+            const chat = yield* sessions.create({ title: "trailing" })
+            const u1 = yield* user(chat.id, "第一次消息:记住 trailing_a")
+            yield* assistant(chat.id, u1.id)
+
+            // 第一次 idle:立即提取(interval 首次无 lastRun)
+            yield* llm.text(
+              JSON.stringify([{ action: "create", type: "feedback", topic: "trailing_a", content: "a", summary: "a" }]),
+            )
+            yield* bus.publish(SessionStatus.Event.Idle, { sessionID: chat.id })
+            const memoryDir = path.join(Global.Path.data, "memory", chat.projectID)
+            expect(yield* waitForFile(path.join(memoryDir, "topics", "trailing_a.md"))).toBe(true)
+
+            // 第二次 idle 落在间隔内:不丢弃,trailing 到期补跑
+            const u2 = yield* user(chat.id, "第二次消息:记住 trailing_b")
+            yield* assistant(chat.id, u2.id)
+            yield* llm.text(
+              JSON.stringify([{ action: "create", type: "feedback", topic: "trailing_b", content: "b", summary: "b" }]),
+            )
+            yield* bus.publish(SessionStatus.Event.Idle, { sessionID: chat.id })
+            // 旧实现此 idle 被永久丢弃,trailing_b 永不出现
+            expect(yield* waitForFile(path.join(memoryDir, "topics", "trailing_b.md"), 8000)).toBe(true)
+          }),
+        { git: true, config: (url) => ({ ...providerCfg(url), memory: { extraction_interval_seconds: 1 } }) },
+      ),
+    60_000,
+  )
+
+  it.live(
+    "跨会话有限并发:一个提取卡住不阻塞其它会话",
+    () =>
+      provideTmpdirServer(
+        ({ llm }) =>
+          Effect.gen(function* () {
+            yield* bootWorker()
+            const bus = yield* Bus.Service
+            const sessions = yield* Session.Service
+            const deferred = (() => {
+              let resolve!: (value: void) => void
+              const promise = new Promise<void>((done) => (resolve = done))
+              return { promise, resolve }
+            })()
+
+            const chatA = yield* sessions.create({ title: "slow-a" })
+            const uA = yield* user(chatA.id, "A:记住 slow_topic_a")
+            yield* assistant(chatA.id, uA.id)
+            const chatB = yield* sessions.create({ title: "fast-b" })
+            const uB = yield* user(chatB.id, "B:记住 fast_topic_b")
+            yield* assistant(chatB.id, uB.id)
+
+            // A 的提取回复挂起(模拟慢 LLM);B 的回复立即可用
+            yield* llm.hold(
+              JSON.stringify([{ action: "create", type: "feedback", topic: "slow_topic_a", content: "a", summary: "a" }]),
+              deferred.promise,
+            )
+            yield* llm.text(
+              JSON.stringify([{ action: "create", type: "feedback", topic: "fast_topic_b", content: "b", summary: "b" }]),
+            )
+            yield* bus.publish(SessionStatus.Event.Idle, { sessionID: chatA.id })
+            yield* bus.publish(SessionStatus.Event.Idle, { sessionID: chatB.id })
+
+            // 串行实现(旧)下 A 卡住整个消费循环,B 无法开始;
+            // 并发调度下 B 在 A 挂起期间即完成落盘
+            const memoryDir = path.join(Global.Path.data, "memory", chatA.projectID)
+            expect(yield* waitForFile(path.join(memoryDir, "topics", "fast_topic_b.md"), 8000)).toBe(true)
+
+            // 放行 A,补齐自己的记忆
+            deferred.resolve()
+            expect(yield* waitForFile(path.join(memoryDir, "topics", "slow_topic_a.md"), 8000)).toBe(true)
+          }),
+        { git: true, config: (url) => ({ ...providerCfg(url), memory: { extraction_interval_seconds: 1 } }) },
+      ),
+    60_000,
+  )
+
+  it.live(
+    "提取输入对已知格式密钥脱敏",
+    () =>
+      provideTmpdirServer(
+        ({ llm }) =>
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            const agents = yield* AgentSvc.Service
+            const provider = yield* ProviderSvc.Service
+            const llmSvc = yield* LLM.Service
+
+            const chat = yield* sessions.create({ title: "redact" })
+            const u1 = yield* user(chat.id, "我的密钥是 sk-abc12345defg678,别记。另外记住:发布前跑 bun run test")
+            yield* assistant(chat.id, u1.id)
+
+            yield* llm.text("[]")
+            const result = yield* extract({
+              sessionID: chat.id,
+              projectID: chat.projectID,
+              agent: agents,
+              provider,
+              llm: llmSvc,
+              sessions,
+            })
+            expect(result.error).toBeUndefined()
+
+            const hit = findHit(yield* llm.inputs, "发布前跑")
+            // 原始密钥不进提取请求,已被脱敏占位
+            expect(stringify(hit)).not.toContain("sk-abc12345defg678")
+            expect(stringify(hit)).toContain("[REDACTED]")
+          }),
+        { git: true, config: (url) => providerCfg(url) },
+      ),
+    60_000,
+  )
+
   it.live("超预算索引被截断并附 read 工具提示", () =>
     Effect.gen(function* () {
       const projectID = ProjectID.make(
         createHash("sha256").update(path.resolve("/memory-e2e-budget-probe")).digest("hex").slice(0, 40),
       )
       yield* Effect.sync(() => persist.clear(projectID))
-      yield* Effect.sync(() =>
+      yield* Effect.promise(() =>
         persist.applyActions(
           projectID,
           [
