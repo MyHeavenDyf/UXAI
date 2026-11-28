@@ -93,10 +93,124 @@ describe("memory worker architecture", () => {
     expect(fs.existsSync(path.join(memoryDir, projectID, "topics", "b.md"))).toBe(false)
   })
 
-  test("persist: cursor save/restore", async () => {
+  test("persist: cursor save/restore per session", async () => {
     const { persist } = await import("@/memory/persist")
-    persist.writeCursor(projectID, "msg_test_001")
-    expect(persist.readCursor(projectID)).toBe("msg_test_001")
+    persist.writeCursor(projectID, "ses_a", "msg_test_001")
+    persist.writeCursor(projectID, "ses_b", "msg_test_002")
+    expect(persist.readCursor(projectID, "ses_a")).toBe("msg_test_001")
+    expect(persist.readCursor(projectID, "ses_b")).toBe("msg_test_002")
+    // 同 session 重写覆盖自己
+    persist.writeCursor(projectID, "ses_a", "msg_test_003")
+    expect(persist.readCursor(projectID, "ses_a")).toBe("msg_test_003")
+    // 不同 session 互不影响
+    expect(persist.readCursor(projectID, "ses_b")).toBe("msg_test_002")
+    expect(persist.readCursor(projectID, "ses_missing")).toBeUndefined()
+  })
+
+  test("persist: tombstone blocks late old-batch resurrection", async () => {
+    const { persist } = await import("@/memory/persist")
+    const now = Date.now()
+    persist.applyActions(projectID, [
+      { action: "create", type: "feedback", topic: "old_pref", content: "旧偏好", summary: "旧" },
+    ] as never[], now - 10_000)
+    // 删除(墓碑版本 ≈ now)
+    expect(persist.applyActions(projectID, [
+      { action: "delete", topic: "old_pref" },
+    ] as never[], now)).toBe(1)
+    // 迟到的旧批次(version < 墓碑版本)create 复活 → 拒绝
+    expect(persist.applyActions(projectID, [
+      { action: "create", type: "feedback", topic: "old_pref", content: "复活尝试", summary: "复活" },
+    ] as never[], now - 5_000)).toBe(0)
+    // update 同样被拒
+    expect(persist.applyActions(projectID, [
+      { action: "update", type: "feedback", topic: "old_pref", content: "复活尝试2", summary: "复活" },
+    ] as never[], now - 5_000)).toBe(0)
+    // 确实没有落盘
+    expect(fs.existsSync(path.join(memoryDir, projectID, "topics", "old_pref.md"))).toBe(false)
+    // 更新批次(version > 墓碑版本)可以合法重建,并解除墓碑
+    expect(persist.applyActions(projectID, [
+      { action: "create", type: "feedback", topic: "old_pref", content: "重新确认的偏好", summary: "新" },
+    ] as never[], now + 60_000)).toBe(1)
+    expect(fs.readFileSync(path.join(memoryDir, projectID, "topics", "old_pref.md"), "utf8")).toContain("重新确认的偏好")
+  })
+
+  test("persist: delete guarded by version (old batch cannot delete newer memory)", async () => {
+    const { persist } = await import("@/memory/persist")
+    const now = Date.now()
+    persist.applyActions(projectID, [
+      { action: "create", type: "project", topic: "keep", content: "新记忆", summary: "s" },
+    ] as never[], now)
+    // 旧批次 delete → 被拒
+    expect(persist.applyActions(projectID, [
+      { action: "delete", topic: "keep" },
+    ] as never[], now - 1000)).toBe(0)
+    expect(fs.existsSync(path.join(memoryDir, projectID, "topics", "keep.md"))).toBe(true)
+    // 新批次 delete → 生效
+    expect(persist.applyActions(projectID, [
+      { action: "delete", topic: "keep" },
+    ] as never[], now + 1000)).toBe(1)
+    expect(fs.existsSync(path.join(memoryDir, projectID, "topics", "keep.md"))).toBe(false)
+  })
+
+  test("persist: merge guards — self-merge, missing source, stale version", async () => {
+    const { persist } = await import("@/memory/persist")
+    const now = Date.now()
+    persist.applyActions(projectID, [
+      { action: "create", type: "feedback", topic: "a", content: "A内容", summary: "A" },
+      { action: "create", type: "feedback", topic: "b", content: "B内容", summary: "B" },
+    ] as never[], now)
+    // 自合并禁止:两条原样保留
+    expect(persist.applyActions(projectID, [
+      { action: "merge", from: "a", into: "a", content: "自合并", summary: "x" },
+    ] as never[], now + 1000)).toBe(0)
+    expect(fs.readFileSync(path.join(memoryDir, projectID, "topics", "a.md"), "utf8")).toContain("A内容")
+    // 源不存在(from 已被删除)→ 整个 merge 拒绝,不得借机覆盖 into
+    persist.applyActions(projectID, [{ action: "delete", topic: "b" }] as never[], now + 2000)
+    expect(persist.applyActions(projectID, [
+      { action: "merge", from: "b", into: "a", content: "幽灵合并", summary: "x" },
+    ] as never[], now + 3000)).toBe(0)
+    expect(fs.readFileSync(path.join(memoryDir, projectID, "topics", "a.md"), "utf8")).toContain("A内容")
+    // 旧批次 merge(版本低于 into 当前版本)→ 拒绝
+    expect(persist.applyActions(projectID, [
+      { action: "merge", from: "a", into: "a2", content: "x", summary: "x" },
+    ] as never[], now - 5000)).toBe(0)
+  })
+
+  test("persist: merge tombstones the merged-away topic", async () => {
+    const { persist } = await import("@/memory/persist")
+    const now = Date.now()
+    persist.applyActions(projectID, [
+      { action: "create", type: "feedback", topic: "m1", content: "M1", summary: "1" },
+      { action: "create", type: "feedback", topic: "m2", content: "M2", summary: "2" },
+    ] as never[], now)
+    persist.applyActions(projectID, [
+      { action: "merge", from: "m2", into: "m1", content: "M1+M2", summary: "合并" },
+    ] as never[], now + 1000)
+    // 被合并走的 m2:迟到的旧批次(version 早于墓碑时刻)create 复活 → 拒绝
+    expect(persist.applyActions(projectID, [
+      { action: "create", type: "feedback", topic: "m2", content: "复活M2", summary: "x" },
+    ] as never[], now - 100)).toBe(0)
+    expect(fs.existsSync(path.join(memoryDir, projectID, "topics", "m2.md"))).toBe(false)
+  })
+
+  test("persist: existingDigest lists topics for the extraction model", async () => {
+    const { persist } = await import("@/memory/persist")
+    const now = Date.now()
+    persist.applyActions(projectID, [
+      { action: "create", type: "feedback", topic: "digest_a", content: "完整内容A", summary: "A" },
+    ] as never[], now)
+    const digest = persist.existingDigest(projectID)
+    expect(digest).toContain("digest_a")
+    expect(digest).toContain("完整内容A")
+    // 无记忆时返回 undefined
+    expect(persist.existingDigest(("digest_empty_" + Date.now()) as never)).toBeUndefined()
+    // 超长截断
+    persist.applyActions(projectID, Array.from({ length: 30 }, (_, i) => ({
+      action: "create", type: "project", topic: `digest_long_${i}`, content: `x`.repeat(200), summary: `s${i}`,
+    })) as never[], now + 1000)
+    const truncated = persist.existingDigest(projectID, 1000)!
+    expect(truncated.length).toBeLessThanOrEqual(1100)
+    expect(truncated).toContain("已截断")
   })
 
   test("store: system returns undefined when no index exists", async () => {

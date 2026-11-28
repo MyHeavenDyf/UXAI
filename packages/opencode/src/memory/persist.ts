@@ -31,7 +31,9 @@ const indexFile = (projectID: ProjectID) => path.join(projectDir(projectID), "ME
 const topicsDir = (projectID: ProjectID) => path.join(projectDir(projectID), "topics")
 const topicFile = (projectID: ProjectID, topic: string) => path.join(topicsDir(projectID), `${topic}.md`)
 const tombstoneFile = (projectID: ProjectID) => path.join(projectDir(projectID), ".tombstones.json")
-const cursorFile = (projectID: ProjectID) => path.join(projectDir(projectID), ".cursor")
+const cursorsDir = (projectID: ProjectID) => path.join(projectDir(projectID), ".cursors")
+const cursorFile = (projectID: ProjectID, sessionID: string) =>
+  path.join(cursorsDir(projectID), sessionID.replace(/[^A-Za-z0-9_-]/g, "_"))
 const lockFile = (projectID: ProjectID) => path.join(projectDir(projectID), ".lock")
 
 const TOPIC_RE = /^[a-z][a-z0-9_]{0,63}$/
@@ -181,11 +183,45 @@ function regenerateIndex(projectID: ProjectID) {
 // 结构化操作执行(程序持久化,非 AI 写文件)
 // ---------------------------------------------------------------------------
 
+// 墓碑:记录已删除/已合并走的 topic 及删除时刻版本,迟到的旧批次 create/update
+// 版本不高于墓碑即拒绝,防止已删除记忆复活。超过 TTL 的墓碑过期清理。
+type Tombstones = Record<string, number>
+const TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+function readTombstones(projectID: ProjectID): Tombstones {
+  try {
+    const file = tombstoneFile(projectID)
+    if (!fs.existsSync(file)) return {}
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"))
+    if (!parsed || typeof parsed !== "object") return {}
+    const out: Tombstones = {}
+    for (const [topic, version] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof version === "number" && Number.isFinite(version) && version > 0) out[topic] = version
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function writeTombstones(projectID: ProjectID, tombstones: Tombstones) {
+  const cutoff = Date.now() - TOMBSTONE_TTL_MS
+  const kept = Object.fromEntries(Object.entries(tombstones).filter(([, version]) => version >= cutoff))
+  writeFileAtomic(tombstoneFile(projectID), JSON.stringify(kept))
+}
+
+// 写墓碑:版本取 max(被删条目版本, now)——删除动作发生在"现在",
+// 早于删除启动、但晚于原记忆版本的迟到批次同样被挡在墓碑之外,不得复活。
+function bury(tombstones: Tombstones, topic: string, rowVersion: number) {
+  tombstones[topic] = Math.max(rowVersion, Date.now())
+}
+
 export function applyActions(projectID: ProjectID, actions: MemoryAction[], version: number): number {
   return withProjectLock(projectID, () => {
     let applied = 0
     const rows = readRows(projectID)
     const rowMap = new Map(rows.map((r) => [r.topic, r]))
+    const tombstones = readTombstones(projectID)
 
     for (const action of actions) {
       // merge 没有 topic 字段,提前处理
@@ -193,19 +229,18 @@ export function applyActions(projectID: ProjectID, actions: MemoryAction[], vers
         const from = (action as { from?: string }).from ?? ""
         const into = (action as { into?: string }).into ?? ""
         if (!TOPIC_RE.test(from) || !TOPIC_RE.test(into)) continue
+        if (from === into) continue // 禁止自合并:会无条件覆盖 into 的内容
         const target = rowMap.get(into)
-        if (!target) continue
-        const existing = rowMap.get(from)
-        writeRow(projectID, {
-          topic: into,
-          type: target.type,
-          content: (action as { content?: string }).content ?? "",
-          summary: (action as { summary?: string }).summary || target.summary,
-          version,
-        })
-        if (existing) fs.rmSync(topicFile(projectID, from))
+        const source = rowMap.get(from)
+        if (!target || !source) continue // 源或目标不存在(可能已被删除/合并走)
+        if (target.version > version) continue // 版本守卫:旧批次不得改写新记忆
+        const content = (action as { content?: string }).content ?? ""
+        const summary = (action as { summary?: string }).summary || target.summary
+        writeRow(projectID, { topic: into, type: target.type, content, summary, version })
+        fs.rmSync(topicFile(projectID, from))
+        bury(tombstones, from, source.version)
         rowMap.delete(from)
-        rowMap.set(into, { ...target, content: (action as { content?: string }).content ?? "", summary: (action as { summary?: string }).summary || target.summary, version, time_updated: version })
+        rowMap.set(into, { topic: into, type: target.type, content, summary, version, time_updated: version })
         applied++
         continue
       }
@@ -215,11 +250,13 @@ export function applyActions(projectID: ProjectID, actions: MemoryAction[], vers
       if (!actionTopic || !TOPIC_RE.test(actionTopic)) continue
 
       if (action.action === "delete") {
-        if (rowMap.has(actionTopic)) {
-          fs.rmSync(topicFile(projectID, actionTopic))
-          rowMap.delete(actionTopic)
-          applied++
-        }
+        const existing = rowMap.get(actionTopic)
+        if (!existing) continue
+        if (existing.version > version) continue // 版本守卫:旧批次不得删除新记忆
+        fs.rmSync(topicFile(projectID, actionTopic))
+        bury(tombstones, actionTopic, existing.version)
+        rowMap.delete(actionTopic)
+        applied++
         continue
       }
 
@@ -231,8 +268,10 @@ export function applyActions(projectID: ProjectID, actions: MemoryAction[], vers
       if (!content || !summary) continue
       if (content.length > 2000 || summary.length > 200) continue
 
+      // 防复活:已删除的 topic,只有版本更新的批次才能重建
+      if ((tombstones[actionTopic] ?? 0) >= version) continue
       const existing = rowMap.get(actionTopic)
-      if (existing && existing.version > version) continue // 旧批次不覆盖
+      if (existing && existing.version > version) continue // 版本守卫:旧批次不覆盖
 
       writeRow(projectID, {
         topic: actionTopic,
@@ -241,22 +280,26 @@ export function applyActions(projectID: ProjectID, actions: MemoryAction[], vers
         summary: summary.trim(),
         version,
       })
-      rowMap.set(action.topic, { topic: action.topic, type: action.type, content: action.content.trim(), summary: action.summary.trim(), version, time_updated: version })
+      rowMap.set(actionTopic, { topic: actionTopic, type, content: content.trim(), summary: summary.trim(), version, time_updated: version })
+      // 用更新的版本合法重建后,解除墓碑
+      delete tombstones[actionTopic]
       applied++
     }
 
+    writeTombstones(projectID, tombstones)
     regenerateIndex(projectID)
     return applied
   })
 }
 
 // ---------------------------------------------------------------------------
-// 游标:记录已处理到的消息位置(重启恢复)
+// 游标:记录已处理到的消息位置(重启恢复)。按 projectID + sessionID 分别记录,
+// 同项目多个 session 并行提取时互不覆盖,避免互相重置导致重复提取。
 // ---------------------------------------------------------------------------
 
-export function readCursor(projectID: ProjectID): string | undefined {
+export function readCursor(projectID: ProjectID, sessionID: string): string | undefined {
   try {
-    const file = cursorFile(projectID)
+    const file = cursorFile(projectID, sessionID)
     if (!fs.existsSync(file)) return undefined
     return fs.readFileSync(file, "utf8").trim() || undefined
   } catch {
@@ -264,10 +307,10 @@ export function readCursor(projectID: ProjectID): string | undefined {
   }
 }
 
-export function writeCursor(projectID: ProjectID, messageID: string) {
+export function writeCursor(projectID: ProjectID, sessionID: string, messageID: string) {
   try {
-    fs.mkdirSync(projectDir(projectID), { recursive: true })
-    writeFileAtomic(cursorFile(projectID), messageID)
+    fs.mkdirSync(cursorsDir(projectID), { recursive: true })
+    writeFileAtomic(cursorFile(projectID, sessionID), messageID)
   } catch {}
 }
 
@@ -290,6 +333,22 @@ export function buildInjection(projectID: ProjectID, budget: number): string | u
       trimmed,
       "</memory>",
     ].join("\n")
+  } catch {
+    return undefined
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 提取上下文:后台提取模型可见的已有记忆摘要(去重/更新/删除/合并的依据)
+// ---------------------------------------------------------------------------
+
+export function existingDigest(projectID: ProjectID, maxChars = 4000): string | undefined {
+  try {
+    const rows = readRows(projectID)
+    if (rows.length === 0) return undefined
+    const digest = rows.map((row) => `- ${row.topic} (${row.type}): ${flatten(row.content)}`).join("\n")
+    if (digest.length <= maxChars) return digest
+    return digest.slice(0, maxChars) + `\n[...已截断,共 ${rows.length} 条记忆;未展示的不要重复创建]`
   } catch {
     return undefined
   }

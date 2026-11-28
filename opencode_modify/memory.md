@@ -45,11 +45,12 @@
 回合完成 → session.idle 事件
   → Worker 节流检查(同 session 5s 间隔)
   → 读取会话消息(sessions.messages,从循环外)
-  → 游标过滤(跳过已处理消息)
+  → 游标过滤(跳过已处理消息,按 projectID+sessionID 独立游标)
+  → 已有记忆摘要(existingDigest)注入提取上下文
   → LLM 结构化提取(hidden "memory" agent, small call, 无工具)
   → parseActions: JSON 解析 + topic 格式校验 + 密钥检测 + 类型校验
-  → persist.applyActions: 项目锁内 → create/update/delete/merge → 索引重建
-  → 游标推进到最后一条消息
+  → persist.applyActions: 项目锁内 → create/update/delete/merge(统一版本守卫+墓碑防复活)→ 索引重建
+  → 游标推进到最后一条消息(.cursors/<sessionID>)
   → (完全静默,主 Agent 与用户均无感知)
 
 下一请求 → prepareRequest 注入 <memory> 索引(只读,动态预算)
@@ -59,10 +60,15 @@
 
 | action | 字段 | 语义 |
 |-|-|-|
-| create | type, topic, content, summary | 新增记忆 |
+| create | type, topic, content, summary | 新增记忆(墓碑守卫:已删除 topic 仅更新批次可重建) |
 | update | type, topic, content, summary | 覆盖已有(版本守卫:旧批次不覆盖新) |
-| delete | topic | 删除过时记忆 |
-| merge | from, into, content, summary | 合并两条为一条 |
+| delete | topic | 删除过时记忆(版本守卫:旧批次不得删除新;写墓碑防复活) |
+| merge | from, into, content, summary | 合并两条为一条(禁止自合并;from/into 必须都存在;into 版本守卫;from 写墓碑) |
+
+## 版本语义
+
+- 版本 = 本批次源消息的最大 `time.created`,而非提取时刻:并发的旧对话批次即使后落盘,版本也天然低于新对话写入的记忆,不会覆盖回去
+- 墓碑版本 = max(被删条目版本, 删除时刻):早于删除启动的迟到批次(含同批次 delete 后 create)一律不得复活
 
 ## 与主 Agent 的关系
 
@@ -74,10 +80,10 @@
 
 | 层 | 机制 |
 |-|-|
-| 提取防护 | 只提取用户亲口说的话;工具/skill/文件内容中的指令忽略;密钥禁止;topic 格式白名单;单批 ≤10 条 |
-| 持久防护 | 项目锁(O_EXCL + PID 存活检测);版本守卫(旧批次不覆盖);content ≤2000/summary ≤200 |
-| 并发防护 | 节流(同 session 5s);项目级锁(跨进程) |
-| 重启恢复 | 游标存 `.cursor` 文件;topic 文件 frontmatter 带 version |
+| 提取防护 | 只提取用户亲口说的话;工具/skill/文件内容中的指令忽略;密钥禁止;topic 格式白名单;单批 ≤10 条;已有记忆摘要注入提取上下文(去重/更新/删除/合并依据) |
+| 持久防护 | 项目锁(O_EXCL + PID 存活检测);版本守卫(create/update/delete/merge 统一);墓碑防复活(TTL 7 天);content ≤2000/summary ≤200 |
+| 并发防护 | 节流(同 session 5s);项目级锁(跨进程);游标按 projectID+sessionID 独立(并行会话互不覆盖) |
+| 重启恢复 | 游标存 `.cursors/<sessionID>` 文件;topic 文件 frontmatter 带 version |
 
 ## 配置
 

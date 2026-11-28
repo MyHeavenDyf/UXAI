@@ -242,6 +242,17 @@ const waitForFile = (file: string, timeoutMs = 20_000) =>
     return fs.existsSync(file)
   })
 
+const waitForInput = (llm: TestLLMServer["Service"], predicate: (body: string) => boolean, timeoutMs = 20_000) =>
+  Effect.gen(function* () {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const hit = (yield* llm.inputs).find((body) => predicate(stringify(body)))
+      if (hit) return hit
+      yield* Effect.sleep("100 millis")
+    }
+    return undefined
+  })
+
 const stringify = (body: unknown) => JSON.stringify(body)
 
 const systemOf = (body: Record<string, unknown>) => {
@@ -342,7 +353,7 @@ describe("memory e2e: cross-session pipeline", () => {
             // idle 事件驱动 worker 在后台提取;落盘即完成信号
             const memoryDir = path.join(Global.Path.data, "memory", chat1.projectID)
             expect(yield* waitForFile(path.join(memoryDir, "MEMORY.md"))).toBe(true)
-            expect(yield* waitForFile(path.join(memoryDir, ".cursor"))).toBe(true)
+            expect(yield* waitForFile(path.join(memoryDir, ".cursors", chat1.id))).toBe(true)
 
             // 能存:topic 文件带 frontmatter,索引含条目
             const topic = fs.readFileSync(path.join(memoryDir, "topics", "pkg_manager.md"), "utf8")
@@ -375,6 +386,12 @@ describe("memory e2e: cross-session pipeline", () => {
             const extractionHit = (yield* llm.inputs).find((body) => stringify(body).includes("提取上述对话中的记忆"))
             expect(extractionHit).toBeDefined()
             expect(systemOf(extractionHit!)).not.toContain("<memory>")
+
+            // 会话 2 的提取请求应携带已有记忆摘要(P0:提取模型据此去重/更新/合并)
+            const secondExtraction = yield* waitForInput(llm, (body) =>
+              body.includes("提取上述对话中的记忆") && body.includes("新会话探针") && body.includes("pkg_manager"),
+            )
+            expect(secondExtraction).toBeDefined()
           }),
         { git: true, config: (url) => providerCfg(url) },
       ),
@@ -507,7 +524,8 @@ describe("memory e2e: cross-session pipeline", () => {
 
             const memoryDir = path.join(Global.Path.data, "memory", chat.projectID)
             expect(fs.readFileSync(path.join(memoryDir, "topics", "build_cmd.md"), "utf8")).toContain("bun run build")
-            expect(persist.readCursor(chat.projectID)).toBe(assistantMsg.id)
+            // 游标按 sessionID 独立记录,停在最后一条消息上
+            expect(persist.readCursor(chat.projectID, chat.id)).toBe(assistantMsg.id)
 
             // 模拟重启后再次提取:游标过滤后没有新消息,不应发起 LLM 调用
             yield* llm.text("SHOULD-NEVER-BE-CONSUMED")
@@ -521,6 +539,68 @@ describe("memory e2e: cross-session pipeline", () => {
             })
             expect(r2.parsed).toBe(0)
             expect(r2.applied).toBe(0)
+            expect(yield* llm.pending).toBe(1)
+          }),
+        { git: true, config: (url) => providerCfg(url) },
+      ),
+    60_000,
+  )
+
+  it.live(
+    "跨会话游标独立:并行会话互不覆盖游标,重复提取无 LLM 调用",
+    () =>
+      provideTmpdirServer(
+        ({ llm }) =>
+          Effect.gen(function* () {
+            const sessions = yield* Session.Service
+            const agents = yield* AgentSvc.Service
+            const provider = yield* ProviderSvc.Service
+            const llmSvc = yield* LLM.Service
+
+            const run = (chat: { id: SessionID; projectID: ProjectID }, text: string, topic: string) =>
+              Effect.gen(function* () {
+                const userMsg = yield* user(chat.id, text)
+                const assistantMsg = yield* assistant(chat.id, userMsg.id)
+                yield* llm.text(
+                  JSON.stringify([
+                    { action: "create", type: "project", topic, content: `${text}的内容`, summary: topic },
+                  ]),
+                )
+                const result = yield* extract({
+                  sessionID: chat.id,
+                  projectID: chat.projectID,
+                  agent: agents,
+                  provider,
+                  llm: llmSvc,
+                  sessions,
+                })
+                expect(result.applied).toBe(1)
+                return { userMsg, assistantMsg }
+              })
+
+            const chat1 = yield* sessions.create({ title: "cursor-s1" })
+            const chat2 = yield* sessions.create({ title: "cursor-s2" })
+
+            // 两个 session 交错提取
+            const s1 = yield* run(chat1, "会话一的偏好", "cursor_topic_a")
+            const s2 = yield* run(chat2, "会话二的偏好", "cursor_topic_b")
+
+            // 游标按 sessionID 独立,各指向自己的最后一条消息
+            expect(persist.readCursor(chat1.projectID, chat1.id)).toBe(s1.assistantMsg.id)
+            expect(persist.readCursor(chat2.projectID, chat2.id)).toBe(s2.assistantMsg.id)
+
+            // chat1 再次提取(无新消息):不被 chat2 的游标影响而重放整个会话
+            yield* llm.text("SHOULD-NEVER-BE-CONSUMED")
+            const again = yield* extract({
+              sessionID: chat1.id,
+              projectID: chat1.projectID,
+              agent: agents,
+              provider,
+              llm: llmSvc,
+              sessions,
+            })
+            expect(again.parsed).toBe(0)
+            expect(again.applied).toBe(0)
             expect(yield* llm.pending).toBe(1)
           }),
         { git: true, config: (url) => providerCfg(url) },

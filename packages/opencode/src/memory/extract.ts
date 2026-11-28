@@ -75,8 +75,8 @@ export const extract = Effect.fn("MemoryExtract.extract")(function* (input: {
   const messages = yield* input.sessions.messages({ sessionID: input.sessionID as never })
   if (messages.length < 2) return { parsed: 0, applied: 0 } as ExtractResult
 
-  // 游标过滤:只处理上次之后的新消息
-  const cursor = persist.readCursor(input.projectID as never)
+  // 游标过滤:只处理上次之后的新消息(按 sessionID 独立记录,同项目多会话互不覆盖)
+  const cursor = persist.readCursor(input.projectID as never, input.sessionID)
   let startIndex = 0
   if (cursor) {
     const idx = messages.findIndex((m) => (m.info as { id?: string }).id === cursor)
@@ -102,11 +102,18 @@ export const extract = Effect.fn("MemoryExtract.extract")(function* (input: {
     mdl = yield* input.provider.getTitleModel(lastUser.info.model.providerID, lastUser.info.model.modelID)
   }
 
-  // 构建 LLM 输入:会话消息 + 提取指令
+  // 构建 LLM 输入:会话消息 + 已有记忆 + 提取指令。
+  // 提取模型必须看到已有记忆才能正确去重/update/delete/merge。
+  const existing = persist.existingDigest(input.projectID as never)
   const modelMsgs = yield* MessageV2.toModelMessagesEffect(newMessages, mdl, { stripMedia: true })
   const instructionMessage: ModelMessage = {
     role: "user",
-    content: "按系统提示的规则提取上述对话中的记忆。只输出 JSON 数组。",
+    content: [
+      existing ? `当前项目已有记忆(据此去重,不要重复创建;变化/过时的用 update/delete/merge 修正):\n${existing}` : "",
+      "按系统提示的规则提取上述对话中的记忆。只输出 JSON 数组;无值得记忆的新信息时输出 []。",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   }
   const messages2: ModelMessage[] = [...modelMsgs, instructionMessage]
 
@@ -133,12 +140,14 @@ export const extract = Effect.fn("MemoryExtract.extract")(function* (input: {
   const actions = parseActions(text)
   if (actions.length === 0) return { parsed: 0, applied: 0 } as ExtractResult
 
-  const version = Date.now()
+  // 版本取本批次源消息的最大时间,而非提取时刻:并发的旧对话批次即使后落盘,
+  // 版本也天然低于新对话写入的记忆,不会把它们覆盖回去
+  const version = newMessages.reduce((max, m) => Math.max(max, m.info.time.created), 0)
   const applied = persist.applyActions(input.projectID as never, actions, version)
 
-  // 推进游标到最后一条消息
+  // 推进游标到最后一条消息(按 sessionID 记录)
   const lastMsg = messages[messages.length - 1]
-  if (lastMsg) persist.writeCursor(input.projectID as never, lastMsg.info.id as never)
+  if (lastMsg) persist.writeCursor(input.projectID as never, input.sessionID, lastMsg.info.id as never)
 
   return { parsed: actions.length, applied } as ExtractResult
 })
