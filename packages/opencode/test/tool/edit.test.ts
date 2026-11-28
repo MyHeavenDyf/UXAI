@@ -13,6 +13,7 @@ import { Agent } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { BusEvent } from "../../src/bus/bus-event"
 import { Truncate } from "@/tool/truncate"
+import { Config } from "../../src/config/config"
 import { SessionID, MessageID } from "../../src/session/schema"
 
 const ctx = {
@@ -38,6 +39,7 @@ const runtime = ManagedRuntime.make(
     Bus.layer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
+    Config.defaultLayer,
   ),
 )
 

@@ -117,4 +117,18 @@ export const Flag = {
   get OPENCODE_CLIENT() {
     return process.env["OPENCODE_CLIENT"] ?? "cli"
   },
+  // Cross-session auto memory: on by default; set OCTO_DISABLE_MEMORY=1 to hard-off
+  // (tests use this to keep the extraction fork away from mock LLM reply queues).
+  get OCTO_DISABLE_MEMORY() {
+    return truthy("OCTO_DISABLE_MEMORY")
+  },
+  // Memory debug dumps: 暂时关闭——默认不落盘;需要排查注入时显式设
+  // OCTO_MEMORY_DEBUG=1/true 打开。OCTO_MEMORY_DEBUG_DIR 覆盖 dump 目录
+  // (默认 ~/.temp/auto-memory)。
+  get OCTO_MEMORY_DEBUG() {
+    return truthy("OCTO_MEMORY_DEBUG")
+  },
+  get OCTO_MEMORY_DEBUG_DIR() {
+    return process.env["OCTO_MEMORY_DEBUG_DIR"]
+  },
 }
