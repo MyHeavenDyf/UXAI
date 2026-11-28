@@ -13,6 +13,7 @@ import { Effect, Layer } from "effect"
 import { Config } from "@/config/config"
 import { Service } from "./bootstrap-service"
 import { startStudioGenerationWorker } from "@/studio/studio-service"
+import { startMemoryWorker } from "@/memory/worker"
 import { Instance } from "./instance"
 
 export { Service } from "./bootstrap-service"
@@ -50,6 +51,8 @@ export const layer = Layer.effect(
         { concurrency: "unbounded", discard: true },
       ).pipe(Effect.withSpan("InstanceBootstrap.init"))
       yield* Effect.sync(() => Instance.restore(ctx, startStudioGenerationWorker))
+      // Memory Worker:订阅 session.idle,回合完成后后台提取记忆(完全静默)
+      yield* Effect.sync(() => startMemoryWorker())
     }).pipe(Effect.withSpan("InstanceBootstrap"))
 
     return Service.of({ run })

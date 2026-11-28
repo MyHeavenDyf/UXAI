@@ -89,19 +89,17 @@ export const extract = Effect.fn("MemoryExtract.extract")(function* (input: {
   const ag = yield* input.agent.get("memory")
   if (!ag) return { parsed: 0, applied: 0 } as ExtractResult
 
-  // 模型:优先配置,否则用 title 模型链
+  // 模型:优先 memory.model 配置,否则用会话正在使用的模型(与 title 同链路)
   let mdl
   if (input.memoryModel && input.memoryModel.includes("/")) {
     const [pid, mid] = input.memoryModel.split("/")
     mdl = yield* input.provider.getModel(ProviderID.make(pid), ModelID.make(mid)).pipe(
-      Effect.catch(() => input.provider.getTitleModel("test" as never, "test" as never)),
+      Effect.catch(() => Effect.die(`memory model not found: ${input.memoryModel}`)),
     )
   } else {
     const lastUser = messages.findLast((m) => m.info.role === "user")
-    mdl = yield* input.provider.getTitleModel(
-      lastUser?.info.role === "user" ? lastUser.info.model.providerID : ("test" as never),
-      lastUser?.info.role === "user" ? lastUser.info.model.modelID : ("test" as never),
-    )
+    if (!lastUser || lastUser.info.role !== "user") return { parsed: 0, applied: 0 } as ExtractResult
+    mdl = yield* input.provider.getTitleModel(lastUser.info.model.providerID, lastUser.info.model.modelID)
   }
 
   // 构建 LLM 输入:会话消息 + 提取指令
