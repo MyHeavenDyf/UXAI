@@ -5,6 +5,7 @@ import { createHash } from "node:crypto"
 import path from "node:path"
 import { ProjectTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
+import { WorkspaceTable } from "../control-plane/workspace.sql"
 import * as Log from "@opencode-ai/core/util/log"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { BusEvent } from "@/bus/bus-event"
@@ -342,9 +343,9 @@ export const layer: Layer.Layer<
 
         // (2) 旧 project 行(global 之外)曾拥有本目录,其名下会话一并归位
         const scopeDir = gitScope ? data.worktree : directory
-        const legacy = yield* db((d) =>
+        const legacyRows = yield* db((d) =>
           d
-            .select({ id: ProjectTable.id })
+            .select()
             .from(ProjectTable)
             .where(
               and(
@@ -357,14 +358,52 @@ export const layer: Layer.Layer<
             )
             .all(),
         )
-        if (legacy.length > 0)
+        if (legacyRows.length > 0) {
+          const legacyIDs = legacyRows.map((row) => row.id)
           yield* db((d) =>
             d
               .update(SessionTable)
               .set({ project_id: data.id })
-              .where(and(inArray(SessionTable.project_id, legacy.map((row) => row.id)), scope))
+              .where(and(inArray(SessionTable.project_id, legacyIDs), scope))
               .run(),
           )
+          // (3) 旧 project 行名下的 workspace 关联行改挂新 ID:UI 关联本地文件夹的列表不丢
+          yield* db((d) =>
+            d
+              .update(WorkspaceTable)
+              .set({ project_id: data.id })
+              .where(inArray(WorkspaceTable.project_id, legacyIDs))
+              .run(),
+          )
+          // (4) 项目级字段认领:名称/图标/启动命令/初始化时间只补新行缺失的,
+          // 已设置(含用户新改)的字段一律不动 —— 逐字段 first-wins,幂等
+          const adopted: Record<string, string | number | { start?: string } | null> = {}
+          const hasIcon = !!(result.icon && (result.icon.url || result.icon.override || result.icon.color))
+          let iconAdopted = hasIcon
+          for (const row of legacyRows) {
+            if (!result.name && row.name && adopted.name === undefined) {
+              result.name = row.name
+              adopted.name = row.name
+            }
+            if (!iconAdopted && (row.icon_url || row.icon_url_override || row.icon_color)) {
+              result.icon = { url: row.icon_url ?? undefined, override: row.icon_url_override ?? undefined, color: row.icon_color ?? undefined }
+              adopted.icon_url = row.icon_url
+              adopted.icon_url_override = row.icon_url_override
+              adopted.icon_color = row.icon_color
+              iconAdopted = true
+            }
+            if (!result.commands && row.commands && adopted.commands === undefined) {
+              result.commands = row.commands
+              adopted.commands = row.commands
+            }
+            if (result.time.initialized === undefined && row.time_initialized !== null && adopted.time_initialized === undefined) {
+              result.time = { ...result.time, initialized: row.time_initialized ?? undefined }
+              adopted.time_initialized = row.time_initialized
+            }
+          }
+          if (Object.keys(adopted).length > 0)
+            yield* db((d) => d.update(ProjectTable).set(adopted).where(eq(ProjectTable.id, data.id)).run())
+        }
       }
 
       yield* emitUpdated(result)

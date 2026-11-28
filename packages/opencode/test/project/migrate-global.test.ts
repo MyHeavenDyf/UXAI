@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm"
 import path from "node:path"
 import { SessionTable } from "../../src/session/session.sql"
 import { ProjectTable } from "../../src/project/project.sql"
+import { WorkspaceTable } from "../../src/control-plane/workspace.sql"
 import { ProjectID } from "../../src/project/schema"
 import { SessionID } from "../../src/session/schema"
 import * as Log from "@opencode-ai/core/util/log"
@@ -215,5 +216,57 @@ describe("migrateFromGlobal", () => {
     expect(project.id).not.toBe(nestedProject.project.id)
     const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
     expect(row!.project_id).toBe(nestedProject.project.id)
+  })
+
+  test("adopts legacy project fields and workspace rows, idempotently", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const revList = await $`git rev-list --max-parents=0 HEAD`.cwd(tmp.path).quiet()
+    const legacyID = ProjectID.make(String(revList.stdout).trim().split("\n").toSorted()[0])
+
+    // 旧 project 行:带名称/图标/命令/初始化时间,名下挂一个 workspace
+    Database.use((db) =>
+      db
+        .insert(ProjectTable)
+        .values({
+          id: legacyID,
+          worktree: tmp.path,
+          sandboxes: [],
+          name: "旧项目名",
+          icon_url: "data:image/png;base64,aXh4",
+          commands: { start: "pnpm dev" },
+          time_initialized: 123,
+        })
+        .onConflictDoNothing()
+        .run(),
+    )
+    const wsID = "wrk_legacy_001" as never
+    Database.use((db) =>
+      db
+        .insert(WorkspaceTable)
+        .values({ id: wsID, type: "local", name: "关联工作区", directory: tmp.path, project_id: legacyID })
+        .onConflictDoNothing()
+        .run(),
+    )
+    const legacySession = uid()
+    seed({ id: legacySession, dir: tmp.path, project: legacyID, rowWorktree: tmp.path })
+
+    const { project } = await run((svc) => svc.fromDirectory(tmp.path))
+    expect(project.id).not.toBe(legacyID)
+    // 项目级字段认领到新行
+    expect(project.name).toBe("旧项目名")
+    expect(project.icon?.url).toBe("data:image/png;base64,aXh4")
+    expect(project.commands).toEqual({ start: "pnpm dev" })
+    expect(project.time.initialized).toBe(123)
+    // workspace 引用与旧会话一并归位
+    expect(Database.use((db) => db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, wsID)).get())!.project_id).toBe(project.id)
+    expect(Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, legacySession)).get())!.project_id).toBe(project.id)
+
+    // 幂等:认领不覆盖后续用户修改
+    Database.use((db) =>
+      db.update(ProjectTable).set({ name: "用户改名" }).where(eq(ProjectTable.id, project.id)).run(),
+    )
+    await run((svc) => svc.fromDirectory(tmp.path))
+    const again = await run((svc) => svc.fromDirectory(tmp.path))
+    expect(again.project.name).toBe("用户改名")
   })
 })
