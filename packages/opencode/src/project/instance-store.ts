@@ -55,7 +55,7 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
                   project: result.project,
                 })),
               )
-        yield* bootstrap.run.pipe(Effect.provideService(InstanceRef, ctx))
+        yield* bootstrap.run.pipe(Effect.provideService(InstanceRef, ctx), Scope.provide(scope))
         return ctx
       }).pipe(Effect.withSpan("InstanceStore.boot"))
 
