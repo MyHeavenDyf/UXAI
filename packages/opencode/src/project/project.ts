@@ -1,7 +1,6 @@
 import z from "zod"
-import { and } from "drizzle-orm"
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm"
 import { Database } from "@/storage/db"
-import { eq } from "drizzle-orm"
 import { createHash } from "node:crypto"
 import path from "node:path"
 import { ProjectTable } from "./project.sql"
@@ -316,16 +315,56 @@ export const layer: Layer.Layer<
           .run(),
       )
 
-      // 历史迁移:老会话的 project_id 可能是 "global"(旧版所有非 git 目录共用一个桶),
-      // 解析出正确的 projectID 后把同目录的会话全部迁移过去
+      // 历史迁移:projectID 历经三种旧方案(global 桶 → git 根提交哈希 → 路径哈希),
+      // 旧会话的 project_id 不会随新方案自动重算,会从按项目的会话列表里消失。
+      // 会话表带 directory,以它为迁移键把旧 ID 的会话归位:
+      // - git 仓库:worktree(主根)或 sandbox(当前 worktree 顶层)之下的会话
+      // - 非 git 目录:worktree 是 "/" 哨兵,只精确认领本目录(子目录会话归子目录自己的新 ID)
+      // 只认领 global 桶或"曾拥有本目录的旧 project 行"名下的会话,
+      // 嵌套仓库(worktree 不同)的会话不会被父项目误领;目录精确/严格前缀匹配,
+      // 无关目录绝不认领;project_id != 新 ID 保证幂等。
       if (data.id !== ProjectID.global) {
+        const gitScope = data.worktree !== "/"
+        const under = (prefix: string) =>
+          sql`(${SessionTable.directory} = ${prefix} or substr(${SessionTable.directory}, 1, ${prefix.length + path.sep.length}) = ${prefix + path.sep})`
+        const scope = gitScope
+          ? or(under(data.worktree), under(data.sandbox))
+          : eq(SessionTable.directory, directory)
+
+        // (1) global 桶:旧版非 git(含 git-init 无提交)会话
         yield* db((d) =>
           d
             .update(SessionTable)
             .set({ project_id: data.id })
-            .where(and(eq(SessionTable.project_id, ProjectID.global), eq(SessionTable.directory, data.worktree)))
+            .where(and(eq(SessionTable.project_id, ProjectID.global), scope))
             .run(),
         )
+
+        // (2) 旧 project 行(global 之外)曾拥有本目录,其名下会话一并归位
+        const scopeDir = gitScope ? data.worktree : directory
+        const legacy = yield* db((d) =>
+          d
+            .select({ id: ProjectTable.id })
+            .from(ProjectTable)
+            .where(
+              and(
+                ne(ProjectTable.id, data.id),
+                ne(ProjectTable.id, ProjectID.global),
+                gitScope
+                  ? or(eq(ProjectTable.worktree, scopeDir), eq(ProjectTable.worktree, data.sandbox))
+                  : eq(ProjectTable.worktree, scopeDir),
+              ),
+            )
+            .all(),
+        )
+        if (legacy.length > 0)
+          yield* db((d) =>
+            d
+              .update(SessionTable)
+              .set({ project_id: data.id })
+              .where(and(inArray(SessionTable.project_id, legacy.map((row) => row.id)), scope))
+              .run(),
+          )
       }
 
       yield* emitUpdated(result)

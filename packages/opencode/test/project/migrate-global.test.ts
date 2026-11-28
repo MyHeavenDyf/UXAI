@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Project } from "@/project/project"
 import { Database } from "@/storage/db"
 import { eq } from "drizzle-orm"
+import path from "node:path"
 import { SessionTable } from "../../src/session/session.sql"
 import { ProjectTable } from "../../src/project/project.sql"
 import { ProjectID } from "../../src/project/schema"
@@ -26,13 +27,13 @@ function uid() {
   return SessionID.make(crypto.randomUUID())
 }
 
-function seed(opts: { id: SessionID; dir: string; project: ProjectID }) {
+function seed(opts: { id: SessionID; dir: string; project: ProjectID; rowWorktree?: string }) {
   const now = Date.now()
   // FK: session.project_id 必须存在于 project 表,先 upsert
   Database.use((db) =>
     db
       .insert(ProjectTable)
-      .values({ id: opts.project, worktree: opts.dir, sandboxes: [] })
+      .values({ id: opts.project, worktree: opts.rowWorktree ?? opts.dir, sandboxes: [] })
       .onConflictDoNothing()
       .run(),
   )
@@ -154,5 +155,65 @@ describe("migrateFromGlobal", () => {
     expect(row).toBeDefined()
     // Should remain under "global" — not stolen
     expect(row!.project_id).toBe(ProjectID.global)
+  })
+
+  test("migrates non-git global sessions by exact directory match", async () => {
+    // 旧版非 git 会话全在 global 桶;非 git 目录 worktree 是 "/" 哨兵,
+    // 迁移必须按打开目录精确认领,而不是依赖 worktree
+    await using tmp = await tmpdir() // 无 git
+    const id = uid()
+    seed({ id, dir: tmp.path, project: ProjectID.global })
+
+    const { project } = await run((svc) => svc.fromDirectory(tmp.path))
+    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+    expect(row!.project_id).toBe(project.id)
+  })
+
+  test("migrates legacy git root-commit project sessions to the path-hash id", async () => {
+    // 更早的方案:git 仓库 projectID = 首个 root commit 哈希;路径哈希方案下
+    // 这些旧 ID 会话需要按 directory 归位到新 ID
+    await using tmp = await tmpdir({ git: true })
+    const revList = await $`git rev-list --max-parents=0 HEAD`.cwd(tmp.path).quiet()
+    const legacyID = ProjectID.make(String(revList.stdout).trim().split("\n").toSorted()[0])
+    const id = uid()
+    seed({ id, dir: tmp.path, project: legacyID })
+
+    const { project } = await run((svc) => svc.fromDirectory(tmp.path))
+    expect(project.id).not.toBe(legacyID)
+    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+    expect(row!.project_id).toBe(project.id)
+  })
+
+  test("migrates legacy sessions in repo subdirectories along with the worktree", async () => {
+    // 旧方案下子目录会话与仓库根共享同一 projectID,前缀迁移必须覆盖它们
+    await using tmp = await tmpdir({ git: true })
+    const sub = path.join(tmp.path, "packages", "sub")
+    await $`mkdir -p ${sub}`.quiet()
+    const revList = await $`git rev-list --max-parents=0 HEAD`.cwd(tmp.path).quiet()
+    const legacyID = ProjectID.make(String(revList.stdout).trim().split("\n").toSorted()[0])
+    const id = uid()
+    // 旧方案下 project 行的 worktree 恒为仓库根(即使会话在子目录创建)
+    seed({ id, dir: sub, project: legacyID, rowWorktree: tmp.path })
+
+    const { project } = await run((svc) => svc.fromDirectory(tmp.path))
+    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+    expect(row!.project_id).toBe(project.id)
+  })
+
+  test("does not steal nested-repo sessions into the parent project", async () => {
+    // 主仓内的嵌套仓库有自己的 projectID(哈希嵌套仓根),父项目解析时不得误领
+    await using tmp = await tmpdir({ git: true })
+    const nested = path.join(tmp.path, "nested-repo")
+    await $`mkdir -p ${nested}`.quiet()
+    await $`git init`.cwd(nested).quiet()
+    const nestedProject = await run((svc) => svc.fromDirectory(nested))
+
+    const id = uid()
+    seed({ id, dir: nested, project: nestedProject.project.id })
+
+    const { project } = await run((svc) => svc.fromDirectory(tmp.path))
+    expect(project.id).not.toBe(nestedProject.project.id)
+    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+    expect(row!.project_id).toBe(nestedProject.project.id)
   })
 })
